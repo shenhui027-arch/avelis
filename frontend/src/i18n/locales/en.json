@@ -897,7 +897,6 @@
   "截止日期（不含，业务时区）": "End date (exclusive, business time zone)",
   "记录": "Records",
   "没有符合条件的变更": "No matching changes",
-  "发现时间": "Detected",
   "对象": "Object",
   "变化": "Change",
   "详情": "Details",
@@ -1621,5 +1620,9 @@
   "按所选继续（{{count}}/{{total}}）_one": "Continue with selection ({{count}}/{{total}})",
   "按所选继续（{{count}}/{{total}}）_other": "Continue with selection ({{count}}/{{total}})",
   "，由你确认": ", confirmed by you",
-  "忘记密码": "Forgot password"
+  "忘记密码": "Forgot password",
+  "最近 {{count}} 次采集，成功 {{ok}} 次_one": "Last {{count}} collection, {{ok}} succeeded",
+  "最近 {{count}} 次采集，成功 {{ok}} 次_other": "Last {{count}} collections, {{ok}} succeeded",
+  "剩余 {{v1}} tokens": "{{v1}} tokens left",
+  "口径状态构成": "Metric status breakdown"
 }

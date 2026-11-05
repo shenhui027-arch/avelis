@@ -31,7 +31,10 @@
 .av-workbench__cadence { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
 .av-workbench__changes { padding: var(--space-3) var(--space-4); }
 .av-workbench__change-link { text-decoration: none; }
-.av-workbench .av-cadence .is-idle { background: var(--bg-active); }
+.av-workbench__parts { padding: var(--space-3) var(--space-5) var(--space-2); border-bottom: 1px solid var(--line-subtle); }
+.av-parts-block { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-workbench__source .av-row__main { gap: 4px; }
+.av-workbench__source .av-strip { margin-top: 4px; }
 .av-workbench__sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 1279px) {
   .av-workbench__todo { --row-cols: calc(var(--space-5) * 4) minmax(0, 1fr) calc(var(--space-8) * 2) calc(var(--space-8) * 2); }
@@ -267,15 +270,16 @@
 .av-table tr.is-link:hover a { color: var(--accent-text); }
 .av-table tr.is-link a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 .av-catalog-asset-tree { padding: var(--space-2); }
-.av-catalog-asset-tree details > details { margin-left: var(--space-3); }
+.av-catalog-asset-tree details > details, .av-catalog-asset-tree details > .av-tree__item { position: relative; margin-left: 14px; padding-left: 8px; }
+.av-catalog-asset-tree details > details::before, .av-catalog-asset-tree details > .av-tree__item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--line-default); }
 .av-catalog-asset-tree summary { display: flex; align-items: center; gap: var(--space-2); min-height: var(--size-control-md); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); list-style: none; cursor: pointer; color: var(--text-secondary); font: var(--type-body-compact); }
 .av-catalog-asset-tree summary::-webkit-details-marker { display: none; }
-.av-catalog-asset-tree summary::before { content: "›"; flex: none; color: var(--text-tertiary); }
+.av-catalog-asset-tree summary::before { content: "›"; flex: none; width: 10px; color: var(--text-tertiary); transition: transform .2s cubic-bezier(.22, 1, .36, 1); }
 .av-catalog-asset-tree details[open] > summary::before { transform: rotate(90deg); }
 .av-catalog-asset-tree summary > span:not(.av-count) { min-width: 0; overflow-wrap: anywhere; }
 .av-catalog-asset-tree summary .av-count { margin-left: auto; }
 .av-catalog-asset-tree summary:hover { background: var(--bg-raised); }
-.av-catalog-asset-tree .av-tree__item { margin-left: var(--space-3); }
+
 .av-catalog-asset-tree summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .av-catalog-page[data-section="joins"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
 .av-catalog-page[data-section="joins"] .av-catalog-page__rail-header { display: none; }
@@ -821,13 +825,18 @@
 .av-thought { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--line-default); }
 .av-thought__text { margin: 0; color: var(--text-tertiary); font: 400 13px/22px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
 .av-thought__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-.av-runlog__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.av-runlog__steps::before { content: ""; position: absolute; top: 8px; bottom: 8px; left: 13px; width: 1px; background: var(--line-subtle); }
-.av-runlog__step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-3); padding: 6px 0; }
+/* 分析过程：任务清单卡片（AI Task List 形态），状态块之间一条引导线 */
+.av-runlog__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--space-2) var(--space-4); list-style: none;
+  border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
+.av-runlog__steps::before { content: ""; position: absolute; top: 24px; bottom: 24px; left: calc(var(--space-4) + 11.5px); width: 1px; background: var(--line-default); }
+.av-runlog__step { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: var(--space-3); padding: 8px 0; }
+.av-runlog__step > .av-tile { z-index: 1; box-shadow: 0 0 0 3px var(--bg-surface); }
+.av-runlog__line > .av-icon { color: var(--text-tertiary); }
+.av-runlog__step .av-tile .av-spinner { width: 12px; height: 12px; border-width: 1.5px; }
 .av-runlog__icon { z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--line-default); border-radius: 50%; background: var(--bg-base); color: var(--text-tertiary); }
 .av-runlog__step.is-model .av-runlog__icon { border-color: var(--accent); color: var(--accent-text); }
 .av-runlog__step.is-bad .av-runlog__icon { border-color: var(--danger); color: var(--danger); }
-.av-runlog__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 3px; }
+.av-runlog__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
 .av-runlog__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
 .av-runlog__title { color: var(--text-primary); font: 500 13px/20px var(--font-sans); }
 .av-runlog__reason { color: var(--text-tertiary); font: var(--type-caption); }
@@ -841,7 +850,7 @@
 .av-runlog__user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 6px 0; }
 .av-runlog__bubble { max-width: 80%; padding: 10px 14px; border: 1px solid var(--line-subtle); border-radius: 16px 16px 4px 16px; background: var(--accent-subtle); color: var(--text-primary); font: var(--type-body); white-space: pre-wrap; }
 .av-runlog__user.is-question .av-runlog__bubble { font-size: 15px; line-height: 24px; }
-.av-runlog__step.is-pending { align-items: center; grid-template-columns: 28px auto; padding-left: 6px; }
+.av-runlog__step.is-pending { align-items: center; grid-template-columns: 24px auto; }
 .av-runlog__composer { display: flex; flex-direction: column; gap: var(--space-2); }
 .av-compose--inline textarea { min-height: 56px; font-size: 14px; }
 .av-runlog.is-live .av-runlog__steps { padding-bottom: var(--space-2); }

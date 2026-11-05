@@ -5,7 +5,7 @@ import { Link } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
-import { Banner, Count, DateInput, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DateInput, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { recordQuery, type RecordFilters } from "./recordFilters";
@@ -150,24 +150,37 @@ export function ChangeRecords() {
             {records.isLoading ? <Skeleton rows={6} /> : null}
             {data && !data.items.length ? <Empty text={t("没有符合条件的变更")} compact /> : null}
             {data?.items.length ? (
-              <table className="av-table">
-                <thead><tr><th style={{ paddingLeft: 16 }}>{t("发现时间")}</th><th>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th><th>{t("数据库用户")}</th><th className="end">{t("变更集")}</th></tr></thead>
-                <tbody>{data.items.map((e: Record) => (
-                  <tr key={e.id}>
-                    <td className="av-mono" style={{ paddingLeft: 16, whiteSpace: "nowrap" }}>{formatTime(e.detected_at, tz)}</td>
-                    <td className="av-mono" title={`${e.datasource} · ${e.asset ?? ""}`}>{shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</td>
-                    <td><Pill>{EVENT_LABEL[e.kind] ?? e.kind}</Pill></td>
-                    <td className="av-caption" style={{ whiteSpace: "normal" }}>{recordDetail(e)}</td>
-                    <td><Actor e={e} /></td>
-                    <td className="end"><Link className="av-btn av-btn--ghost av-btn--sm" to={`/changes/${e.change_set_id}`} title={t("链序号 {{v1}} · {{v2}}", { v1: e.chain_seq ?? "—", v2: e.row_hash ?? "" })}>{e.change_set_id.slice(0, 8)}</Link></td>
-                  </tr>))}</tbody>
-              </table>
+              <ol className="av-audit" aria-label={t("记录")}>{data.items.map((e: Record) => {
+                const [icon, tone] = recordLook(e.kind);
+                return (
+                  <li key={e.id}>
+                    <Tile icon={icon} tone={tone} />
+                    <div className="av-audit__body">
+                      <span className="av-audit__title av-mono" data-tip={`${e.datasource} · ${e.asset ?? ""}`}>{shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</span>
+                      {recordDetail(e) ? <span className="av-audit__desc">{recordDetail(e)}</span> : null}
+                      <span className="av-audit__tags"><Pill>{EVENT_LABEL[e.kind] ?? e.kind}</Pill><Actor e={e} />
+                        <Link className="av-tag" to={`/changes/${e.change_set_id}`} data-tip={t("链序号 {{v1}} · {{v2}}", { v1: e.chain_seq ?? "—", v2: e.row_hash ?? "" })}>{e.change_set_id.slice(0, 8)}</Link></span>
+                    </div>
+                    <span className="av-audit__time">{formatTime(e.detected_at, tz)}</span>
+                  </li>);
+              })}</ol>
             ) : null}
           </section>
         </div>
       </div>
     </section>
   );
+}
+
+/** 审计流里每类变化的图标与语气：新增偏正向、删除偏警示、定义变化用数据流的赭石。 */
+function recordLook(kind: string): [string, KitTone] {
+  if (kind === "added" || kind.endsWith("_added")) return ["plus", "ok"];
+  if (kind === "deleted" || kind.endsWith("_removed") || kind === "upstream_broken") return ["trash", "danger"];
+  if (kind.includes("comment")) return ["edit", "neutral"];
+  if (kind.includes("renamed") || kind.includes("rename")) return ["arrow", "accent"];
+  if (kind.includes("definition") || kind.includes("derivation") || kind.includes("type") || kind === "grain_changed") return ["change", "flow"];
+  if (kind.includes("identity") || kind.includes("external")) return ["link", "accent"];
+  return ["audit", "neutral"];
 }
 
 function recordDetail(e: Record): string {

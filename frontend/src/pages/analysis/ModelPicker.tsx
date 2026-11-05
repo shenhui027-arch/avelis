@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Icon } from "../../components/Icon";
+import { Meter } from "../../components/ui";
 import { t } from "../../i18n";
 
 type Run = Schemas["AnalysisRunOut"];
@@ -148,7 +149,10 @@ export function ContextMeter({ run, live }: { run: Run; live?: boolean }) {
         <div className="av-menu av-menu--up av-mbar__menu av-mbar__ctx" role="dialog" aria-label={t("上下文")}>
           <div className="av-mbar__sec">{t("上下文")}</div>
           <div className="av-mbar__usage"><b>{k(used)}</b>{window ? <span> / {k(window)} tokens</span> : <span> tokens</span>}</div>
-          {ratio !== null ? <div className="av-mbar__bar"><i style={{ width: `${Math.max(1, ratio * 100)}%` }} /></div> : null}
+          {ratio !== null && window ? <>
+            <Meter value={used} max={window} label={t("上下文")} />
+            <div className="av-mbar__remain">{t("剩余 {{v1}} tokens", { v1: k(Math.max(0, window - used)) })}</div>
+          </> : null}
           {live ? (
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={compact.isPending}
               onClick={() => compact.mutate(undefined, {

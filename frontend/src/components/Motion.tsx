@@ -1,8 +1,9 @@
 // 动效小件（Motion）：首屏错落进入、数字补间。只回应“进入了什么、哪个数变了”，不做循环装饰。
 // 全站一条缓动曲线，与 motion.css 的 --ease-out 一致；MotionConfig reducedMotion="user" 时自动关闭位移。
-import { animate, motion, useReducedMotion, type Variants } from "motion/react";
+import NumberFlow from "@number-flow/react";
+import { motion, type Variants } from "motion/react";
 import { Link } from "react-router";
-import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 
 export const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -25,22 +26,18 @@ export function Reveal({ className, children }: { className?: string; children: 
 
 export const MotionLink = motion.create(Link);
 
-/** 数字从上一个值补间到新值（首次从 0 开始）；不是纯数字时原样显示。 */
+/** 数字变化时逐位滚动（@number-flow/react）；不是纯数字时原样显示。减少动态效果时由库自行关闭动画。 */
 export function CountUp({ value, ...rest }: { value: string | number } & ComponentProps<"span">) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const from = useRef(0);
-  const reduce = useReducedMotion();
-  const text = String(value);
-  const target = /^-?\d+(\.\d+)?$/.test(text.trim()) ? Number(text) : null;
-  const decimals = target === null ? 0 : (text.split(".")[1]?.length ?? 0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || target === null) return;
-    const show = (v: number) => { el.textContent = v.toFixed(decimals); };
-    if (reduce) { show(target); from.current = target; return; }
-    // from 记录屏幕上正在显示的值：效果被中断重跑（StrictMode、数值又变）时从当前显示处接着补间
-    const controls = animate(from.current, target, { duration: 0.8, ease: EASE, onUpdate: (v) => { show(v); from.current = v; } });
-    return () => controls.stop();
-  }, [target, decimals, reduce]);
-  return <span ref={ref} {...rest}>{target === null ? text : (0).toFixed(decimals)}</span>;
+  const text = String(value).trim();
+  const target = /^-?d+(.d+)?$/.test(text) ? Number(text) : null;
+  if (target === null) return <span {...rest}>{text}</span>;
+  return <Rolling target={target} decimals={text.split(".")[1]?.length ?? 0} {...rest} />;
+}
+
+/** 首次挂载从 0 滚到目标值，之后每次变化从旧值滚到新值。 */
+function Rolling({ target, decimals, ...rest }: { target: number; decimals: number } & ComponentProps<"span">) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => { const id = requestAnimationFrame(() => setShown(target)); return () => cancelAnimationFrame(id); }, [target]);
+  return <span {...rest}><NumberFlow value={shown} format={{ minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false }}
+    transformTiming={{ duration: 700, easing: "cubic-bezier(.22, 1, .36, 1)" }} spinTiming={{ duration: 700, easing: "cubic-bezier(.22, 1, .36, 1)" }} /></span>;
 }

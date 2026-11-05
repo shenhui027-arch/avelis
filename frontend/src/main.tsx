@@ -33,6 +33,7 @@ import "./styles/tokens.css";
 import "./styles/avelis-ui.css";
 import "./styles/app.css";
 import "./styles/pages.css";
+import "./styles/kit.css";
 import "./styles/motion.css";
 
 export const queryClient = new QueryClient({

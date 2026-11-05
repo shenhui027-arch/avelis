@@ -158,12 +158,44 @@ export function Crumbs({ back, items = [] }: { back: { label: string; to: string
   );
 }
 
+/** 空态：三块叠放的图标块（中间是本处的图标）+ 一句话 + 一个主操作。 */
 export function Empty({ text, action, compact, icon }: { text: string; action?: ReactNode; compact?: boolean; icon?: string }) {
   return (
-    <div className={`av-empty${compact ? " av-empty--compact" : ""}`} style={{ padding: "var(--space-6)" }}>
-      {icon ? <Icon name={icon} /> : null}<span>{text}</span>{action}
+    <div className={`av-empty${compact ? " av-empty--compact" : ""}`}>
+      <span className="av-empty__art" aria-hidden>
+        <Tile icon="table" /><Tile icon={icon ?? "search"} /><Tile icon="chart" />
+      </span>
+      <span className="av-empty__text">{text}</span>{action}
     </div>
   );
+}
+
+// --- 套件件（styles/kit.css）：图标块、进度轨、分段比例条、来源角标 --------------------------------------
+
+export type KitTone = "neutral" | "accent" | "ok" | "warn" | "danger" | "flow";
+
+/** 图标块：统计卡、空态、审计流、确认卡、表格行首共用一种形状。 */
+export function Tile({ icon, tone = "neutral", size }: { icon: string; tone?: KitTone; size?: "sm" | "lg" }) {
+  return <span className={`av-tile tone-${tone}${size ? ` av-tile--${size}` : ""}`} aria-hidden><Icon name={icon} /></span>;
+}
+
+/** 进度轨：value / max，超过 60% 提醒、85% 警示（可用 tone 覆盖）。 */
+export function Meter({ value, max, tone, label }: { value: number; max: number; tone?: KitTone; label: string }) {
+  const ratio = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  const auto: KitTone = ratio > 0.85 ? "danger" : ratio > 0.6 ? "warn" : "accent";
+  return <span className={`av-meter tone-${tone ?? auto}`} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
+    <i style={{ width: `${ratio * 100}%` }} /></span>;
+}
+
+/** 分段比例条 + 图例：每段一种语气，数量为 0 的段不画。 */
+export function Parts({ parts, label }: { parts: { label: string; value: number; tone: KitTone }[]; label: string }) {
+  const shown = parts.filter((p) => p.value > 0);
+  return <div className="av-parts-block">
+    <div className="av-parts" role="img" aria-label={label}>
+      {shown.map((p) => <i key={p.label} className={`tone-${p.tone}`} style={{ flexGrow: p.value }} />)}
+    </div>
+    <div className="av-legend">{shown.map((p) => <span key={p.label} className={`tone-${p.tone}`}>{p.label}<b>{p.value}</b></span>)}</div>
+  </div>;
 }
 
 /** 列表加载时的占位行：保持布局，不先显示 0 或空态。 */

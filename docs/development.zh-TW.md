@@ -75,7 +75,7 @@ pnpm gen:api        # 後端介面變化後重新生成型別
 pnpm gen:tokens     # 設計權杖變化後重新生成 tokens.css
 ```
 
-樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`，動效在 `src/styles/motion.css`。
+樣式全部來自 Avelis UI 設計系統：`frontend/design/tokens.json` 生成 `src/styles/tokens.css`，元件樣式在 `src/styles/avelis-ui.css`，動效在 `src/styles/motion.css`，元件套件（圖示塊、標籤、進度軌、提示條、空狀態等共用件）在 `src/styles/kit.css`，新元件只組合這些件，不另起配色。
 
 ### 視覺與文案
 

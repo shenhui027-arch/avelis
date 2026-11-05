@@ -34,7 +34,8 @@ export function datasetCell(d: Labelled, column: string, value: unknown, style: 
 
 /** 证据编号：带上它所属的那一轮。续问会复制并重新编号数据集，同一个 D 编号在不同轮次里指向不同的数据。 */
 export function EvidenceLink({ runId, refId }: { runId: string; refId: string }) {
-  return <Link className="av-tag av-mono" to={{ pathname: `/analysis/runs/${runId}`, hash: `dataset-${refId}` }}>{refId}</Link>;
+  // 来源角标（Citation 形态）：与正文数字上的依据编号同一种样式
+  return <Link className="av-cite" to={{ pathname: `/analysis/runs/${runId}`, hash: `dataset-${refId}` }}><b>{refId}</b>{t("数据")}</Link>;
 }
 
 /** 当前打开的数据集（地址里的 ?dataset=）与打开、关闭的方法。 */

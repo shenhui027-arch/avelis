@@ -75,7 +75,7 @@ pnpm gen:api        # regenerate types after backend API changes
 pnpm gen:tokens     # regenerate tokens.css after design token changes
 ```
 
-All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, component styles are in `src/styles/avelis-ui.css`, and motion is in `src/styles/motion.css`.
+All styles come from the Avelis UI design system: `frontend/design/tokens.json` generates `src/styles/tokens.css`, component styles are in `src/styles/avelis-ui.css`, motion is in `src/styles/motion.css`, and the component kit (icon tiles, tags, meters, banners, empty states and other shared pieces) is in `src/styles/kit.css`; new components compose these pieces instead of introducing their own colors.
 
 ### Visuals and copy
 
