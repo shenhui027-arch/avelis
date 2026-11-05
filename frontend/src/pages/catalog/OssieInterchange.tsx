@@ -86,7 +86,7 @@ export function OssieImportDrawer({ onClose }: { onClose: () => void }) {
       <button type="button" className="av-btn av-btn--secondary" disabled={!file || !target || run.isPending} onClick={validate}>
         {run.isPending && run.variables === true ? t("校验中…") : t("校验")}</button>
       <button type="button" className="av-btn av-btn--primary" disabled={!fresh || !checked?.report.ok || run.isPending}
-        title={!fresh ? t("先校验通过才能导入") : undefined} onClick={commit}>
+        data-tip={!fresh ? t("先校验通过才能导入") : undefined} onClick={commit}>
         {run.isPending && run.variables === false ? t("导入中…") : t("导入为草稿")}</button>
     </>}
   </div>}>

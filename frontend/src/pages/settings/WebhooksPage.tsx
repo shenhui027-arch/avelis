@@ -115,7 +115,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
       <Switch label={t("启用订阅 {{name}}", { name: sub.name })} checked={sub.enabled} disabled={toggle.isPending}
         onChange={(v) => toggle.mutate(v, { onError: fail })} />
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!sub.enabled || test.isPending}
-        title={sub.enabled ? undefined : t("停用的订阅不能发送测试事件")}
+        data-tip={sub.enabled ? undefined : t("停用的订阅不能发送测试事件")}
         onClick={() => test.mutate(undefined, { onSuccess: () => onMessage({ ok: true, text: t("已排入测试事件，稍后在投递记录里查看结果") }), onError: fail })}>{t("发送测试")}</button>
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}>{t("编辑")}</button>
       <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setConfirm("rotate")}>{t("轮换密钥")}</button>

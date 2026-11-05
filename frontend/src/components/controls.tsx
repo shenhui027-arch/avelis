@@ -292,7 +292,7 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
   return (
     <span className="av-select-wrap" style={{ width: "100%" }}>
       <button ref={anchor} type="button" className="av-select av-select--button av-date" aria-haspopup="dialog" aria-expanded={open}
-        aria-label={label} aria-invalid={invalid || undefined} title={title} disabled={disabled}
+        aria-label={label} aria-invalid={invalid || undefined} data-tip={title} disabled={disabled}
         onClick={() => (open ? setOpen(false) : openPanel())}
         onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); openPanel(); } }}>
         <span className={`av-select__value${value ? " av-mono" : " av-select__placeholder"}`}>{value || placeholder || t("选择日期")}</span>
