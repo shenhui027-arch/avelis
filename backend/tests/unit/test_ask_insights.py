@@ -171,6 +171,42 @@ def test_zero_base_and_non_additive_ratio_change_are_formatted_without_summing()
     assert "change" not in by_kind(result)
 
 
+def test_non_additive_time_change_omits_change_for_different_members():
+    result = data(kind="ratio", additive=False, time=True)
+    result["columns"].insert(1, "member")
+    result["column_roles"]["member"] = {"role": "dimension"}
+    result["rows"] = [["2026-01", "A", 0.1], ["2026-02", "B", 0.9]]
+    assert "change" not in by_kind(result)
+
+
+@pytest.mark.parametrize("first_member,last_member", [(("A", "X"), ("A", "Y")), (("A / B", "C"), ("A", "B / C"))])
+def test_non_additive_time_change_requires_the_same_complete_raw_member_key(first_member, last_member):
+    result = data(kind="ratio", additive=False, time=True)
+    result["columns"] = ["period", "member", "other", "value"]
+    result["column_roles"].update({"member": {"role": "dimension"}, "other": {"role": "dimension"}})
+    result["rows"] = [["2026-01", *first_member, 0.1], ["2026-02", *last_member, 0.9]]
+    assert "change" not in by_kind(result)
+
+
+@pytest.mark.parametrize("previous,current", [(0.1, 0.9), (None, 0.9), (0.1, None)])
+def test_non_additive_time_change_keeps_same_member_comparison_only_with_both_values(previous, current):
+    result = data(kind="ratio", additive=False, time=True)
+    result["columns"].insert(1, "member")
+    result["column_roles"]["member"] = {"role": "dimension"}
+    result["rows"] = [["2026-01", "A", previous], ["2026-02", "A", current]]
+    items = by_kind(result)
+    if previous is None or current is None:
+        assert "change" not in items
+    else:
+        assert items["change"]["value"] == 0.8
+
+
+def test_additive_time_change_keeps_period_totals_when_members_differ():
+    result = time_member_data("sum")
+    result["rows"] = [["2026-01", "A", 10], ["2026-02", "B", 90]]
+    assert by_kind(result)["change"]["value"] == 80
+
+
 def comparison_data(*, additive=True):
     columns = ["member", "value", "度量·上一期", "度量·变化", "度量·变化率"]
     roles = dict(

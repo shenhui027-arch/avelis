@@ -98,6 +98,123 @@ def test_lookup_generates_model_explanation_before_finishing_and_keeps_request_l
     assert case.box.budget.used_queries == 1
 
 
+@pytest.mark.parametrize("limit", ["model_requests", "input_tokens", "output_tokens"])
+def test_lookup_exhausted_model_budget_uses_template_without_calling_model(monkeypatch, limit):
+    case = setup_lookup(monkeypatch, [AIMessage("不应调用模型")])
+    budget = case.box.budget
+    setattr(budget, limit, 1)
+    setattr(budget, f"used_{limit}", 1)
+    before = (budget.used_model_requests, budget.used_input_tokens, budget.used_output_tokens)
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "template")
+    case.model.invoke.assert_not_called()
+    assert (budget.used_model_requests, budget.used_input_tokens, budget.used_output_tokens) == before
+
+
+def test_lookup_records_explanation_requests_and_token_usage(monkeypatch):
+    case = setup_lookup(
+        monkeypatch,
+        [
+            AIMessage(LEAKED_TOOL_MARKUP, usage_metadata={"input_tokens": 30, "output_tokens": 10, "total_tokens": 40}),
+            AIMessage("指标甲为七。", usage_metadata={"input_tokens": 35, "output_tokens": 15, "total_tokens": 50}),
+        ],
+    )
+    budget = case.box.budget
+    budget.used_model_requests, budget.used_input_tokens, budget.used_output_tokens = 1, 100, 20
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done" and case.answer.explanation == "指标甲为七。"
+    assert_answered_lookup(case, "model")
+    assert (budget.used_model_requests, budget.used_input_tokens, budget.used_output_tokens) == (3, 165, 45)
+    steps = [step for step in case.box.session.added if getattr(step, "kind", None) == "model"]
+    assert len(steps) == 2 and all(step.status == "ok" for step in steps)
+    assert [step.output["input_tokens"] for step in steps] == [30, 35]
+
+
+def test_lookup_protocol_retry_stops_when_request_budget_is_used(monkeypatch):
+    case = setup_lookup(monkeypatch, [AIMessage(LEAKED_TOOL_MARKUP), AIMessage("不应调用模型")])
+    case.box.budget.model_requests = 1
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "template")
+    assert case.model.invoke.call_count == case.box.budget.used_model_requests == 1
+
+
+@pytest.mark.parametrize("requests", [1, 2, 3])
+def test_lookup_chart_followups_share_the_model_budget(monkeypatch, requests):
+    chart = AIMessage("", tool_calls=[{"name": "chart", "id": "choice", "args": {"kind": "bar", "title": "成员指标"}}])
+    case = setup_lookup(monkeypatch, [chart, AIMessage(LEAKED_TOOL_MARKUP), AIMessage("甲高于乙。")], tools=True)
+    case.box.budget.model_requests = requests
+    case.answer.result = {
+        "columns": ["member", "value"],
+        "rows": [["甲", 7], ["乙", 3]],
+        "column_roles": {"member": {"role": "dimension"}, "value": {"role": "measure"}},
+        "units": {"value": {"kind": "count", "additive": True}},
+    }
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "model" if requests == 3 else "template")
+    assert case.model.invoke.call_count == case.box.budget.used_model_requests == requests
+    case.model.bind_tools.assert_called_once()
+    assert case.answer.evidence["chart"]["kind"] == "bar"
+
+
+@pytest.mark.parametrize("requests", [1, 2])
+def test_lookup_transport_retries_are_counted_and_limited(monkeypatch, requests):
+    response = AIMessage("指标甲为七。", usage_metadata={"input_tokens": 30, "output_tokens": 10, "total_tokens": 40})
+    case = setup_lookup(monkeypatch, [ConnectionError("offline failure"), response])
+    case.box.budget.model_requests = requests
+    monkeypatch.setattr(agent, "MODEL_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(case.box.budget, "remaining", lambda: 10)
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "model" if requests == 2 else "template")
+    assert case.model.invoke.call_count == case.box.budget.used_model_requests == requests
+    assert case.box.budget.used_input_tokens == (30 if requests == 2 else 0)
+    steps = [step for step in case.box.session.added if getattr(step, "kind", None) == "model"]
+    assert len(steps) == requests and steps[0].status == "error"
+    assert steps[0].output["retry"] is (requests == 2)
+
+
+def test_lookup_explanation_factory_uses_remaining_time_and_output_tokens(monkeypatch):
+    case = setup_lookup(monkeypatch, [AIMessage("指标甲为七。")])
+    factory = Mock(return_value=case.model)
+    case.resolve.return_value = SimpleNamespace(model=Mock(), factory=factory, context_window=None)
+    case.box.budget.output_tokens, case.box.budget.used_output_tokens = 100, 70
+    monkeypatch.setattr(agent, "MODEL_TIMEOUT_SECONDS", 10)
+    monkeypatch.setattr(case.box.budget, "remaining", lambda: 3.5)
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "model")
+    factory.assert_called_once_with(timeout=3.5, max_retries=0, max_tokens=30)
+    case.resolve.return_value.model.invoke.assert_not_called()
+    assert case.box.budget.used_model_requests == 1
+
+
+def test_lookup_explanation_skips_model_if_query_uses_remaining_time(monkeypatch):
+    case = setup_lookup(monkeypatch, [AIMessage("不应调用模型")])
+    monkeypatch.setattr(case.box.budget, "remaining", lambda: 0 if case.calls else 10)
+
+    result = agent.lookup(case.state, case.config)
+
+    assert result["phase"] == "done"
+    assert_answered_lookup(case, "template")
+    case.model.invoke.assert_not_called()
+    assert case.box.budget.used_model_requests == 0
+
+
 @pytest.mark.parametrize("send,configured_model", [(True, False), (False, True)])
 def test_lookup_without_an_allowed_explain_model_keeps_the_answer(monkeypatch, send, configured_model):
     case = setup_lookup(monkeypatch, send=send, configured_model=configured_model)

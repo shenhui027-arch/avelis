@@ -137,14 +137,16 @@ def build(
         periods = defaultdict(list)
         for row, value in values:
             if cell(row, time) is not None:
-                periods[category_label(cell(row, time))].append(value)
+                member = tuple(cell(row, dimension) for dimension in dimensions)
+                periods[category_label(cell(row, time))].append((member, value))
         ordered = sorted(periods, key=_category_order)
         if len(ordered) >= 2 and (can_add or all(len(items) == 1 for items in periods.values())):
             first, last = ordered[0], ordered[-1]
-            if all(value is not None for key in (first, last) for value in periods[key]):
+            same_member = can_add or periods[first][0][0] == periods[last][0][0]
+            if same_member and all(value is not None for key in (first, last) for _, value in periods[key]):
                 with localcontext(prec=80):
-                    previous = sum(periods[first], Decimal(0))
-                    current = sum(periods[last], Decimal(0))
+                    previous = sum((value for _, value in periods[first]), Decimal(0))
+                    current = sum((value for _, value in periods[last]), Decimal(0))
                 _change(add, name, current, previous, formatted, meta, last, first)
 
     if categories:

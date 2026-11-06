@@ -1197,6 +1197,20 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
         return {"phase": "precheck"}
     toolbox.budget.used_tools += 1
 
+    def invoke_explanation(resolved, messages, *, tools=None):
+        if not _can_call_model(toolbox):
+            return None
+        model, limited = _model_for(resolved, toolbox.budget)
+        bound = model.bind_tools(tools) if tools else model
+        return _invoke(
+            bound,
+            messages,
+            toolbox,
+            tools=tools,
+            output_budget_limited=limited,
+            context_window=getattr(resolved, "context_window", None),
+        )
+
     def run():
         scope = Scope.model_validate(state["scope"])
         window = toolbox._window(scope.start_date, scope.end_date, scope.compare_start, scope.compare_end)
@@ -1241,6 +1255,7 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
                     answer,
                     answer.intent,
                     instruction=_reply_context("", state.get("context") or {}).strip(),
+                    invoke=invoke_explanation,
                 ),
             ]
         service.finish_answer(toolbox.session, toolbox.user, answer, started)

@@ -20,6 +20,7 @@ import logging
 import operator
 import re
 import time
+from collections.abc import Callable
 from datetime import date
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -678,9 +679,18 @@ def _payload_column(column: str, role: dict) -> str:
 
 
 def explain_answer(
-    session: Session, user: User, answer: Answer, intent: dict | None, *, instruction: str | None = None
+    session: Session,
+    user: User,
+    answer: Answer,
+    intent: dict | None,
+    *,
+    instruction: str | None = None,
+    invoke: Callable[..., AIMessage | None] | None = None,
 ) -> list[dict]:
-    """为已有答案补充说明与图表偏好；模型失败时保留取数结果和模板说明。"""
+    """为已有答案补充说明与图表偏好；模型失败或 invoke 返回 None 时保留模板说明。
+
+    invoke 可接管每次请求（含图表及协议重试）的模型绑定与预算；问数不传时沿用直接调用。
+    """
     answer.explanation = answer.message
     answer.explanation_source = "template"
     steps = []
@@ -688,6 +698,15 @@ def explain_answer(
         send_results = modelcfg.policy(session)["send_results"]
         resolved = modelcfg.resolve(session, "explain", temperature=0.2) if send_results else None
         model = resolved.model if resolved else None
+
+        def request(messages, *, tools=None):
+            if invoke is not None:
+                reply = invoke(resolved, messages, tools=tools)
+            else:
+                bound = model.bind_tools(tools) if tools else model
+                reply = bound.invoke(messages)
+            return reply if reply is not None else AIMessage("")
+
         if answer.status == "answered" and model is not None:
             result = answer.result or {}
             intent = intent or getattr(answer, "intent", None) or {}
@@ -703,6 +722,7 @@ def explain_answer(
             kinds = [s["kind"] for s in options if s["kind"] != "kpi"]
             payload["chart_options"] = kinds
             tools_enabled = len(result.get("rows") or []) > 1 and bool(kinds) and _explain_supports_tools(session)
+            tools = None
             if tools_enabled:
                 tool = StructuredTool.from_function(
                     func=lambda **kwargs: None,
@@ -710,7 +730,7 @@ def explain_answer(
                     description=CHART_DESCRIPTION,
                     args_schema=ChartArgs,
                 )
-                model = model.bind_tools([tool])
+                tools = [tool]
             text = json.dumps(payload, ensure_ascii=False, default=str)
             if instruction:
                 text += "\n\n" + instruction
@@ -727,7 +747,7 @@ def explain_answer(
                 ),
                 HumanMessage(text),
             ]
-            reply = model.invoke(messages)
+            reply = request(messages, tools=tools)
             explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
             leaked = has_leaked_tool_markup(explanation)
             tool_results = []
@@ -777,12 +797,12 @@ def explain_answer(
                     # 保留原始助手消息（含 reasoning_content），交由 llm_protocol 原样回传。
                     followup = [reply, *tool_results]
                 # 第二轮不绑定工具；泄漏的正文与参数不回传。
-                reply = resolved.model.invoke([*messages, *followup])
+                reply = request([*messages, *followup])
                 explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
                 if has_leaked_tool_markup(explanation) and not leaked:
                     # 带着工具调用记录的第二轮也可能把调用写进正文：最后用不含任何工具记录的上下文只要说明文字
                     leaked = True
-                    reply = resolved.model.invoke([*messages, HumanMessage("请直接给出说明文字，不调用工具。")])
+                    reply = request([*messages, HumanMessage("请直接给出说明文字，不调用工具。")])
                     explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
                 if has_leaked_tool_markup(explanation):
                     leaked = True
