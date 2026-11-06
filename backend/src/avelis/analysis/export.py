@@ -1405,10 +1405,11 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                 else:
                     drawing.add(Line(left, pos, right, pos, strokeColor=HexColor(LINE), strokeWidth=0.4))
                     text(left - 5, pos - 2, _axis_label(tick, series[1]["unit"]), anchor="end")
-        max_size = max([0, *(point.get("size") or 0 for point in points)])
+        # 与页面一致：气泡面积按大小度量的绝对值，负值同样按量级画
+        max_size = max([0, *(abs(point.get("size") or 0) for point in points)])
         for point in points:
             x, y = position(point["x"], 0), position(point["y"], 1)
-            radius = 3 + (7 * math.sqrt(max(0, point.get("size") or 0) / max_size) if max_size else 0)
+            radius = 3 + (7 * math.sqrt(abs(point.get("size") or 0) / max_size) if max_size else 0)
             drawing.add(
                 Circle(x, y, radius, fillColor=HexColor(category_color(point["name"], colors[0])), strokeColor=None)
             )
@@ -1443,7 +1444,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
             start = 0 if endpoint else levels[index - 1]
             end = value if endpoint else levels[index]
             x, a, b = left + (index + 0.15) * band, level_position(start), level_position(end)
-            color = colors[0] if endpoint else POSITIVE if value >= 0 else NEGATIVE
+            good = (value >= 0) != (series[0].get("polarity") == "down_good")
+            color = colors[0] if endpoint else POSITIVE if good else NEGATIVE
             drawing.add(Rect(x, min(a, b), band * 0.7, abs(b - a), fillColor=HexColor(color), strokeColor=None))
             text(
                 x + band * 0.35,

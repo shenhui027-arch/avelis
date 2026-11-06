@@ -171,3 +171,21 @@ console.log("chartOption line highlight: ok");
   assert.deepEqual(o.series.map((s) => [s.type, s.yAxisIndex]), [["bar", 0], ["line", 1]]);
   console.log("chartOption new kinds: ok");
 }
+
+// 帕累托：chart 工具要求的极值与平均标注画在柱系列上
+{
+  const o = mod.chartOption(spec({ kind: "pareto", orientation: "vertical", cumulative: [0.5, 0.83, 1],
+    marks: [{ type: "max", series: "指标", series_index: 0, x: "甲", value: 3 }, { type: "average", series: "指标", series_index: 0, x: null, value: 2 }] }), "cn", theme);
+  assert.equal(o.series[0].markPoint.data.length, 1);
+  assert.equal(o.series[0].markLine.data.length, 1);
+  console.log("chartOption pareto marks: ok");
+}
+
+// 热力：突出期间时其余期间的格子弱化
+{
+  const o = mod.chartOption(spec({ kind: "heatmap", orientation: "vertical", categories: ["01", "02"], series: [series("指标", [])], highlight: ["02"],
+    heatmap: { y: { column: "d", label: "维度" }, y_categories: ["甲"], cells: [[0, 0, 1], [1, 0, 2]], min: 1, max: 2 } }), "cn", theme);
+  assert.equal(o.series[0].data[0].itemStyle.opacity < 1, true);
+  assert.deepEqual(o.series[0].data[1], [1, 0, 2]);
+  console.log("chartOption heatmap highlight: ok");
+}

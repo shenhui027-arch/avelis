@@ -313,7 +313,9 @@ function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, ba
       itemWidth: 10, itemHeight: 160, text: [formatAxis(high, unit, style), formatAxis(low, unit, style)],
       textStyle: { color: theme.muted, fontFamily: theme.font, fontSize: 11 },
       inRange: { color: [fade(color, 0.08), fade(color, 0.5), color] } },
-    series: [{ type: "heatmap", name: s?.name, data: h.cells.map(([i, j, v]) => [i, j, v ?? "-"]),
+    // 突出某些期间时，其余期间的格子弱化（highlight 按横轴类目匹配）
+    series: [{ type: "heatmap", name: s?.name, data: h.cells.map(([i, j, v]) => spec.highlight?.length && dimmed(spec, i)
+      ? { value: [i, j, v ?? "-"], itemStyle: { opacity: DIM } } : [i, j, v ?? "-"]),
       itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 4 },
       emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } } }] };
 }
@@ -412,7 +414,7 @@ function paretoOption(spec: ChartSpec, cumulative: (number | null)[], base: Opti
     series: [
       { type: "bar", name: s?.name, barMaxWidth: BAR, color, data: (s?.values ?? []).map((v, j) => ({ value: v, itemStyle: {
         color: spec.others && j === spec.categories.length - 1 ? theme.neutral : color, opacity: dimmed(spec, j) ? DIM : 1,
-        borderRadius: [4, 4, 0, 0] } })) },
+        borderRadius: [4, 4, 0, 0] } })), ...markOptions(spec, 0, style, theme, false) },
       { type: "line", name: share, yAxisIndex: 1, data: cumulative, color: theme.series[2], symbolSize: 6, lineStyle: { width: 2 },
         itemStyle: { borderColor: theme.surface, borderWidth: 2 },
         markLine: { symbol: "none", silent: true, lineStyle: { color: theme.muted, type: "dashed", width: 1 },

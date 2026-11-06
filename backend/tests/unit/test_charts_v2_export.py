@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 from reportlab.graphics import renderSVG
 from reportlab.graphics.shapes import Circle, Line, Polygon, Rect, String
+from reportlab.lib.colors import HexColor
 
 from avelis.analysis import export
 from avelis.analysis.figures import _shows, report_figures
@@ -130,6 +131,28 @@ def test_waterfall_draws_start_end_and_floating_member_bars():
     assert bars[-1].height > bars[0].height
 
 
+@pytest.mark.parametrize(
+    "polarity,increase,decrease",
+    [
+        (None, export.POSITIVE, export.NEGATIVE),
+        ("up_good", export.POSITIVE, export.NEGATIVE),
+        ("down_good", export.NEGATIVE, export.POSITIVE),
+    ],
+)
+def test_waterfall_delta_colors_follow_series_polarity(polarity, increase, decrease):
+    spec = chart("waterfall")
+    spec["series"][0]["polarity"] = polarity
+    drawing = export._spec_chart_data(spec, "Helvetica")
+    bars = [shape for shape in drawing.contents if isinstance(shape, Rect)]
+    assert [bar.fillColor for bar in bars] == [
+        HexColor(export.VIZ_PALETTE[0]),
+        HexColor(increase),
+        HexColor(decrease),
+        HexColor(increase),
+        HexColor(export.VIZ_PALETTE[0]),
+    ]
+
+
 def test_heatmap_draws_cells_missing_value_and_separate_member_axis():
     spec = chart("heatmap")
     drawing = export._spec_chart_data(spec, "Helvetica")
@@ -146,6 +169,15 @@ def test_scatter_uses_numeric_axes_and_bubble_size():
     assert points[0].cx < points[1].cx < points[2].cx
     assert points[0].cy < points[1].cy < points[2].cy
     assert points[0].r < points[1].r < points[2].r
+
+
+def test_scatter_bubble_size_uses_magnitude_like_browser():
+    spec = chart("scatter")
+    for point, size in zip(spec["points"], [-100, 1, 4]):
+        point["size"] = size
+    drawing = export._spec_chart_data(spec, "Helvetica")
+    points = [shape for shape in drawing.contents if isinstance(shape, Circle)]
+    assert points[0].r > points[2].r > points[1].r
 
 
 @pytest.mark.parametrize("kind,mark", [("area", "line"), ("pareto", "bar")])

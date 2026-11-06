@@ -196,7 +196,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         ))}
         {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>{t("只读执行")}</span> : null}
       </div>
-      {a.status === "answered" && result?.rows?.length ? <DeepenButton question={a.question} /> : null}
+      {a.status === "answered" && result?.rows?.length ? <DeepenButton a={a} result={result} dimensions={intent.group_by ?? []} /> : null}
       </div>
     </article>
   );
@@ -240,8 +240,12 @@ function Narrative({ text, onPick, disabled }: { text: string; onPick: (q: strin
 }
 
 /** 深入分析：把同一个问题交给分析智能体，产出带归因与依据的报告。 */
-function DeepenButton({ question }: { question: string }) {
+function DeepenButton({ a, result, dimensions }: { a: Answer; result: AskResult; dimensions: string[] }) {
   const navigate = useNavigate();
+  // 追问（如“按地区呢？”）只有一句片段：带上这条回答已解析出的期间、筛选、口径与维度，分析智能体才有完整的问题
+  const head = (a.message ?? "").split("：")[0].trim();
+  const dims = dimensions.length ? t("，按 {{dims}}", { dims: dimensions.map((c) => columnLabel(result, c)).join("、") }) : "";
+  const question = head ? `${a.question}（${head}${dims}）` : a.question;
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", { body: { question, confirmation_mode: "auto" } as never })), ["analysis-runs"]);
   return (
     <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={start.isPending}

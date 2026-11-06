@@ -1640,5 +1640,6 @@
   "模型解读": "Model's reading",
   "模型基于上面的结果与要点所写，只引用其中的数值；原因需要进一步拆解确认": "Written by the model from the result and highlights above, citing only those numbers; causes still need a breakdown to confirm",
   "正在开始…": "Starting…",
-  "深入分析": "Analyze in depth"
+  "深入分析": "Analyze in depth",
+  "，按 {{dims}}": ", by {{dims}}"
 }

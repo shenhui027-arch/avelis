@@ -796,12 +796,26 @@ def _result_contract(
         "measure_labels": labels,
     }
     roles = build_column_roles(columns, meta)
+    time_aggregations = {
+        column: getattr(version, "time_aggregation", None) or "sum"
+        for column, version in ({value_column: requested[0][1]} if value_column is not None else metrics).items()
+        if column in columns
+    }
     return {
         **result,
         "units": units,
         "polarity": polarity,
         "column_roles": roles,
-        "insights": build_insights(columns, result.get("rows") or [], roles, units, polarity),
+        "time_aggregations": time_aggregations,
+        "insights": build_insights(
+            columns,
+            result.get("rows") or [],
+            roles,
+            units,
+            polarity,
+            time_aggregations=time_aggregations,
+            truncated=result.get("truncated", False),
+        ),
     }
 
 

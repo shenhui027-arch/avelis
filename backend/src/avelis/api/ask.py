@@ -36,6 +36,8 @@ def _answer_result(a: Answer, session: Session | None) -> dict:
                 result["column_roles"],
                 result.get("units") or {},
                 result.get("polarity") or {},
+                time_aggregations=result.get("time_aggregations"),
+                truncated=result.get("truncated", False),
             ),
             "charts": charts.recommend(
                 result.get("columns") or [],
@@ -47,16 +49,25 @@ def _answer_result(a: Answer, session: Session | None) -> dict:
                 preference=(getattr(a, "evidence", None) or {}).get("chart"),
             ),
         }
+    if a.status == "answered" and isinstance(result, dict) and result.get("truncated"):
+        return {**result, "insights": []}
     return result
 
 
 def _answer_contract(a: Answer, session: Session | None) -> dict:
     """旧答案只按已锁定版本补展示字段，不改持久化结果，不查询最新口径。"""
     result = a.result
-    if session is None or a.status != "answered" or not isinstance(result, dict) or "column_roles" in result:
+    if session is None or a.status != "answered" or not isinstance(result, dict):
         return result
     columns = result.get("columns")
     if not isinstance(columns, list) or not columns or any(not isinstance(column, str) for column in columns):
+        return result
+    roles = result.get("column_roles")
+    if roles is not None and (
+        "time_aggregations" in result
+        or not any(roles.get(column, {}).get("role") == "time" for column in columns)
+        or not charts.selected_measures(columns, roles)
+    ):
         return result
     try:
         intent = Intent.model_validate(a.intent)
@@ -66,7 +77,7 @@ def _answer_contract(a: Answer, session: Session | None) -> dict:
         return result
     versions = {}
     ambiguous = set()
-    for version_id in dict.fromkeys(a.metric_version_ids or []):
+    for version_id in dict.fromkeys(getattr(a, "metric_version_ids", None) or []):
         version = session.get(MetricVersion, version_id)
         metric = session.get(Metric, version.metric_id) if version else None
         if metric is None or metric.code not in {*intent.metric_codes, intent.metric_code}:
@@ -86,7 +97,10 @@ def _answer_contract(a: Answer, session: Session | None) -> dict:
         return result
     if not simple and any(metric.name not in columns for metric, _ in requested):
         return result  # 指标可能已改名，无法把当前显示名安全地映射回历史列。
-    return _result_contract(result, intent, requested, value_column="value" if simple else None)
+    projected = _result_contract(result, intent, requested, value_column="value" if simple else None)
+    if roles is not None:
+        return {**result, "time_aggregations": projected["time_aggregations"]}
+    return projected
 
 
 def answer_view(a: Answer, session: Session | None = None, *, user: User | None = None) -> dict:

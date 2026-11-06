@@ -12,9 +12,18 @@ from avelis.charts import _category_order, _comparison_groups, _number, additive
 from avelis.i18n import gettext
 
 
-def build(columns: list[str], rows: list[list], column_roles: dict, units: dict, polarity: dict) -> list[dict]:
+def build(
+    columns: list[str],
+    rows: list[list],
+    column_roles: dict,
+    units: dict,
+    polarity: dict,
+    *,
+    time_aggregations: dict | None = None,
+    truncated: bool = False,
+) -> list[dict]:
     """按 total、change、peak、low、share、spread 排序，最多给四条完整的显示文案。"""
-    if len(rows) <= 1 or len(set(columns)) != len(columns):
+    if truncated or len(rows) <= 1 or len(set(columns)) != len(columns):
         return []
     measures = selected_measures(columns, column_roles)
     if not measures:
@@ -47,6 +56,17 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
     name = column_roles.get(column, {}).get("label") or column
     dimensions = [c for c in columns if column_roles.get(c, {}).get("role") == "dimension"]
     time = next((c for c in columns if column_roles.get(c, {}).get("role") == "time"), None)
+    time_aggregation = (time_aggregations or {}).get(column)
+    # 维度可加不代表时间可加；旧答案缺时间语义时，带时间列的合计保守隐藏。
+    can_total = can_add and (
+        not time
+        or time_aggregation == "sum"
+        or (
+            time_aggregation is not None
+            and cell(rows[0], time) is not None
+            and all(cell(row, time) == cell(rows[0], time) for row in rows)
+        )
+    )
     categories = [*([time] if time else []), *dimensions]
     result = []
 
@@ -78,11 +98,11 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
 
     with localcontext(prec=80):  # 覆盖 DECIMAL(38) 聚合及进位，不改变共享的显示精度。
         total = sum((value for _, value in present), Decimal(0))
-    if can_add:
+    if can_total:
         add("total", sentence("{measure}合计为{value}。", measure=name, value=formatted(total)), total)
 
     comparison = next((group for group in _comparison_groups(columns, column_roles) if group[0] == column), None)
-    if comparison and can_add:
+    if comparison and can_total:
         paired = [(number(cell(row, comparison[0])), _comparison_number(cell(row, comparison[1]))) for row in rows]
         # 缺一侧的成员不当作零，否则总变化会包含无法确认的差额。
         if all(current is not None and previous is not None for current, previous in paired):
@@ -138,7 +158,7 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
             )
             add(kind, sentence(template, category=category, measure=name, value=formatted(value)), value, category)
 
-    if dimensions and can_add and all(value is not None and value >= 0 for _, value in values) and total > 0:
+    if dimensions and can_total and all(value is not None and value >= 0 for _, value in values) and total > 0:
         members = defaultdict(Decimal)
         with localcontext(prec=80):
             for row, value in present:
