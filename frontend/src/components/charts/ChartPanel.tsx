@@ -59,6 +59,19 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
 /** 图的表格视图：没有原始结果表时（如报告插图），按规格里的类目与系列列出数值。 */
 export function SpecTable({ spec }: { spec: ChartSpec }) {
   const style = useNumberStyle();
+  // 热力图的值在 cells 里（横 = 时间，纵 = 成员），按成员一行、时间一列铺开
+  if (spec.kind === "heatmap" && spec.heatmap) {
+    const h = spec.heatmap;
+    const value = new Map(h.cells.map(([i, j, v]) => [`${i}:${j}`, v]));
+    const unit = spec.series[0]?.unit;
+    return (
+      <div className="av-table-wrap"><table className="av-table av-spec-table">
+        <thead><tr><th>{h.y.label}</th>{spec.categories.map((c, i) => <th key={i} className="av-spec-table__num">{c == null ? "—" : String(c)}</th>)}</tr></thead>
+        <tbody>{h.y_categories.map((m, j) => <tr key={j}><td>{m == null ? "—" : String(m)}</td>
+          {spec.categories.map((_, i) => <td key={i} className="av-spec-table__num">{formatValue(value.get(`${i}:${j}`) ?? null, unit, style)}</td>)}</tr>)}</tbody>
+      </table></div>
+    );
+  }
   return (
     <div className="av-table-wrap"><table className="av-table av-spec-table">
       <thead><tr><th>{spec.x?.label ?? ""}</th>{spec.series.map((s, i) => <th key={i} className="av-spec-table__num">{s.name}</th>)}</tr></thead>

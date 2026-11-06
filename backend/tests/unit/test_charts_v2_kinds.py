@@ -211,6 +211,35 @@ def test_waterfall_uses_absolute_change_and_total_period_endpoints():
     assert chart["waterfall"]["end"]["label"]
 
 
+@pytest.mark.parametrize("change", [None, 0])
+def test_comparison_omits_diverging_bar_only_when_all_displayed_changes_are_null(change):
+    data = comparison_data([["A", 10, None, None, None], ["B", 4, None if change is None else 4, change, change]])
+    for preference in (None, {"kind": "diverging_bar"}):
+        options = recommend(**data, preference=preference)
+        if change is None:
+            assert [chart["kind"] for chart in options] == ["grouped_bar"]
+            assert [series["column"] for series in options[0]["series"]] == ["a", "a·上一期"]
+            assert [series["values"] for series in options[0]["series"]] == [[10.0, 4.0], [None, None]]
+        else:
+            assert [chart["kind"] for chart in options] == ["diverging_bar", "grouped_bar"]
+            assert options[0]["series"][0]["values"] == [0.0, None]
+
+
+def test_comparison_omits_diverging_bar_when_category_top_n_hides_all_present_changes():
+    data = comparison_data([["A", 10, None, None, None], ["B", 4, None, None, None], ["C", 2, 1, 1, 1]])
+    for unit in data["units"].values():
+        unit["additive"] = False
+    options = recommend(**data, preference={"kind": "diverging_bar", "top_n": 2, "sort": "category"})
+    assert [chart["kind"] for chart in options] == ["grouped_bar"]
+    assert options[0]["categories"] == ["A", "B"]
+    assert [series["column"] for series in options[0]["series"]] == ["a", "a·上一期"]
+
+
+def test_unavailable_non_change_chart_ignores_measure_preference_as_a_whole():
+    data = categorical_data(count=2)
+    assert recommend(**data, preference={"kind": "line", "measures": ["a"]}) == recommend(**data)
+
+
 def test_waterfall_merges_tail_at_display_limit_and_keeps_full_totals():
     data = comparison_data([[f"m{i}", 100 + i, 100, i, i / 100] for i in range(22)])
     with locale_context("en"):

@@ -70,6 +70,30 @@ def test_share_reports_minimum_top_n_reaching_half_and_rejects_negative_or_unkno
     assert "share" not in by_kind(data([["甲", 0], ["乙", 0], ["丙", 0]]))
 
 
+@pytest.mark.parametrize("time", [False, True])
+def test_member_aggregation_keeps_raw_dimensions_with_identical_display_labels_separate(time):
+    result = data(kind="ratio" if time else "level", additive=not time, time=time)
+    result["columns"] = [*(["period"] if time else []), "member", "other", "value"]
+    result["column_roles"].update({"member": {"role": "dimension"}, "other": {"role": "dimension"}})
+    result["rows"] = [
+        [*(["2026-01"] if time else []), "A / B", "C", 0.6 if time else 6],
+        [*(["2026-01"] if time else []), "A", "B / C", 0.4 if time else 4],
+    ]
+    item = by_kind(result)["spread" if time else "share"]
+    assert item["value"] == (0.2 if time else 0.6)
+    assert item["text"] == (
+        "2026-01的成员间差距最大，A / B / C与A / B / C的度量相差20.0个百分点。"
+        if time
+        else "A / B / C的度量占合计的60.0%。"
+    )
+
+
+def test_decimal_total_preserves_small_value_between_large_opposite_values():
+    total = by_kind(data([["甲", "6e33"], ["乙", 1], ["丙", "-6e33"]]))["total"]
+    assert total["value"] == 1
+    assert total["text"] == "度量合计为1项。"
+
+
 @pytest.mark.parametrize("kind", ["ratio", "share", "rate_change"])
 def test_ratios_are_not_totalled_even_if_additive_is_incorrectly_set(kind):
     items = by_kind(data([["甲", 0.2], ["乙", 0.5], ["丙", 0.4]], kind=kind))

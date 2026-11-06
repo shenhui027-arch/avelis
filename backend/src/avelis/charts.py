@@ -130,7 +130,9 @@ class ChartPreference(BaseModel):
                 measures=self.measures,
                 sort=self.sort,
             )
-            selected = next(option for option in tuned if option["kind"] == self.kind)
+            selected = next((option for option in tuned if option["kind"] == self.kind), None)
+            if selected is None:
+                return tuned
         available = [category_label(category) for category in selected["categories"]]
         missing = [category for category in self.highlight or [] if category not in available]
         if missing:
@@ -319,7 +321,7 @@ def recommend(
         return specs
     selected = next((s for s in selected_specs if s["kind"] == choice.kind), None)
     if selected is None:
-        return specs
+        return selected_specs if choice.kind == "diverging_bar" else specs
     selected = {**selected, "title": preference.get("title")}
     return [selected, *(s for s in selected_specs if s["kind"] != choice.kind)]
 
@@ -568,6 +570,7 @@ def _recommend(
             dropped=len(groups) - len(shown_groups),
             omitted_categories=omission,
         )
+        change_options = [default] if not single or any(item is not None for item in values[0]) else []
         combo_categories, combo_values, combo_merged, combo_omission = comparison_data(measures[0], measures)
         extra = combo_candidate(dimension, combo_categories, combo_values)
         for chart in extra:
@@ -627,7 +630,7 @@ def _recommend(
                     extra.append(waterfall)
         extra.extend(scatter_candidate())
         if not same_unit:
-            return [default, *extra]
+            return [*change_options, *extra]
         comparison_columns = [column for current, previous, _, _ in groups for column in (current, previous)]
         categories, values, merged, omission = comparison_data(currents[0], comparison_columns)
         candidate = spec(
@@ -653,7 +656,7 @@ def _recommend(
             others=merged,
             omitted_categories=omission,
         )
-        return [default, candidate, *extra]
+        return [*change_options, candidate, *extra]
 
     def pivot(x_column, split, column):
         categories = list(dict.fromkeys(cell(row, x_column) for row in rows))

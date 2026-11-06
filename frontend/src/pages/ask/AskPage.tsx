@@ -223,8 +223,10 @@ function Insights({ items }: { items: Insight[] }) {
 function Narrative({ text, onPick, disabled }: { text: string; onPick: (q: string) => void; disabled: boolean }) {
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const follow = lines.find((line) => /^(追问|追問|Follow-up)[:：]/i.test(line))?.replace(/^[^:：]+[:：]\s*/, "");
-  const points = lines.filter((line) => /^[-•·*]\s*/.test(line)).map((line) => line.replace(/^[-•·*]\s*/, ""));
-  const lead = lines.filter((line) => !/^[-•·*]\s*/.test(line) && !/^(追问|追問|Follow-up)[:：]/i.test(line)).join(" ");
+  // 列表标记后必须有空白，行首的负数（如“-5%”）不是列表项
+  const bullet = /^[-•·*]\s+/;
+  const points = lines.filter((line) => bullet.test(line)).map((line) => line.replace(bullet, ""));
+  const lead = lines.filter((line) => !bullet.test(line) && !/^(追问|追問|Follow-up)[:：]/i.test(line)).join(" ");
   return (
     <section className="av-narrative" aria-label={t("模型解读")}>
       <div className="av-narrative__hd"><Icon name="analysis" small />{t("模型解读")}

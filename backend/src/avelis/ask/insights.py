@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from decimal import Decimal, DecimalException
+from decimal import Decimal, DecimalException, localcontext
 
 from avelis.analysis.grounding import _unit, display, number
 from avelis.analysis.measures import like
@@ -76,7 +76,8 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
             }
         )
 
-    total = sum((value for _, value in present), Decimal(0))
+    with localcontext(prec=80):  # 覆盖 DECIMAL(38) 聚合及进位，不改变共享的显示精度。
+        total = sum((value for _, value in present), Decimal(0))
     if can_add:
         add("total", sentence("{measure}合计为{value}。", measure=name, value=formatted(total)), total)
 
@@ -85,8 +86,9 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
         paired = [(number(cell(row, comparison[0])), _comparison_number(cell(row, comparison[1]))) for row in rows]
         # 缺一侧的成员不当作零，否则总变化会包含无法确认的差额。
         if all(current is not None and previous is not None for current, previous in paired):
-            current = sum((current for current, _ in paired), Decimal(0))
-            previous = sum((previous for _, previous in paired), Decimal(0))
+            with localcontext(prec=80):
+                current = sum((current for current, _ in paired), Decimal(0))
+                previous = sum((previous for _, previous in paired), Decimal(0))
             _change(
                 add, name, current, previous, formatted, meta, gettext("本期"), gettext(comparison[1].rsplit("·", 1)[1])
             )
@@ -120,8 +122,9 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
         if len(ordered) >= 2 and (can_add or all(len(items) == 1 for items in periods.values())):
             first, last = ordered[0], ordered[-1]
             if all(value is not None for key in (first, last) for value in periods[key]):
-                previous = sum(periods[first], Decimal(0))
-                current = sum(periods[last], Decimal(0))
+                with localcontext(prec=80):
+                    previous = sum(periods[first], Decimal(0))
+                    current = sum(periods[last], Decimal(0))
                 _change(add, name, current, previous, formatted, meta, last, first)
 
     if categories:
@@ -137,11 +140,13 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
 
     if dimensions and can_add and all(value is not None and value >= 0 for _, value in values) and total > 0:
         members = defaultdict(Decimal)
-        for row, value in present:
-            members[label(row, dimensions)] += value
+        with localcontext(prec=80):
+            for row, value in present:
+                members[tuple(cell(row, c) for c in dimensions)] += value
         ranked = sorted(members.items(), key=lambda item: item[1], reverse=True)
         if len(ranked) >= 2:
             leader, largest = ranked[0]
+            leader = " / ".join(category_label(value) for value in leader)
             share = largest / total
             text = sentence(
                 "{category}的{measure}占合计的{share}。",
@@ -152,7 +157,8 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
             if share < Decimal("0.5"):
                 combined = Decimal(0)
                 for count, (_, value) in enumerate(ranked, start=1):
-                    combined += value
+                    with localcontext(prec=80):
+                        combined += value
                     if combined / total >= Decimal("0.5"):
                         text = sentence(
                             "{category}的{measure}占合计的{share}；前 {count} 项合计占{combined_share}。",
@@ -168,11 +174,12 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
     if dimensions and time and len(result) < 4:
         periods = defaultdict(dict)
         for row, value in present:
-            period, member = category_label(cell(row, time)), label(row, dimensions)
+            period, member = category_label(cell(row, time)), tuple(cell(row, c) for c in dimensions)
             if member in periods[period]:
                 # 同一时间与成员仍有多行时，只有可加度量才可合并。
                 old = periods[period][member]
-                periods[period][member] = old + value if can_add and old is not None else None
+                with localcontext(prec=80):
+                    periods[period][member] = old + value if can_add and old is not None else None
             else:
                 periods[period][member] = value
         gaps = []
@@ -181,7 +188,8 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
             if len(comparable) >= 2:
                 high = max(comparable, key=lambda item: item[1])
                 low = min(comparable, key=lambda item: item[1])
-                gaps.append((high[1] - low[1], period, high[0], low[0]))
+                with localcontext(prec=80):
+                    gaps.append((high[1] - low[1], period, high[0], low[0]))
         if gaps:
             gap, period, high, low = max(gaps, key=lambda item: item[0])
             add(
@@ -189,8 +197,8 @@ def build(columns: list[str], rows: list[list], column_roles: dict, units: dict,
                 sentence(
                     "{period}的成员间差距最大，{high}与{low}的{measure}相差{value}。",
                     period=period,
-                    high=high,
-                    low=low,
+                    high=" / ".join(category_label(value) for value in high),
+                    low=" / ".join(category_label(value) for value in low),
                     measure=name,
                     value=formatted(gap, like(meta, "delta"), direction="up" if gap > 0 else None),
                 ),
@@ -214,7 +222,8 @@ def _change(
     rate=None,
     category=None,
 ):
-    delta = current - previous if delta is None else delta
+    with localcontext(prec=80):
+        delta = current - previous if delta is None else delta
     values = {
         "measure": name,
         "previous_label": previous_label,
