@@ -1348,7 +1348,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
         for x_index, y_index, value in heatmap["cells"]:
             if not (0 <= x_index < len(categories) and 0 <= y_index < len(members)):
                 continue
-            color = VIZ_DIM if value is None else VIZ_PALETTE[0]
+            # 突出某些期间时其余期间用弱化色，与页面和图下说明一致
+            color = VIZ_DIM if value is None else category_color(categories[x_index], VIZ_PALETTE[0])
             cell = Rect(
                 left + x_index * cell_width,
                 top - (y_index + 1) * cell_height,

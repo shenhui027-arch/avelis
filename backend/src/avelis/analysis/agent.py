@@ -7,7 +7,7 @@
 - 理解：系统按问题文字检索候选口径（前 10 个），模型做结构化输出（submit_scope）：问题类型、指标、筛选、窗口，
   确定不了时写追问。这一阶段关闭思考、限制输出长度（系统固定，不在页面开放）。有追问时暂停，用户回答后继续理解，
   每次运行最多追问两次；仍未澄清或无人值守时结束为 clarify，不带着未澄清的范围继续预检与推理。
-- lookup：只取数的问题按已理解的范围执行问数服务，不再请求模型；已回答则直接结束，其他状态回到完整分析流程。
+- lookup：只取数的问题按已理解的范围执行问数服务，按配置补充模型解读；已回答则直接结束，其他状态回到完整分析流程。
 - 系统预检：确定性代码按 scope 一次执行固定的排查（变化类：口径详情、变更、数据健康、explain_change、日历折算；
   关系类：按维度取数、分组对比、相关），产出数据集与一份紧凑的上下文包。查询计入额度、检查权限、记录步骤。
 - 推理：上下文包放在用户消息里；模型可以直接提交报告，也可以下钻，一轮可以发出多个工具调用。思考强度按页面配置。
@@ -47,6 +47,7 @@ from avelis.analysis import conversation_context, investigation
 from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
+from avelis.ask.agent import explain_answer
 from avelis.ask.alignment import (
     AlignmentResult,
     align_filters,
@@ -1231,6 +1232,17 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
                 else {}
             ),
         }
+        if answer.status == "answered":
+            answer.steps = [
+                *(answer.steps or []),
+                *explain_answer(
+                    toolbox.session,
+                    toolbox.user,
+                    answer,
+                    answer.intent,
+                    instruction=_reply_context("", state.get("context") or {}).strip(),
+                ),
+            ]
         service.finish_answer(toolbox.session, toolbox.user, answer, started)
         if answer.status == "denied" and answer.error_code == "permission":
             toolbox.denials.append(

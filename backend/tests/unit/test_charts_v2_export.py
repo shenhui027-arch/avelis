@@ -162,6 +162,16 @@ def test_heatmap_draws_cells_missing_value_and_separate_member_axis():
     assert _shows(spec, "Delta")
 
 
+def test_heatmap_export_dims_cells_outside_highlight():
+    spec = chart("heatmap")
+    spec["highlight"] = [str(spec["categories"][0])]
+    drawing = export._spec_chart_data(spec, "Helvetica")
+    cells = [shape for shape in drawing.contents if isinstance(shape, Rect)]
+    kept = {cell.fillColor for index, cell in enumerate(cells) if spec["heatmap"]["cells"][index][0] == 0}
+    dimmed = {cell.fillColor for index, cell in enumerate(cells) if spec["heatmap"]["cells"][index][0] != 0}
+    assert HexColor(export.VIZ_DIM) in dimmed and HexColor(export.VIZ_DIM) not in kept
+
+
 def test_scatter_uses_numeric_axes_and_bubble_size():
     drawing = export._spec_chart_data(chart("scatter"), "Helvetica")
     points = [shape for shape in drawing.contents if isinstance(shape, Circle)]

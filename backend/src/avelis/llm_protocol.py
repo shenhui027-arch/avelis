@@ -30,6 +30,14 @@ ABNORMAL_FINISH = {
 }
 
 
+def has_leaked_tool_markup(text: str) -> bool:
+    """识别泄漏到正文的工具调用标记，不解析其中的参数。"""
+    text = text.casefold()
+    return any(
+        marker in text for marker in ("｜dsml｜", "<tool_call>", "</tool_call>", "<function_calls>", "<invoke name=")
+    )
+
+
 class ModelProtocolError(RuntimeError):
     """模型回复不符合接入协议（截断、内容过滤、工具调用编号缺失或重复）：基础设施错误，不是分析内容的错误。"""
 

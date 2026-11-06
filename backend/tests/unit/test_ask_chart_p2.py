@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import psycopg
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from sqlalchemy.exc import OperationalError
 
 from avelis import config, modelcfg
@@ -221,6 +221,72 @@ def chart_reply(kind="bar", text="", **args):
         text,
         tool_calls=[{"id": "selection", "name": "chart", "args": {"kind": kind, "title": "华东成交额最高", **args}}],
     )
+
+
+LEAKED_TOOL_MARKUP = (
+    '<｜DSML｜function_calls><｜DSML｜invoke name="chart">'
+    '<｜DSML｜parameter name="kind" string="true">stacked_bar</｜DSML｜parameter>'
+    "</｜DSML｜invoke></｜DSML｜function_calls>"
+)
+
+
+@pytest.mark.parametrize("support", [True, False])
+@pytest.mark.parametrize("structured", [True, False])
+def test_leaked_tool_markup_retries_without_tools_and_ignores_chart(monkeypatch, support, structured):
+    answer = answer_for()
+    first = chart_reply(text=LEAKED_TOOL_MARKUP, top_n=2) if structured else AIMessage(LEAKED_TOOL_MARKUP)
+    model, outcome = explain(monkeypatch, answer, [first, AIMessage("华东成交额最高。")], support=support)
+
+    assert answer.status == "answered"
+    assert answer.explanation == "华东成交额最高。"
+    assert answer.explanation_source == "model"
+    assert "chart" not in answer.evidence
+    assert outcome["steps"].count({"node": "explain", "protocol": "leaked_tool_markup"}) == 1
+    assert model.invoke.call_count == 2
+    if support:
+        model.bind_tools.assert_called_once()
+        model.bind_tools.return_value.invoke.assert_called_once()
+    else:
+        model.bind_tools.assert_not_called()
+    messages = model.invoke.call_args.args[0]
+    assert messages[:2] == model.invoke.call_args_list[0].args[0]
+    assert len(messages) == 3 and isinstance(messages[-1], HumanMessage)
+    assert messages[-1].content == "请直接给出说明文字，不调用工具。"
+    wire = ReasoningRoundTripChatOpenAI(model="deepseek", api_key="test")._get_request_payload(messages)
+    assert "tools" not in wire
+    assert LEAKED_TOOL_MARKUP not in json.dumps(wire, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("second", [LEAKED_TOOL_MARKUP, " \n "])
+def test_leaked_tool_markup_falls_back_to_template_after_one_retry(monkeypatch, second):
+    answer = answer_for()
+    model, outcome = explain(monkeypatch, answer, [AIMessage(LEAKED_TOOL_MARKUP), AIMessage(second)])
+    assert answer.status == "answered"
+    assert answer.explanation == "模板解释"
+    assert answer.explanation_source == "template"
+    assert "chart" not in answer.evidence
+    assert outcome["steps"].count({"node": "explain", "protocol": "leaked_tool_markup"}) == 1
+    assert model.invoke.call_count == 2
+    model.bind_tools.return_value.invoke.assert_called_once()
+
+
+@pytest.mark.parametrize("third", [LEAKED_TOOL_MARKUP, "华东成交额最高。"])
+def test_chart_only_reply_with_leaked_second_round_retries_clean_context(monkeypatch, third):
+    answer = answer_for()
+    model, outcome = explain(
+        monkeypatch, answer, [chart_reply(top_n=2), AIMessage(LEAKED_TOOL_MARKUP), AIMessage(third)]
+    )
+    assert answer.status == "answered"
+    clean = third != LEAKED_TOOL_MARKUP
+    assert answer.explanation == (third if clean else "模板解释")
+    assert answer.explanation_source == ("model" if clean else "template")
+    assert answer.evidence["chart"] == {"kind": "bar", "title": "华东成交额最高", "top_n": 2}
+    assert outcome["steps"].count({"node": "explain", "protocol": "leaked_tool_markup"}) == 1
+    assert model.invoke.call_count == 3
+    model.bind_tools.return_value.invoke.assert_called_once()
+    # 最后一次只带系统提示、输入与“直接给出说明”，不含任何工具调用记录
+    last = model.invoke.call_args.args[0]
+    assert len(last) == 3 and last[-1].content == "请直接给出说明文字，不调用工具。"
 
 
 def test_chart_choice_with_text_saved_and_model_invoked_once(monkeypatch):
