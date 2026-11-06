@@ -10,7 +10,11 @@ export type AskResult = { columns?: string[]; rows?: unknown[][]; row_count?: nu
   // 列契约（ADR 0014）：角色与期望方向来自后端元数据；旧答案没有时退回按列名后缀判断
   column_roles?: Record<string, ColumnRole>; polarity?: Record<string, Polarity>; units?: Record<string, UnitMeta>;
   // 图表规格（后端 charts.recommend）：第一个为默认图，其余为同一份数据的候选
-  charts?: ChartSpec[] };
+  charts?: ChartSpec[];
+  // 确定性要点（后端 ask/insights.py）：合计、变化、最高最低、集中度、差距
+  insights?: Insight[] };
+
+export type Insight = { kind: string; text: string; column?: string; category?: string | null; value?: number | null };
 
 /** 列的角色：有列契约时只读契约（契约里没有的列不猜）；没有契约的旧答案按“·变化 / ·变化率”后缀判断。 */
 export function columnRole(result: AskResult, column: string): ColumnRole["role"] | undefined {

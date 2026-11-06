@@ -55,6 +55,12 @@ def test_nonadditive_category_omissions_cover_all_truncation_paths(multiple, com
     preference = {"kind": options[0]["kind"], "top_n": top_n}
     options = dataset_charts(data, preference)
     for spec in options:
+        if spec["kind"] == "scatter":
+            # 散点逐结果行保留度量间关系，不沿用类目排名图的裁剪。
+            assert spec["omitted_categories"] is None and spec["others"] is None
+            assert len(spec["categories"]) == len(spec["points"]) == len(data["rows"])
+            assert ChartSpec.model_validate(spec).model_dump(mode="json") == spec
+            continue
         # 显式偏好只改选中图种；其他候选仍保留默认展示上限。
         limit = top_n if spec["kind"] == preference["kind"] and top_n is not None else 20
         assert spec["omitted_categories"] == {
@@ -71,6 +77,10 @@ def test_nonadditive_category_omissions_cover_all_truncation_paths(multiple, com
 def test_additive_others_and_category_omissions_do_not_double_count(multiple, comparison):
     data = category_dataset(additive=True, multiple=multiple, comparison=comparison)
     for chart in dataset_charts(data, {"kind": dataset_charts(data)[0]["kind"], "top_n": 7}):
+        if chart["kind"] == "scatter":
+            assert chart["omitted_categories"] is None and chart["others"] is None
+            assert len(chart["points"]) == len(data["rows"])
+            continue
         if chart["others"]:
             assert chart["omitted_categories"] is None
             assert chart["others"]["count"] == 25 - (len(chart["categories"]) - 1)

@@ -84,7 +84,12 @@ def reference_counts(report: dict) -> Counter:
 
 def _shows(chart: dict, member) -> bool:
     """图里是否画了这个成员：类目或系列名等于它，或是含它的多维度组合（“甲 / 乙”）。"""
-    names = [*chart["categories"], *(s["name"] for s in chart["series"])]
+    names = [
+        *chart["categories"],
+        *(s["name"] for s in chart["series"]),
+        *((chart.get("heatmap") or {}).get("y_categories") or []),
+        *(point["name"] for point in chart.get("points") or []),
+    ]
     return any(name == member or str(name) == str(member) or str(member) in str(name).split(" / ") for name in names)
 
 

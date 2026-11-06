@@ -98,7 +98,8 @@ def test_explain_only_business_fields_and_display_values(monkeypatch):
     before = deepcopy(answer.result)
     model, _ = explain(monkeypatch, answer, support=False)
     sent = payload(model)
-    assert set(sent) == {"question", "metric", "period", "columns", "rows", "chart_options"}
+    assert set(sent) == {"question", "metric", "period", "columns", "rows", "insights", "chart_options"}
+    assert sent["insights"] == []
     assert sent["metric"] == {"name": "成交额", "description": "已支付订单总额"}
     assert sent["period"] == answer.intent
     assert sent["columns"] == ["区域", "成交额", "转化率"]
@@ -233,7 +234,7 @@ def test_chart_choice_with_text_saved_and_model_invoked_once(monkeypatch):
     tool = model.bind_tools.call_args.args[0][0]
     assert tool.name == "chart" and tool.args_schema is agent.ChartArgs
     assert tool.description == agent.CHART_DESCRIPTION
-    assert payload(model)["chart_options"] == ["multiples", "bar"]
+    assert payload(model)["chart_options"] == ["multiples", "bar", "combo"]
 
 
 def test_chart_only_reply_gets_unbound_second_round_and_preserves_reasoning(monkeypatch):
@@ -285,7 +286,8 @@ def test_invalid_chart_choice_returns_options_then_gets_explanation(monkeypatch,
     assert "chart" not in answer.evidence
     assert {"node": "explain", "chart": "rejected", "kind": kind} in outcome["steps"]
     assert model.invoke.call_count == 2
-    assert model.invoke.call_args.args[0][-1].content == "该图不可用，可选：multiples、bar"
+    error = model.invoke.call_args.args[0][-1].content
+    assert "可选" in error and "multiples、bar、combo" in error
     assert answer.explanation == "华东成交额最高。"
 
 
@@ -409,14 +411,14 @@ def test_comparison_top_n_merges_tail_only_when_additive(kind, unit_kind):
     rows = [[str(i), i, i * 2, -i, -0.5] for i in range(30)]
     args = (columns, rows, roles, units, {})
     default = recommend(*args)
-    chosen, other = recommend(*args, preference={"kind": kind, "title": "对比结果", "top_n": 2})
+    chosen, *others = recommend(*args, preference={"kind": kind, "title": "对比结果", "top_n": 2})
     assert chosen["kind"] == kind and chosen["title"] == "对比结果"
     assert chosen["categories"][:2] == (["0", "1"] if kind == "diverging_bar" else ["29", "28"])
     assert chosen["categories"][2:] == (["其他"] if unit_kind == "level" else [])
     assert chosen["others"] == ({"count": 28} if unit_kind == "level" else None)
     if unit_kind == "level":
         assert chosen["series"][0]["values"][-1] == (-sum(range(2, 30)) if kind == "diverging_bar" else sum(range(28)))
-    assert other == next(s for s in default if s["kind"] == other["kind"])
+    assert all(other == next(s for s in default if s["kind"] == other["kind"]) for other in others)
 
 
 def test_time_chart_ignores_top_n():

@@ -11,6 +11,7 @@ from avelis import charts
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.ask import agent
+from avelis.ask.insights import build as build_insights
 from avelis.ask.intent import Intent
 from avelis.ask.service import _result_contract, filter_alignment_restricted, project_alignment_clarifications
 from avelis.governance import access
@@ -29,6 +30,13 @@ def _answer_result(a: Answer, session: Session | None) -> dict:
     if a.status == "answered" and isinstance(result, dict) and "column_roles" in result:
         return {
             **result,
+            "insights": build_insights(
+                result.get("columns") or [],
+                result.get("rows") or [],
+                result["column_roles"],
+                result.get("units") or {},
+                result.get("polarity") or {},
+            ),
             "charts": charts.recommend(
                 result.get("columns") or [],
                 result.get("rows") or [],

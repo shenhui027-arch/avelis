@@ -97,7 +97,7 @@ def test_monthly_region_single_measure_keeps_original_candidates():
     dataset = monthly_dataset()
     dataset["columns"].remove("转化率")
     dataset["rows"] = [row[:3] for row in dataset["rows"]]
-    default, candidate = dataset_charts(dataset)
+    default, candidate = dataset_charts(dataset)[:2]
     assert [default["kind"], candidate["kind"]] == ["line", "stacked_bar"]
     assert [s["name"] for s in default["series"]] == ["北", "南"]
     assert [s["values"] for s in default["series"]] == [[1, 3], [2, None]]

@@ -13,6 +13,7 @@ const EChart = lazy(() => import("./EChart"));
 export const KIND_LABEL: Record<ChartKind, string> = {
   kpi: t("指标卡"), line: t("折线"), bar: t("条形"), grouped_bar: t("分组柱"), stacked_bar: t("堆叠柱"),
   diverging_bar: t("变化"), donut: t("环形"), multiples: t("分图"),
+  area: t("面积"), combo: t("柱线"), pareto: t("帕累托"), waterfall: t("瀑布"), heatmap: t("热力"), scatter: t("散点"),
 };
 
 /** 图与表切换：view 为 "table" 时只显示 children（表格）。 */

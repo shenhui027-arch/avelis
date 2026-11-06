@@ -1037,8 +1037,53 @@ class ChartMark(Out):
     value: float = Field(description="原始量纲的标注值；average 是该系列所示非空值的算术平均")
 
 
+class ChartWaterfallEndpoint(Out):
+    label: str
+    value: float | None
+
+
+class ChartWaterfall(Out):
+    start: ChartWaterfallEndpoint
+    end: ChartWaterfallEndpoint
+
+
+class ChartHeatmapY(Out):
+    column: str
+    label: str
+
+
+class ChartHeatmap(Out):
+    y: ChartHeatmapY
+    y_categories: list[Any]
+    cells: list[tuple[int, int, float | None]]
+    min: float | None
+    max: float | None
+
+
+class ChartPoint(Out):
+    name: str
+    x: float | None
+    y: float | None
+    size: float | None
+
+
 class ChartSpec(Out):
-    kind: Literal["kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"]
+    kind: Literal[
+        "kpi",
+        "line",
+        "bar",
+        "grouped_bar",
+        "stacked_bar",
+        "diverging_bar",
+        "donut",
+        "multiples",
+        "area",
+        "combo",
+        "pareto",
+        "waterfall",
+        "heatmap",
+        "scatter",
+    ]
     title: str | None = None
     orientation: Literal["vertical", "horizontal"]
     reason: Literal[
@@ -1058,6 +1103,12 @@ class ChartSpec(Out):
     dropped_series: int
     marks: list[ChartMark] | None = Field(default=None, description="按最终显示数据计算的极值点与平均线")
     highlight: list[str] | None = Field(default=None, description="要突出的显示类目名，其余类目应弱化")
+    cumulative: list[Annotated[float, Field(ge=0, le=1)]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    waterfall: ChartWaterfall | None = Field(default=None, exclude_if=lambda value: value is None)
+    heatmap: ChartHeatmap | None = Field(default=None, exclude_if=lambda value: value is None)
+    points: list[ChartPoint] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ReportFigure(Out):

@@ -2345,3 +2345,45 @@ msgstr "Confirm filter value “{original}” (dimension: {dimension}); no candi
 
 msgid "可在维表中维护别名并建立关联路径。"
 msgstr "You can maintain aliases in your dimension table and register a join path."
+
+msgid "{measure}合计为{value}。"
+msgstr "{measure} totals {value}."
+
+msgid "{category}的{measure}"
+msgstr "{measure} for {category}"
+
+msgid "{category}的{measure}最高，为{value}。"
+msgstr "{category} has the highest {measure}, at {value}."
+
+msgid "{category}的{measure}最低，为{value}。"
+msgstr "{category} has the lowest {measure}, at {value}."
+
+msgid "{category}的{measure}占合计的{share}。"
+msgstr "{category} accounts for {share} of total {measure}."
+
+msgid "{category}的{measure}占合计的{share}；前 {count} 项合计占{combined_share}。"
+msgstr "{category} accounts for {share} of total {measure}; the top {count} members together account for {combined_share}."
+
+msgid "{period}的成员间差距最大，{high}与{low}的{measure}相差{value}。"
+msgstr "The largest gap between members occurs in {period}: {high} and {low} differ by {value} in {measure}."
+
+msgid "{measure}从{previous_label}的{previous}变为{current_label}的{current}，变化{change}，变化率为{rate}。"
+msgstr "{measure} moves from {previous} in {previous_label} to {current} in {current_label}, a change of {change} ({rate})."
+
+msgid "{measure}从{previous_label}的{previous}变为{current_label}的{current}，变化{change}；基期为零，无法计算变化率。"
+msgstr "{measure} moves from {previous} in {previous_label} to {current} in {current_label}, a change of {change}; the rate cannot be calculated because the base value is zero."
+
+msgid "{kind} 不支持 marks；请省略 marks。"
+msgstr "{kind} does not support marks; omit marks."
+
+msgid "pareto 只支持 value_desc 排序；请省略 sort 或使用 value_desc。"
+msgstr "pareto only supports value_desc ordering; omit sort or use value_desc."
+
+msgid "waterfall 按变化绝对值降序排列；请省略 sort。"
+msgstr "waterfall is ordered by absolute change descending; omit sort."
+
+msgid "累计占比"
+msgstr "Cumulative share"
+
+msgid "图表偏好无效：{reason}；可选 kind：{available}"
+msgstr "Invalid chart preference: {reason}; available kinds: {available}"

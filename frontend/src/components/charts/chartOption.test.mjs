@@ -129,3 +129,45 @@ assert.equal(option.series[0].data[4].symbolSize, 10);
 assert.equal(option.series[0].data[0].symbolSize, 0);
 console.log("chartOption line highlight: ok");
 
+
+// 新图种：面积带渐变、帕累托右轴累计、瀑布浮动柱、热力 visualMap、散点气泡、柱线双轴
+{
+  const hex = { ...theme, series: ["#1e9df1", "#00b87a", "#f7b928", "#e0245e", "#8b5cf6", "#14b8c4", "#f97316", "#64748b"] };
+  assert.equal(mod.fade("#1e9df1", 0.5), "rgba(30, 157, 241, 0.5)");
+  let o = mod.chartOption(spec({ kind: "area", orientation: "vertical", categories: ["01", "02", "03"], series: [series("甲", [1, 2, 3])] }), "cn", hex);
+  assert.equal(o.series[0].type, "line");
+  assert.equal(o.series[0].areaStyle.color.type, "linear");
+
+  o = mod.chartOption(spec({ kind: "pareto", orientation: "vertical", cumulative: [0.5, 0.83, 1] }), "cn", hex);
+  assert.equal(o.series.length, 2);
+  assert.equal(o.series[1].yAxisIndex, 1);
+  assert.equal(o.yAxis[1].max, 1);
+
+  o = mod.chartOption(spec({ kind: "waterfall", orientation: "vertical", series: [series("指标", [5, -2, 1])],
+    waterfall: { start: { label: "上期", value: 10 }, end: { label: "本期", value: 14 } } }), "cn", hex);
+  assert.deepEqual(o.series[0].data, [0, 10, 13, 13, 0]);
+  assert.deepEqual(o.series[1].data.map((d) => d.value), [10, 5, 2, 1, 14]);
+  assert.equal(o.xAxis.data.length, 5);
+  // 累计跨到负值时退回变化条
+  o = mod.chartOption(spec({ kind: "waterfall", orientation: "vertical", series: [series("指标", [-20, 1, 1])],
+    waterfall: { start: { label: "上期", value: 10 }, end: { label: "本期", value: -8 } } }), "cn", hex);
+  assert.equal(o.series[0].type, "bar");
+  assert.equal(o.series.length, 1);
+
+  o = mod.chartOption(spec({ kind: "heatmap", orientation: "vertical", categories: ["01", "02", "03"], series: [series("指标", [])],
+    heatmap: { y: { column: "d", label: "维度" }, y_categories: ["甲", "乙"], cells: [[0, 0, 1], [1, 1, null]], min: 1, max: 1 } }), "cn", hex);
+  assert.equal(o.series[0].type, "heatmap");
+  assert.deepEqual(o.series[0].data[1], [1, 1, "-"]);
+  assert.ok(o.visualMap.max > o.visualMap.min);
+  assert.ok(mod.chartHeight({ kind: "heatmap", heatmap: { y_categories: Array(10) } }) >= 280);
+
+  o = mod.chartOption(spec({ kind: "scatter", orientation: "vertical", series: [series("x", [1, 2, 3]), series("y", [3, 2, 1]), series("s", [1, 4, 9])],
+    points: [{ name: "甲", x: 1, y: 3, size: 1 }, { name: "乙", x: 2, y: 2, size: 4 }, { name: "丙", x: 3, y: 1, size: 9 }] }), "cn", hex);
+  assert.equal(o.series[0].type, "scatter");
+  assert.ok(o.series[0].data[2].symbolSize > o.series[0].data[0].symbolSize);
+
+  o = mod.chartOption(spec({ kind: "combo", orientation: "vertical", series: [series("额", [1, 2, 3]), series("率", [0.1, 0.2, 0.3], { mark: "line", axis: 1 })] }), "cn", hex);
+  assert.equal(o.yAxis.length, 2);
+  assert.deepEqual(o.series.map((s) => [s.type, s.yAxisIndex]), [["bar", 0], ["line", 1]]);
+  console.log("chartOption new kinds: ok");
+}

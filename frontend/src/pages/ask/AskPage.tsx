@@ -6,7 +6,7 @@ import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useExampleQuestions, useNumberStyle, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
 import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
 import { formatClock, formatShortTime, formatTime } from "../../format";
-import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
+import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type Insight, type PlanQuery } from "./presentation";
 import { t } from "../../i18n";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
@@ -165,8 +165,8 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       <FilterAlignmentNote items={a.filter_alignment} />
-      {a.explanation && a.explanation_source === "model" ? <p className="av-answer-insight" title={t("模型对结果的说明，只引用上面的数值")}>
-        <Icon name="analysis" small />{a.explanation}</p> : null}
+      {result?.insights?.length && !single ? <Insights items={result.insights} /> : null}
+      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={onPick} disabled={disabled} /> : null}
       {result?.rows && !single && result.rows.length ? (
         <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
           <ResultTable result={result} dimensions={intent.group_by ?? []} />
@@ -187,6 +187,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
           <span className="av-row__end"><Link className="av-btn av-btn--secondary av-btn--sm" to="/changes">{t("查看变更")}</Link></span>
         </div>
       ) : null}
+      <div className="av-answer__ft">
       <div className="av-trace">
         {steps.map((s, i) => (
           <span key={i} className={stepClass(s, a)}>
@@ -195,7 +196,55 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         ))}
         {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>{t("只读执行")}</span> : null}
       </div>
+      {a.status === "answered" && result?.rows?.length ? <DeepenButton question={a.question} /> : null}
+      </div>
     </article>
+  );
+}
+
+const INSIGHT_LOOK: Record<string, { label: string; tone: string }> = {
+  total: { label: t("合计"), tone: "collect" }, change: { label: t("变化"), tone: "ask" }, peak: { label: t("最高"), tone: "lineage" },
+  low: { label: t("最低"), tone: "change" }, share: { label: t("集中度"), tone: "catalog" }, spread: { label: t("差距"), tone: "flow" },
+};
+
+/** 确定性要点：后端从结果直接算出（合计、变化、最高最低、集中度），不依赖模型，每条一张小卡。 */
+function Insights({ items }: { items: Insight[] }) {
+  return (
+    <ul className="av-insights" aria-label={t("要点")}>
+      {items.map((item, i) => {
+        const look = INSIGHT_LOOK[item.kind] ?? { label: t("要点"), tone: "accent" };
+        return <li key={i} className={`av-insight tone-${look.tone}`}><span className="av-insight__label">{look.label}</span>{item.text}</li>;
+      })}
+    </ul>
+  );
+}
+
+/** 模型的解读：首行是结论，“- ”开头的是观察，“追问：”开头的变成一键追问。 */
+function Narrative({ text, onPick, disabled }: { text: string; onPick: (q: string) => void; disabled: boolean }) {
+  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const follow = lines.find((line) => /^(追问|追問|Follow-up)[:：]/i.test(line))?.replace(/^[^:：]+[:：]\s*/, "");
+  const points = lines.filter((line) => /^[-•·*]\s*/.test(line)).map((line) => line.replace(/^[-•·*]\s*/, ""));
+  const lead = lines.filter((line) => !/^[-•·*]\s*/.test(line) && !/^(追问|追問|Follow-up)[:：]/i.test(line)).join(" ");
+  return (
+    <section className="av-narrative" aria-label={t("模型解读")}>
+      <div className="av-narrative__hd"><Icon name="analysis" small />{t("模型解读")}
+        <Hint text={t("模型基于上面的结果与要点所写，只引用其中的数值；原因需要进一步拆解确认")} /></div>
+      {lead ? <p className="av-narrative__lead">{lead}</p> : null}
+      {points.length ? <ul className="av-narrative__points">{points.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+      {follow ? <button type="button" className="av-narrative__follow" disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); onPick(follow); }}><Icon name="arrow" small />{follow}</button> : null}
+    </section>
+  );
+}
+
+/** 深入分析：把同一个问题交给分析智能体，产出带归因与依据的报告。 */
+function DeepenButton({ question }: { question: string }) {
+  const navigate = useNavigate();
+  const start = useAction(() => unwrap(api.POST("/api/analysis/runs", { body: { question, confirmation_mode: "auto" } as never })), ["analysis-runs"]);
+  return (
+    <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={start.isPending}
+      onClick={(e) => { e.stopPropagation(); start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`) }); }}>
+      <Icon name="analysis" small />{start.isPending ? t("正在开始…") : t("深入分析")}</button>
   );
 }
 

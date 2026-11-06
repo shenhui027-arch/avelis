@@ -2350,3 +2350,45 @@ msgstr "篩選值「{original}」需要確認（維度：{dimension}）；目前
 
 msgid "可在维表中维护别名并建立关联路径。"
 msgstr "可在維度表中維護別名並建立關聯路徑。"
+
+msgid "{measure}合计为{value}。"
+msgstr "{measure}合計為{value}。"
+
+msgid "{category}的{measure}"
+msgstr "{category}的{measure}"
+
+msgid "{category}的{measure}最高，为{value}。"
+msgstr "{category}的{measure}最高，為{value}。"
+
+msgid "{category}的{measure}最低，为{value}。"
+msgstr "{category}的{measure}最低，為{value}。"
+
+msgid "{category}的{measure}占合计的{share}。"
+msgstr "{category}的{measure}占合計的{share}。"
+
+msgid "{category}的{measure}占合计的{share}；前 {count} 项合计占{combined_share}。"
+msgstr "{category}的{measure}占合計的{share}；前 {count} 項合計占{combined_share}。"
+
+msgid "{period}的成员间差距最大，{high}与{low}的{measure}相差{value}。"
+msgstr "{period}的成員間差距最大，{high}與{low}的{measure}相差{value}。"
+
+msgid "{measure}从{previous_label}的{previous}变为{current_label}的{current}，变化{change}，变化率为{rate}。"
+msgstr "{measure}從{previous_label}的{previous}變為{current_label}的{current}，變化{change}，變化率為{rate}。"
+
+msgid "{measure}从{previous_label}的{previous}变为{current_label}的{current}，变化{change}；基期为零，无法计算变化率。"
+msgstr "{measure}從{previous_label}的{previous}變為{current_label}的{current}，變化{change}；基期為零，無法計算變化率。"
+
+msgid "{kind} 不支持 marks；请省略 marks。"
+msgstr "{kind} 不支援 marks；請省略 marks。"
+
+msgid "pareto 只支持 value_desc 排序；请省略 sort 或使用 value_desc。"
+msgstr "pareto 僅支援 value_desc 排序；請省略 sort 或使用 value_desc。"
+
+msgid "waterfall 按变化绝对值降序排列；请省略 sort。"
+msgstr "waterfall 按變化絕對值遞減排列；請省略 sort。"
+
+msgid "累计占比"
+msgstr "累計占比"
+
+msgid "图表偏好无效：{reason}；可选 kind：{available}"
+msgstr "圖表偏好無效：{reason}；可選 kind：{available}"

@@ -3,7 +3,8 @@
 import { t } from "../../i18n";
 import { formatAxis, formatValue, type NumberStyle, type UnitMeta } from "../../numbers";
 
-export type ChartKind = "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples";
+export type ChartKind = "kpi" | "line" | "area" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples"
+  | "combo" | "pareto" | "waterfall" | "heatmap" | "scatter";
 export type ChartSeries = { name: string; column: string; label: string; axis: number; mark: "bar" | "line";
   unit: UnitMeta; polarity: "up_good" | "down_good" | null; values: (number | null)[]; other?: boolean };
 type Polarity = ChartSeries["polarity"];
@@ -17,7 +18,16 @@ export type ChartSpec = { kind: ChartKind; orientation: "vertical" | "horizontal
   /** 模型经 chart 工具要求的标注：极值点与平均线，后端已按所示数据算好（series_index 指向 series 的下标）。 */
   marks?: ChartMark[] | null;
   /** 要突出的类目（完整显示值）；其余类目弱化。 */
-  highlight?: string[] | null };
+  highlight?: string[] | null;
+  /** 帕累托：与类目对齐的累计占比（0–1）。 */
+  cumulative?: (number | null)[] | null;
+  /** 瀑布：起点（上期合计）与终点（本期合计）；中间各柱为 series[0] 的变化量。 */
+  waterfall?: { start: { label: string; value: number | null }; end: { label: string; value: number | null } } | null;
+  /** 热力：categories 为横轴（时间），y_categories 为纵轴成员，cells 为 [横下标, 纵下标, 值]。 */
+  heatmap?: { y: { column: string; label: string }; y_categories: (string | number | null)[];
+    cells: [number, number, number | null][]; min: number | null; max: number | null } | null;
+  /** 散点：series 依次为横轴、纵轴与（可选）气泡大小的度量。 */
+  points?: { name: string; x: number | null; y: number | null; size: number | null }[] | null };
 export type ChartMark = { type: "max" | "min" | "average"; series: string; series_index: number;
   x: string | number | null; value: number | null };
 
@@ -56,7 +66,25 @@ export function chartHeight(spec: ChartSpec): number {
   if (spec.kind === "multiples") return spec.series.length * 150 + 24;
   if (spec.orientation === "horizontal") return Math.max(160, spec.categories.length * (spec.series.length > 1 ? 40 : 28) + 56);
   if (spec.kind === "donut") return 260;
+  if (spec.kind === "heatmap") return Math.max(200, (spec.heatmap?.y_categories.length ?? 4) * 28 + 96);
+  if (spec.kind === "scatter") return 320;
   return 280;
+}
+
+/** #rrggbb / #rgb → rgba；其他写法（如 rgb()）原样返回，交给调用方用整体透明度兜底。 */
+export function fade(color: string, alpha: number): string {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const hex = m[1].length === 3 ? m[1].split("").map((c) => c + c).join("") : m[1];
+  const n = parseInt(hex, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** 面积的纵向渐变：线下由浓到无，比单色淡填充更有层次。 */
+function areaFill(color: string, strength: number): Option {
+  if (fade(color, 0) === color) return { opacity: strength * 0.5 };
+  return { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [{ offset: 0, color: fade(color, strength) }, { offset: 1, color: fade(color, 0) }] } };
 }
 
 function axisLabel(theme: ChartTheme) {
@@ -77,7 +105,7 @@ function tooltip(spec: ChartSpec, style: NumberStyle, theme: ChartTheme, trigger
   return {
     trigger, confine: true, backgroundColor: theme.surface, borderColor: theme.grid, padding: [8, 10],
     textStyle: { color: theme.text, fontFamily: theme.font, fontSize: 12 },
-    axisPointer: { type: trigger === "axis" && spec.kind === "line" ? "line" : "shadow", lineStyle: { color: theme.axis } },
+    axisPointer: { type: trigger === "axis" && (spec.kind === "line" || spec.kind === "area") ? "line" : "shadow", lineStyle: { color: theme.axis } },
     formatter: (params: unknown) => {
       const items = (Array.isArray(params) ? params : [params]) as { seriesIndex: number; dataIndex: number; marker: string; name: string; seriesName: string; value: unknown; percent?: number }[];
       if (!items.length) return "";
@@ -198,10 +226,17 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
         itemStyle: s.mark === "bar" ? { borderRadius: [4, 4, 0, 0] } : undefined, ...markOptions(spec, i, style, theme, false) })) };
   }
 
+  if (spec.kind === "heatmap" && spec.heatmap) return heatmapOption(spec, spec.heatmap, base, style, theme);
+  if (spec.kind === "scatter" && spec.points) return scatterOption(spec, spec.points, base, style, theme);
+  if (spec.kind === "waterfall" && spec.waterfall) return waterfallOption(spec, spec.waterfall, base, style, theme);
+  if (spec.kind === "pareto" && spec.cumulative) return paretoOption(spec, spec.cumulative, base, style, theme);
+  if (spec.kind === "combo" && spec.series.length >= 2) return comboOption(spec, base, style, theme);
+
   const negative = spec.series.some((s) => s.values.some((v) => v != null && v < 0));
   const grid = { left: 8, right: horizontal ? 64 : 16, top, bottom: many ? 48 : 8, containLabel: true };
-  const cats = categoryAxis(spec, theme, horizontal ? { inverse: true } : { boundaryGap: spec.kind !== "line" });
-  const labelled = spec.series.length === 1 && spec.categories.length <= 20 && spec.kind !== "line";
+  const lineLike = spec.kind === "line" || spec.kind === "area";
+  const cats = categoryAxis(spec, theme, horizontal ? { inverse: true } : { boundaryGap: !lineLike });
+  const labelled = spec.series.length === 1 && spec.categories.length <= 20 && !lineLike;
   // 负值的数值标注在条形外侧：数值轴向负方向留出余量，最长的负值条不顶到边，标注不压住类目轴文字
   const vals = valueAxis(unit, style, theme, labelled && negative ? { boundaryGap: ["18%", 0] } : {});
   const dataZoom = many && !horizontal ? [{ type: "inside" }, { type: "slider", height: 18, bottom: 8, borderColor: theme.grid,
@@ -209,12 +244,15 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
 
   const series = spec.series.map((s, i) => {
     const color = seriesColor(spec, i, theme);
-    if (spec.kind === "line") {
+    if (spec.kind === "line" || spec.kind === "area") {
       const marks = showMarks(s.values, spec.categories.length);
       const data = spec.highlight?.length ? linePoints(spec, s.values) : s.values;
+      // 单条折线与面积图带纵向渐变；面积图多系列时每条都淡一些，互相不遮挡
+      const fill = spec.kind === "area" ? areaFill(color, spec.series.length > 1 ? 0.22 : 0.38)
+        : spec.series.length === 1 ? areaFill(color, 0.24) : undefined;
       return { type: "line", name: s.name, data, color, connectNulls: false, showSymbol: marks || !!spec.highlight?.length, symbolSize: 8,
-        lineStyle: { width: 2 }, itemStyle: { borderColor: theme.surface, borderWidth: 2 },
-        areaStyle: spec.series.length === 1 ? { opacity: 0.1 } : undefined, emphasis: { focus: "series" },
+        lineStyle: { width: spec.kind === "area" ? 2.5 : 2 }, itemStyle: { borderColor: theme.surface, borderWidth: 2 },
+        areaStyle: fill, emphasis: { focus: "series" },
         ...markOptions(spec, i, style, theme, false) };
     }
     const diverging = spec.kind === "diverging_bar";
@@ -232,4 +270,172 @@ export function chartOption(spec: ChartSpec, style: NumberStyle, theme: ChartThe
 
   return { ...base, grid, legend: legend(spec, theme), tooltip: tooltip(spec, style, theme, "axis"), dataZoom,
     xAxis: horizontal ? vals : cats, yAxis: horizontal ? cats : vals, series };
+}
+
+// ---- 新图种：热力、散点、瀑布、帕累托、柱线组合。数据都来自规格，这里只决定怎么画。 ----
+
+function tipBox(theme: ChartTheme): Option {
+  return { confine: true, backgroundColor: theme.surface, borderColor: theme.grid, padding: [8, 10],
+    textStyle: { color: theme.text, fontFamily: theme.font, fontSize: 12 } };
+}
+
+function tipHead(text: string): string {
+  return `<div style="font-weight:500;margin-bottom:4px">${escape(text)}</div>`;
+}
+
+function tipRow(label: string, value: string, theme: ChartTheme): string {
+  return `${escape(label)}<span style="float:right;margin-left:16px;font-family:${theme.mono}">${escape(value)}</span>`;
+}
+
+function signed(value: number | null, unit: UnitMeta, style: NumberStyle): string {
+  return value != null && value > 0 ? `+${formatValue(value, unit, style)}` : formatValue(value, unit, style);
+}
+
+/** 热力：时间 × 成员，颜色由浅到品牌色，格子之间留缝。 */
+function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, base: Option, style: NumberStyle, theme: ChartTheme): Option {
+  const s = spec.series[0];
+  const unit = s?.unit ?? {};
+  const color = theme.series[0];
+  const xs = spec.categories.map(category);
+  const ys = h.y_categories.map(category);
+  const low = h.min ?? 0;
+  const high = h.max != null && h.max !== low ? h.max : low + 1;
+  return { ...base,
+    tooltip: { ...tipBox(theme), trigger: "item", formatter: (p: { value: [number, number, number | string] }) => {
+      const [i, j, v] = p.value;
+      return tipHead(`${ys[j]} · ${xs[i]}`) + tipRow(s?.name ?? "", formatValue(typeof v === "number" ? v : null, unit, style), theme);
+    } },
+    grid: { left: 8, right: 16, top: 8, bottom: 48, containLabel: true },
+    xAxis: { type: "category", data: xs, axisLabel: axisLabel(theme), axisLine: { show: false }, axisTick: { show: false }, splitArea: { show: false } },
+    yAxis: { type: "category", data: ys, inverse: true, axisLabel: { ...axisLabel(theme), width: 120, overflow: "truncate" },
+      axisLine: { show: false }, axisTick: { show: false } },
+    visualMap: { type: "continuous", min: low, max: high, calculable: false, orient: "horizontal", left: "center", bottom: 0,
+      itemWidth: 10, itemHeight: 160, text: [formatAxis(high, unit, style), formatAxis(low, unit, style)],
+      textStyle: { color: theme.muted, fontFamily: theme.font, fontSize: 11 },
+      inRange: { color: [fade(color, 0.08), fade(color, 0.5), color] } },
+    series: [{ type: "heatmap", name: s?.name, data: h.cells.map(([i, j, v]) => [i, j, v ?? "-"]),
+      itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 4 },
+      emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } } }] };
+}
+
+/** 散点 / 气泡：横纵轴各是一个度量，第三个度量决定气泡大小（面积与值成正比）。 */
+function scatterOption(spec: ChartSpec, points: NonNullable<ChartSpec["points"]>, base: Option, style: NumberStyle, theme: ChartTheme): Option {
+  const [sx, sy, ss] = spec.series;
+  const color = theme.series[0];
+  const biggest = Math.max(0, ...points.map((p) => Math.abs(p.size ?? 0)));
+  const radius = (size: number | null) => ss && biggest && size != null ? 10 + 30 * Math.sqrt(Math.abs(size) / biggest) : 12;
+  const name = (text: string | undefined) => ({ name: text ?? "", nameTextStyle: { color: theme.muted, fontFamily: theme.font, fontSize: 11 } });
+  const labelled = points.length <= 15;
+  return { ...base,
+    tooltip: { ...tipBox(theme), trigger: "item", formatter: (p: { dataIndex: number }) => {
+      const point = points[p.dataIndex];
+      if (!point) return "";
+      return tipHead(point.name) + [tipRow(sx?.name ?? "", formatValue(point.x, sx?.unit, style), theme),
+        tipRow(sy?.name ?? "", formatValue(point.y, sy?.unit, style), theme),
+        ss ? tipRow(ss.name, formatValue(point.size, ss.unit, style), theme) : ""].filter(Boolean).join("<br/>");
+    } },
+    grid: { left: 8, right: 24, top: 28, bottom: 28, containLabel: true },
+    xAxis: valueAxis(sx?.unit ?? {}, style, theme, { scale: true, nameLocation: "middle", nameGap: 26, ...name(sx?.name) }),
+    yAxis: valueAxis(sy?.unit ?? {}, style, theme, { scale: true, ...name(sy?.name) }),
+    series: [{ type: "scatter", data: points.map((p, i) => ({ name: p.name, value: [p.x, p.y],
+      symbolSize: radius(p.size),
+      itemStyle: { color: fade(color, 0.55), borderColor: color, borderWidth: 1.5,
+        opacity: spec.highlight?.length && !spec.highlight.includes(p.name) ? DIM : 1 },
+      label: labelled ? { show: true, position: "right", formatter: p.name, color: theme.muted, fontFamily: theme.font, fontSize: 11 } : undefined,
+      z: points.length - i })),
+      emphasis: { focus: "self", itemStyle: { color } } }] };
+}
+
+/** 瀑布：上期合计 → 各成员的增减（浮动柱）→ 本期合计。累计跨到负值时退回为变化条。 */
+function waterfallOption(spec: ChartSpec, w: NonNullable<ChartSpec["waterfall"]>, base: Option, style: NumberStyle, theme: ChartTheme): Option {
+  const s = spec.series[0];
+  const unit = s?.unit ?? {};
+  const deltas = s?.values ?? [];
+  const floor: (number | null)[] = [0];
+  let run = w.start.value ?? 0;
+  for (const d of deltas) {
+    floor.push(d == null ? null : d >= 0 ? run : run + d);
+    run += d ?? 0;
+  }
+  floor.push(0);
+  if ((w.start.value ?? 0) < 0 || (w.end.value ?? 0) < 0 || floor.some((v) => v != null && v < 0)) {
+    return chartOption({ ...spec, kind: "diverging_bar", waterfall: null }, style, theme);
+  }
+  // 期望方向已知时增减按好坏着色；未知时增为绿、减为红，只表示方向
+  const tone = (d: number) => s?.polarity ? changeColor(d, s.polarity, theme) : d >= 0 ? theme.series[1] : theme.series[3];
+  const cats = [w.start.label, ...spec.categories.map(category), w.end.label];
+  const bars = [
+    { value: w.start.value, delta: null as number | null, itemStyle: { color: theme.neutral, opacity: 1 } },
+    ...deltas.map((d, j) => ({ value: d == null ? null : Math.abs(d), delta: d,
+      itemStyle: { color: d == null || (spec.others && j === deltas.length - 1) ? theme.neutral : tone(d), opacity: dimmed(spec, j) ? DIM : 1 } })),
+    { value: w.end.value, delta: null as number | null, itemStyle: { color: theme.series[0], opacity: 1 } },
+  ];
+  const text = (i: number) => i === 0 || i === bars.length - 1 ? formatValue(bars[i].value, unit, style) : signed(bars[i].delta, unit, style);
+  return { ...base,
+    tooltip: { ...tipBox(theme), trigger: "axis", axisPointer: { type: "shadow" }, formatter: (params: unknown) => {
+      const p = (Array.isArray(params) ? params : [params])[0] as { dataIndex: number } | undefined;
+      return p ? tipHead(cats[p.dataIndex]) + tipRow(s?.name ?? "", text(p.dataIndex), theme) : "";
+    } },
+    grid: { left: 8, right: 16, top: 24, bottom: 8, containLabel: true },
+    xAxis: categoryAxis({ ...spec, categories: cats }, theme),
+    yAxis: valueAxis(unit, style, theme),
+    series: [
+      { type: "bar", stack: "waterfall", data: floor, itemStyle: { color: "transparent" }, silent: true, tooltip: { show: false },
+        emphasis: { disabled: true } },
+      { type: "bar", stack: "waterfall", name: s?.name, barMaxWidth: 32, data: bars.map(({ value, itemStyle }) => ({ value, itemStyle })),
+        itemStyle: { borderRadius: 4 },
+        label: { show: cats.length <= 16, position: "top", color: theme.muted, fontFamily: theme.mono, fontSize: 11,
+          formatter: (p: { dataIndex: number }) => text(p.dataIndex) } },
+    ] };
+}
+
+/** 帕累托：降序柱 + 累计占比折线（右轴 0–100%），80% 处一条参考虚线。 */
+function paretoOption(spec: ChartSpec, cumulative: (number | null)[], base: Option, style: NumberStyle, theme: ChartTheme): Option {
+  const s = spec.series[0];
+  const color = seriesColor(spec, 0, theme);
+  const share = t("累计占比");
+  return { ...base,
+    legend: { top: 0, left: 0, icon: "roundRect", itemWidth: 10, itemHeight: 10, itemGap: 16, data: [s?.name ?? "", share],
+      textStyle: { color: theme.text, fontFamily: theme.font, fontSize: 12 } },
+    tooltip: { ...tipBox(theme), trigger: "axis", axisPointer: { type: "shadow" }, formatter: (params: unknown) => {
+      const p = (Array.isArray(params) ? params : [params])[0] as { dataIndex: number; name: string } | undefined;
+      if (!p) return "";
+      const c = cumulative[p.dataIndex];
+      return tipHead(p.name) + tipRow(s?.name ?? "", formatValue(s?.values[p.dataIndex] ?? null, s?.unit, style), theme) + "<br/>" +
+        tipRow(share, c == null ? "—" : `${(c * 100).toFixed(1)}%`, theme);
+    } },
+    grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
+    xAxis: categoryAxis(spec, theme),
+    yAxis: [valueAxis(s?.unit ?? {}, style, theme),
+      { type: "value", min: 0, max: 1, splitNumber: 4, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { ...axisLabel(theme), formatter: (v: number) => `${Math.round(v * 100)}%` } }],
+    series: [
+      { type: "bar", name: s?.name, barMaxWidth: BAR, color, data: (s?.values ?? []).map((v, j) => ({ value: v, itemStyle: {
+        color: spec.others && j === spec.categories.length - 1 ? theme.neutral : color, opacity: dimmed(spec, j) ? DIM : 1,
+        borderRadius: [4, 4, 0, 0] } })) },
+      { type: "line", name: share, yAxisIndex: 1, data: cumulative, color: theme.series[2], symbolSize: 6, lineStyle: { width: 2 },
+        itemStyle: { borderColor: theme.surface, borderWidth: 2 },
+        markLine: { symbol: "none", silent: true, lineStyle: { color: theme.muted, type: "dashed", width: 1 },
+          label: { color: theme.muted, fontFamily: theme.font, fontSize: 11, formatter: "80%", position: "insideEndTop" }, data: [{ yAxis: 0.8 }] } },
+    ] };
+}
+
+/** 柱线组合：mark 决定画法，axis 决定左右轴；两个单位不同的度量放在一张图里对照。 */
+function comboOption(spec: ChartSpec, base: Option, style: NumberStyle, theme: ChartTheme): Option {
+  const axes = Math.min(2, Math.max(...spec.series.map((s) => s.axis)) + 1);
+  const unitOf = (axis: number) => spec.series.find((s) => s.axis === axis)?.unit ?? {};
+  const yAxis = Array.from({ length: axes }, (_, i) => valueAxis(unitOf(i), style, theme, i ? { splitLine: { show: false } } : {}));
+  return { ...base, grid: { left: 8, right: 16, top: 36, bottom: 8, containLabel: true },
+    legend: legend(spec, theme), tooltip: tooltip(spec, style, theme, "axis"),
+    xAxis: categoryAxis(spec, theme), yAxis,
+    series: spec.series.map((s, i) => {
+      const color = seriesColor(spec, i, theme);
+      const axis = Math.min(s.axis, axes - 1);
+      return s.mark === "line"
+        ? { type: "line", name: s.name, yAxisIndex: axis, data: s.values, color, symbolSize: 7, lineStyle: { width: 2.5 },
+          itemStyle: { borderColor: theme.surface, borderWidth: 2 }, z: 3, ...markOptions(spec, i, style, theme, false) }
+        : { type: "bar", name: s.name, yAxisIndex: axis, barMaxWidth: BAR, color,
+          data: s.values.map((v, j) => ({ value: v, itemStyle: { color, opacity: dimmed(spec, j) ? DIM : 1, borderRadius: [4, 4, 0, 0] } })),
+          ...markOptions(spec, i, style, theme, false) };
+    }) };
 }
