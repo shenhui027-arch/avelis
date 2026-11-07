@@ -177,4 +177,11 @@ def test_future_delta_only_projection_splits_of_ratio_panels(monkeypatch, tempor
     assert [s["axis"] for s in specs[0]["series"]] == [0, 1]
     drawing = export._spec_chart(specs[0], export.pdf_font()[0])
     assert drawing.height > 0
-    assert all(chart["kind"] == "multiples" or len(chart["series"]) == 1 for chart in specs)
+    assert all(
+        chart["kind"] == "multiples" or len(chart["series"]) == 1
+        for chart in specs
+        if chart["kind"] not in {"combo", "scatter"}
+    )
+    for chart in specs:
+        if chart["kind"] == "combo":
+            assert [series["axis"] for series in chart["series"]] == [0, 1]

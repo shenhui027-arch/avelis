@@ -1292,8 +1292,18 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
             panel.translate(0, offset)
             drawing.add(panel)
     else:
-        horizontal = spec["orientation"] == "horizontal" and kind != "line"
+        horizontal = spec["orientation"] == "horizontal" and kind not in (
+            "line",
+            "area",
+            "combo",
+            "pareto",
+            "waterfall",
+            "heatmap",
+            "scatter",
+        )
         height = (max(100, len(spec["categories"]) * 19 + 60) if horizontal and kind != "donut" else 190) + header
+        if kind == "heatmap":
+            height = max(190, len(spec["heatmap"]["y_categories"]) * 22 + 75) + header
         if kind == "kpi":
             height = max(45, len(spec["kpis"]) * 22 + 10) + header
         drawing = Drawing(width, height)
@@ -1327,6 +1337,143 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
     def category_color(category, color):
         return color if not highlight or category_label(category) in highlight else VIZ_DIM
 
+    if kind == "heatmap":
+        heatmap = spec["heatmap"]
+        members = heatmap["y_categories"]
+        if not members:
+            return drawing
+        left, right, bottom, top = 105, width - 10, 45, height - header - 25
+        cell_width, cell_height = (right - left) / len(categories), (top - bottom) / len(members)
+        low, high = heatmap["min"], heatmap["max"]
+        for x_index, y_index, value in heatmap["cells"]:
+            if not (0 <= x_index < len(categories) and 0 <= y_index < len(members)):
+                continue
+            # 突出某些期间时其余期间用弱化色，与页面和图下说明一致
+            color = VIZ_DIM if value is None else category_color(categories[x_index], VIZ_PALETTE[0])
+            cell = Rect(
+                left + x_index * cell_width,
+                top - (y_index + 1) * cell_height,
+                cell_width,
+                cell_height,
+                fillColor=HexColor(color),
+                strokeColor=HexColor("#ffffff"),
+                strokeWidth=0.6,
+            )
+            cell.fillOpacity = 1 if value is None else 0.2 + 0.8 * ((value - low) / (high - low) if high != low else 1)
+            drawing.add(cell)
+            if len(categories) <= 8:
+                text(
+                    left + (x_index + 0.5) * cell_width,
+                    top - (y_index + 0.5) * cell_height - 2,
+                    _formatted(value, series[0]["unit"]),
+                    anchor="middle",
+                    color=DARK,
+                    size=6,
+                )
+        for index, member in enumerate(members):
+            text(left - 7, top - (index + 0.5) * cell_height - 2, member, anchor="end", limit=left - 10)
+        for index, category in enumerate(categories):
+            if index % max(1, math.ceil(len(categories) / 8)) == 0:
+                text(left + (index + 0.5) * cell_width, bottom - 13, category, anchor="middle", limit=55)
+        text(left, 15, series[0]["name"], color=VIZ_PALETTE[0], limit=width - left)
+        return drawing
+    if kind == "scatter":
+        points = [point for point in spec["points"] if point["x"] is not None and point["y"] is not None]
+        if not points:
+            return drawing
+        left, right, bottom, top = 64, width - 25, 45, height - header - 25
+        axes = []
+        for column in ("x", "y"):
+            low, high = min(point[column] for point in points), max(point[column] for point in points)
+            if low == high:
+                low, high = min(0, low), max(0, high) or 1
+                if low == high:
+                    high = low + 1
+            ticks = _nice_ticks(low, high)
+            axes.append((ticks[0], ticks[-1], ticks))
+
+        def position(value, axis):
+            low, high, _ = axes[axis]
+            start, end = (left, right) if axis == 0 else (bottom, top)
+            return start + (value - low) / (high - low) * (end - start)
+
+        for axis, (_, _, ticks) in enumerate(axes):
+            for tick in ticks:
+                pos = position(tick, axis)
+                if axis == 0:
+                    drawing.add(Line(pos, bottom, pos, top, strokeColor=HexColor(LINE), strokeWidth=0.4))
+                    text(pos, bottom - 13, _axis_label(tick, series[0]["unit"]), anchor="middle")
+                else:
+                    drawing.add(Line(left, pos, right, pos, strokeColor=HexColor(LINE), strokeWidth=0.4))
+                    text(left - 5, pos - 2, _axis_label(tick, series[1]["unit"]), anchor="end")
+        # 与页面一致：气泡面积按大小度量的绝对值，负值同样按量级画
+        max_size = max([0, *(abs(point.get("size") or 0) for point in points)])
+        for point in points:
+            x, y = position(point["x"], 0), position(point["y"], 1)
+            radius = 3 + (7 * math.sqrt(abs(point.get("size") or 0) / max_size) if max_size else 0)
+            drawing.add(
+                Circle(x, y, radius, fillColor=HexColor(category_color(point["name"], colors[0])), strokeColor=None)
+            )
+            if len(points) <= 12:
+                text(x, y + radius + 3, point["name"], anchor="middle", size=6, limit=65)
+        text(left, 15, series[0]["name"], color=colors[0], limit=(right - left) / 2)
+        text(right, top + 7, series[1]["name"], anchor="end", color=colors[1], limit=(right - left) / 2)
+        return drawing
+    if kind == "waterfall":
+        endpoints = spec["waterfall"]
+        categories = [endpoints["start"]["label"], *categories, endpoints["end"]["label"]]
+        levels = [endpoints["start"]["value"]]
+        for value in series[0]["values"]:
+            levels.append(levels[-1] + (value or 0))
+        values = [endpoints["start"]["value"], *series[0]["values"], endpoints["end"]["value"]]
+        low, high = min([0, *levels, values[-1]]), max([0, *levels, values[-1]])
+        ticks = _nice_ticks(low, high if high != low else low + 1)
+        left, right, bottom, top = 64, width - 25, 45, height - header - 25
+        band = (right - left) / len(categories)
+
+        def level_position(value):
+            return bottom + (value - ticks[0]) / (ticks[-1] - ticks[0]) * (top - bottom)
+
+        level_unit = {**series[0]["unit"], "kind": "level"}
+        for tick in ticks:
+            y = level_position(tick)
+            drawing.add(Line(left, y, right, y, strokeColor=HexColor(LINE), strokeWidth=0.4))
+            text(left - 5, y - 2, _axis_label(tick, level_unit), anchor="end")
+        for index, (category, value) in enumerate(zip(categories, values, strict=True)):
+            value = value or 0
+            endpoint = index in (0, len(categories) - 1)
+            start = 0 if endpoint else levels[index - 1]
+            end = value if endpoint else levels[index]
+            x, a, b = left + (index + 0.15) * band, level_position(start), level_position(end)
+            good = (value >= 0) != (series[0].get("polarity") == "down_good")
+            color = colors[0] if endpoint else POSITIVE if good else NEGATIVE
+            drawing.add(Rect(x, min(a, b), band * 0.7, abs(b - a), fillColor=HexColor(color), strokeColor=None))
+            text(
+                x + band * 0.35,
+                max(a, b) + 4,
+                _formatted(value, level_unit if endpoint else series[0]["unit"]),
+                anchor="middle",
+                size=6,
+            )
+            if index < len(categories) - 1:
+                drawing.add(Line(x + band * 0.7, b, x + band, b, strokeColor=HexColor(GRAY), strokeWidth=0.5))
+            text(x + band * 0.35, bottom - 13, category, anchor="middle", limit=max(20, band - 3))
+        text(left, 15, series[0]["name"], color=colors[0], limit=width - left)
+        return drawing
+    if kind == "pareto":
+        series = [
+            series[0],
+            {
+                **series[0],
+                "name": gettext("累计占比"),
+                "mark": "line",
+                "axis": 1,
+                "values": spec["cumulative"],
+                "unit": {"kind": "share"},
+            },
+        ]
+        spec = {**spec, "series": series}
+        colors = [*colors, VIZ_PALETTE[1]]
     if kind == "donut":
         values = series[0]["values"]
         total = sum(v or 0 for v in values)
@@ -1367,7 +1514,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
         drawing.add(Circle(cx, cy, radius * 0.57, fillColor=HexColor("#ffffff"), strokeColor=None))
         return drawing
     # 所有值保持规格的原始单位；刻度与标注统一交给 grounding.display 换算。
-    values = [v for s in series for v in s["values"] if v is not None]
+    dual_axis = kind in ("combo", "pareto")
+    values = [v for s in (series[:1] if dual_axis else series) for v in s["values"] if v is not None]
     lo, hi = min([0, *values]), max([0, *values])
     if kind == "stacked_bar":
         lo = min([0, *(sum(min(0, s["values"][i] or 0) for s in series) for i in range(len(categories)))])
@@ -1376,7 +1524,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
         hi = lo + 1
     ticks = _nice_ticks(lo, hi)
     lo, hi = ticks[0], ticks[-1]
-    labelled = kind != "line" and len(categories) <= 20
+    labelled = kind not in ("line", "area") and len(categories) <= 20
     if horizontal and labelled:
         # 条形末端外侧要放数值标注：两端各留出一段空白，标注不压到类目名或越出画布。
         pad = (hi - lo) * 0.14
@@ -1389,6 +1537,19 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
             (right - left) if horizontal else (top - bottom)
         )
 
+    secondary_ticks = []
+    if dual_axis:
+        secondary_values = [v for v in series[1]["values"] if v is not None]
+        secondary_lo, secondary_hi = min([0, *secondary_values]), max([0, *secondary_values])
+        if secondary_lo == secondary_hi:
+            secondary_hi = secondary_lo + 1
+        secondary_ticks = _nice_ticks(secondary_lo, secondary_hi)
+
+    def series_coordinate(value, index):
+        if not dual_axis or not index:
+            return coordinate(value)
+        return bottom + (value - secondary_ticks[0]) / (secondary_ticks[-1] - secondary_ticks[0]) * (top - bottom)
+
     for tick in ticks:
         pos = coordinate(tick)
         label = _axis_label(tick, series[0]["unit"])
@@ -1398,6 +1559,8 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
         else:
             drawing.add(Line(left, pos, right, pos, strokeColor=HexColor(LINE), strokeWidth=0.4))
             text(left - 5, pos - 2, label, anchor="end")
+    for tick in secondary_ticks:
+        text(right + 5, series_coordinate(tick, 1) - 2, _axis_label(tick, series[1]["unit"]))
     band = ((top - bottom) if horizontal else (right - left)) / len(categories)
     for i, category in enumerate(categories):
         center = top - band * (i + 0.5) if horizontal else left + band * (i + 0.5)
@@ -1418,13 +1581,22 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                 good = (value >= 0) == (polarity == "up_good")
                 color = (POSITIVE if good else NEGATIVE) if polarity else VIZ_NEUTRAL
             color = category_color(category, color)
-            if kind == "line":
-                x, y = center, coordinate(value)
+            if kind in ("line", "area") or (dual_axis and s["mark"] == "line"):
+                x, y = center, series_coordinate(value, j)
                 if i and s["values"][i - 1] is not None:
+                    previous_y = series_coordinate(s["values"][i - 1], j)
+                    if kind == "area":
+                        fill = Polygon(
+                            [x - band, coordinate(0), x - band, previous_y, x, y, x, coordinate(0)],
+                            fillColor=HexColor(color),
+                            strokeColor=None,
+                        )
+                        fill.fillOpacity = 0.15
+                        drawing.add(fill)
                     drawing.add(
                         Line(
                             x - band,
-                            coordinate(s["values"][i - 1]),
+                            previous_y,
                             x,
                             y,
                             strokeColor=HexColor(category_color(categories[i - 1], color)),
@@ -1467,14 +1639,14 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                     negative += value
                 breadth, position = band * 0.65, center - band * 0.325
             else:
-                breadth = band * 0.7 / len(series)
-                position = center - band * 0.35 + j * breadth
-            a, b = coordinate(start), coordinate(start + value)
+                breadth = band * 0.7 / (1 if dual_axis else len(series))
+                position = center - band * 0.35 + (0 if dual_axis else j) * breadth
+            a, b = series_coordinate(start, j), series_coordinate(start + value, j)
             if horizontal:
                 drawing.add(
                     Rect(min(a, b), position, abs(b - a), breadth * 0.9, fillColor=HexColor(color), strokeColor=None)
                 )
-                if labelled and len(series) == 1:
+                if labelled and (len(series) == 1 or dual_axis):
                     text(
                         b + (3 if value >= 0 else -3),
                         position + 2,
@@ -1487,7 +1659,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
                 drawing.add(
                     Rect(position, min(a, b), breadth * 0.9, abs(b - a), fillColor=HexColor(color), strokeColor=None)
                 )
-                if labelled and len(series) == 1:
+                if labelled and (len(series) == 1 or dual_axis):
                     text(
                         position + breadth / 2,
                         b + (3 if value >= 0 else -8),
@@ -1509,7 +1681,7 @@ def _spec_chart_data(spec: dict, font: str, *, title: str | None = None, width: 
             # 堆叠图上平均线画不到本段的位置（会落进其他系列）；平均值已在图下注释里列出
             if mark["type"] != "average" or kind == "stacked_bar":
                 continue
-            position = coordinate(mark["value"])
+            position = series_coordinate(mark["value"], index)
             a, b = ((position, bottom), (position, top)) if horizontal else ((left, position), (right, position))
             drawing.add(Line(*a, *b, strokeColor=HexColor(colors[index]), strokeWidth=1, strokeDashArray=[4, 3]))
             label = _formatted(mark["value"], s["unit"])
@@ -1580,6 +1752,11 @@ def _display_figure(figure: dict, dataset: dict, *, brief: bool) -> dict:
 
 def _mermaid_chart(figure: dict) -> list[str]:
     spec = figure["chart"]
+    if spec["kind"] == "area":
+        spec = {**spec, "kind": "line"}
+    elif spec["kind"] == "pareto":
+        # Mermaid 没有双轴；输出原始度量的柱图，累计占比仍可在完整导出中查看。
+        spec = {**spec, "kind": "bar"}
     if spec["kind"] == "multiples":
         return [
             line

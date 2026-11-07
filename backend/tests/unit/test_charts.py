@@ -12,6 +12,8 @@ from avelis.api.schemas import ChartSpec
 from avelis.charts import recommend
 from avelis.i18n import locale_context
 
+LEGACY_KINDS = {"kpi", "line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"}
+
 
 def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, units=None, polarity=None):
     kinds = kinds or {"value": "level"}
@@ -31,7 +33,7 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
     for spec in result:
         assert ChartSpec.model_validate(spec).model_dump(mode="json") == spec
         json.dumps(spec, allow_nan=False)
-        assert set(spec) == {
+        expected_fields = {
             "kind",
             "title",
             "orientation",
@@ -46,7 +48,16 @@ def charts(columns, rows, *, dimensions=(), time=None, kinds=None, intent=None, 
             "marks",
             "highlight",
         }
-        if spec["kind"] != "kpi":
+        expected_fields |= {
+            "pareto": {"cumulative"},
+            "waterfall": {"waterfall"},
+            "heatmap": {"heatmap"},
+            "scatter": {"points"},
+        }.get(spec["kind"], set())
+        assert set(spec) == expected_fields
+        if spec["kind"] == "heatmap":
+            assert len(spec["series"]) == 1 and spec["series"][0]["values"] == []
+        elif spec["kind"] != "kpi":
             assert all(len(s["values"]) == len(spec["categories"]) for s in spec["series"])
         if spec["reason"] != "time_by_dimension" or spec["others"] is None:
             assert all(s["other"] is False for s in spec["series"])
@@ -117,7 +128,8 @@ def test_incomplete_or_reordered_comparison_is_not_guessed():
 
 
 def test_time_series_sorts_period_strings_without_changing_them():
-    default, candidate = charts(["period", "value"], [["2026-7", "2"], ["2026-06", 1]], time="period")
+    result = charts(["period", "value"], [["2026-7", "2"], ["2026-06", 1]], time="period")
+    default, candidate = result[:2]
     assert default["kind"] == "line" and default["reason"] == "time_series"
     assert default["x"] == {"column": "period", "label": "月份", "role": "time", "grain": "month"}
     assert default["categories"] == ["2026-06", "2026-7"]
@@ -129,7 +141,8 @@ def test_time_series_sorts_period_strings_without_changing_them():
 @pytest.mark.parametrize("kind,candidate", [("level", "stacked_bar"), ("ratio", "grouped_bar")])
 def test_time_by_dimension_keeps_members_and_missing_cells(kind, candidate):
     rows = [["02", "乙", 2], ["01", "甲", 1], ["02", "甲", 3]]
-    default, alternate = charts(["t", "d", "value"], rows, dimensions=["d"], time="t", kinds={"value": kind})
+    result = charts(["t", "d", "value"], rows, dimensions=["d"], time="t", kinds={"value": kind})
+    default, alternate = result[:2]
     assert default["reason"] == "time_by_dimension"
     assert default["categories"] == ["01", "02"]
     assert [s["name"] for s in default["series"]] == ["乙", "甲"]
@@ -158,8 +171,8 @@ def test_time_by_many_members_merges_only_additive_units(kind):
         {"value": {"kind": kind, "additive": kind in {"level", "count", "delta", "share"}}},
         {},
     )
-    default, candidate = result
-    for spec in result:
+    default, candidate = result[:2]
+    for spec in (spec for spec in result if spec["kind"] in LEGACY_KINDS):
         assert ChartSpec.model_validate(spec).model_dump(mode="json") == spec
         assert all(s["other"] is False for s in spec["series"][:7])
     assert [s["name"] for s in default["series"][:7]] == [f"m{i}" for i in range(7, 0, -1)]
@@ -206,6 +219,7 @@ def test_same_units_multi_measure(temporal):
     assert default["orientation"] == ("vertical" if temporal else "horizontal")
     assert [s["name"] for s in default["series"]] == ["a", "b"]
     assert default["categories"] == ["01", "02"]
+    candidates = [spec for spec in candidates if spec["kind"] in LEGACY_KINDS]
     assert len(candidates) == int(temporal)
     if temporal:
         assert candidates[0]["kind"] == "grouped_bar"
@@ -225,7 +239,7 @@ def test_multiples_uses_one_panel_per_measure_and_caps_at_eight(temporal, differ
         },
         **{column: {"kind": "count", "unit": "人"} for column in measures[2:]},
     }
-    default, candidate = charts(
+    result = charts(
         ["x", *measures],
         [["02", *range(count)], ["01", *range(10, 10 + count)]],
         time="x" if temporal else None,
@@ -233,6 +247,7 @@ def test_multiples_uses_one_panel_per_measure_and_caps_at_eight(temporal, differ
         kinds={column: units[column]["kind"] for column in measures},
         units=units,
     )
+    default, candidate = result[:2]
     assert default["kind"] == "multiples" and default["orientation"] == "vertical"
     assert default["reason"] == candidate["reason"] == "multi_measure"
     assert default["dropped_series"] == max(0, count - 8)
@@ -249,11 +264,11 @@ def test_multiples_uses_one_panel_per_measure_and_caps_at_eight(temporal, differ
     assert candidate["series"][0]["values"] == [10.0, 0.0]
 
 
-def test_chart_schema_defaults_other_to_false_and_rejects_combo():
+def test_chart_schema_defaults_other_to_false_and_rejects_unknown_kind():
     spec = charts(["t", "value"], [["01", 1], ["02", 2]], time="t")[0]
     del spec["series"][0]["other"]
     assert ChartSpec.model_validate(spec).series[0].other is False
-    spec["kind"] = "combo"
+    spec["kind"] = "unknown"
     with pytest.raises(ValidationError, match="kind"):
         ChartSpec.model_validate(spec)
 
@@ -293,9 +308,10 @@ def test_nonadditive_ranking_and_multiple_measures_do_not_merge_other_categories
 def test_comparison_dimension_precedes_time_and_sorts_each_chart_independently():
     columns = ["t", "d", *comparison_columns("value")]
     rows = [["01", "a", 80, 300, -220, -0.7], ["02", "b", 20, 10, 10, 1]]
-    default, candidate = charts(
+    result = charts(
         columns, rows, time="t", dimensions=["d"], kinds=comparison_kinds("value"), polarity={"value": "down_good"}
     )
+    default, candidate = result[:2]
     assert default["kind"] == "diverging_bar" and default["orientation"] == "horizontal"
     assert default["reason"] == "change" and default["categories"] == ["b", "a"]
     assert default["series"][0]["values"] == [10.0, -220.0]
@@ -307,7 +323,9 @@ def test_comparison_dimension_precedes_time_and_sorts_each_chart_independently()
 def test_comparison_dimension_caps_each_chart_at_twenty_without_other():
     rows = [[i, i, 50 - i, i - 25, 0.1] for i in range(25)]
     result = charts(["d", *comparison_columns()], rows, dimensions=["d"], kinds=comparison_kinds())
-    assert all(s["categories"] == list(range(24, 4, -1)) and s["others"] is None for s in result)
+    assert all(
+        s["categories"] == list(range(24, 4, -1)) and s["others"] is None for s in result if s["kind"] in LEGACY_KINDS
+    )
 
 
 @pytest.mark.parametrize("kind", ["level", "ratio"])
@@ -338,7 +356,7 @@ def test_multiple_dimensions_and_measures_keep_every_dimension(dimension_count, 
         kinds={"金额": "level", "转化率": "ratio" if mixed_units else "level"},
     )
     expected = list(reversed(rows))
-    for spec in result:
+    for spec in (spec for spec in result if spec["kind"] in LEGACY_KINDS):
         assert spec["categories"] == [" / ".join(row[:dimension_count]) for row in expected]
     assert result[0]["kind"] == ("multiples" if mixed_units else "grouped_bar")
     assert [s["values"] for s in result[0]["series"]] == [
@@ -353,7 +371,7 @@ def test_multiple_dimensions_comparison_keeps_member_combinations():
         dimensions=["区域", "渠道"],
         kinds=comparison_kinds(),
     )
-    assert all(spec["categories"] == ["北 / 线下", "北 / 线上"] for spec in result)
+    assert all(spec["categories"] == ["北 / 线下", "北 / 线上"] for spec in result if spec["kind"] in LEGACY_KINDS)
 
 
 def test_many_second_dimension_members_flatten_categories():

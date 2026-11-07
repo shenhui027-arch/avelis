@@ -618,7 +618,8 @@ def test_historical_answer_preserves_existing_or_unavailable_contract(case):
     session = _Session() if case != "no_session" else None
     projected = ask_api._answer_result(answer, session)
     if case == "existing_contract":
-        assert projected == {**result, "charts": []} and "charts" not in result
+        assert projected == {**result, "charts": [], "insights": []}
+        assert "charts" not in result and "insights" not in result
     else:
         assert projected is result
     assert session is None or session.reads == []

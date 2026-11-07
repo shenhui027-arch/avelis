@@ -52,7 +52,7 @@ def comparison_dataset(count=2, *, mixed=False):
 def test_same_unit_comparisons_keep_all_groups_in_every_candidate():
     data = comparison_dataset()
     before = deepcopy(data)
-    default, candidate = dataset_charts(data)
+    default, candidate = dataset_charts(data)[:2]
     # 发散条形按涨跌着色，分不出多条系列属于哪个指标：多指标变化图每个指标一个面板。
     assert default["kind"] == "multiples"
     assert [s["column"] for s in default["series"]] == ["指标0·变化", "指标1·变化"]
@@ -71,7 +71,7 @@ def test_same_unit_comparisons_keep_all_groups_in_every_candidate():
 
 
 def test_single_metric_comparison_keeps_the_diverging_change_chart():
-    default, candidate = dataset_charts(comparison_dataset(1))
+    default, candidate = dataset_charts(comparison_dataset(1))[:2]
     assert default["kind"] == "diverging_bar" and [s["axis"] for s in default["series"]] == [0]
     assert candidate["kind"] == "grouped_bar"
 
@@ -86,8 +86,10 @@ def test_same_unit_comparison_panels_record_omission_over_the_limit(count):
 @pytest.mark.parametrize("count", [2, 10])
 def test_mixed_unit_comparison_panels_cover_every_group_or_record_omission(count):
     options = dataset_charts(comparison_dataset(count, mixed=True))
-    assert len(options) == 1
-    for chart in options:
+    assert options[0]["kind"] == "multiples"
+    legacy_options = [chart for chart in options if chart["kind"] in {"multiples", "grouped_bar"}]
+    assert len(legacy_options) == 1
+    for chart in legacy_options:
         assert chart["kind"] == "multiples" and chart["reason"] == "change"
         assert [s["column"] for s in chart["series"]] == [f"指标{i}·变化" for i in range(min(count, charts.MAX_PANELS))]
         assert [s["axis"] for s in chart["series"]] == list(range(min(count, charts.MAX_PANELS)))
@@ -117,7 +119,7 @@ def test_measures_order_applies_to_all_candidates_and_saved_figures(mixed, kind)
     data = comparison_dataset(mixed=mixed)
     preference = {"kind": kind, "title": "对比结论", "measures": ["指标1", "指标0"]}
     options = dataset_charts(data, preference)
-    for chart in options:
+    for chart in (chart for chart in options if chart["kind"] in {"multiples", "grouped_bar"}):
         assert chart["series"][0]["column"].startswith("指标1")
         assert chart["series"][-1]["column"].startswith("指标0")
     view = {"datasets": [data], "report": {"figures": [{"dataset": "D1", **preference}]}}

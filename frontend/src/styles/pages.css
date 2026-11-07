@@ -1092,8 +1092,6 @@
 .av-chartpanel__loading { height: 240px; border-radius: var(--radius-md); background: var(--bg-raised); }
 .av-echart { width: 100%; min-width: 0; }
 /* 模型对结果的一句话说明：正文字号，不是灰色脚注 */
-.av-answer-insight { display: flex; gap: var(--space-2); align-items: baseline; margin: 0; color: var(--text-secondary); font: var(--type-body-compact); max-width: 72ch; }
-.av-answer-insight .av-icon { flex: none; color: var(--accent-text); transform: translateY(2px); }
 /* 指标卡：本期值为主，变化按期望方向着色，未知时中性 */
 .av-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
 .av-kpi { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-raised); min-width: 0; }
@@ -1108,3 +1106,23 @@
 .av-figure { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; min-width: 0; }
 .av-figure figcaption { display: flex; align-items: center; gap: var(--space-2); }
 .av-spec-table .av-spec-table__num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* 问数回答：确定性要点卡、模型解读、深入分析入口 */
+.av-insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.av-insight { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 10px 14px; border-radius: var(--radius-md);
+  background: var(--tone-bg, var(--bg-raised)); color: var(--text-primary); font: var(--type-body-compact); font-variant-numeric: tabular-nums; overflow: hidden; }
+.av-insight::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--tone-solid, var(--accent)); }
+.av-insight__label { color: var(--tone, var(--text-tertiary)); font: 500 11px/16px var(--font-sans); letter-spacing: .02em; }
+.av-narrative { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--accent-subtle), transparent 70%); max-width: 80ch; }
+.av-narrative__hd { display: flex; align-items: center; gap: 6px; color: var(--accent-text); font: 500 12px/16px var(--font-sans); }
+.av-narrative__lead { margin: 0; color: var(--text-primary); font: var(--type-body); }
+.av-narrative__points { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--text-secondary); font: var(--type-body-compact); }
+.av-narrative__points li { position: relative; padding-left: 14px; }
+.av-narrative__points li::before { content: ""; position: absolute; left: 2px; top: .6em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.av-narrative__follow { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; padding: 4px 12px; border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-full); background: var(--bg-surface); color: var(--accent-text); font: 500 12px/18px var(--font-sans); cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease; }
+.av-narrative__follow:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-subtle); }
+.av-narrative__follow:disabled { opacity: .6; cursor: default; }
+.av-answer__ft { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }

@@ -13,6 +13,7 @@ import { CandidatesPanel, ClarifyPanel, type ClarifyItem, ConfirmPanel, Experien
 import { BasisState, Evidence, ResultTable } from "../ask/AskPage";
 import { cellText, type AskIntent, type AskResult } from "../ask/presentation";
 import { ChartPanel } from "../../components/charts/ChartPanel";
+import { Insights, Narrative } from "../../components/AnswerInsights";
 import type { ChartSpec } from "../../components/charts/chartOption";
 import { ArchivedConversations } from "../../layout/Conversations";
 import { datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
@@ -321,8 +322,10 @@ function Figures({ runId, figures }: { runId: string; figures: Figure[] }) {
 }
 
 /** 取数类问题（ADR 0013 合并入口）：由问数引擎直接给出受治理查询结果，不展开多步分析。 */
-function LookupAnswer({ a }: { a: Answer }) {
+function LookupAnswer({ a, runId }: { a: Answer; runId: string }) {
   const result = (a.result ?? {}) as AskResult;
+  // 模型解读里的追问：在同一对话里接着问（与底部输入框相同）
+  const follow = useContinue(runId);
   const intent = (a.intent ?? {}) as AskIntent;
   const single = result.rows?.length === 1 && result.columns?.length === 1;
   const style = useNumberStyle();
@@ -333,6 +336,9 @@ function LookupAnswer({ a }: { a: Answer }) {
       {single ? <div className="av-lookup__value"><span>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
+      {!single && result.insights?.length ? <Insights items={result.insights} /> : null}
+      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={follow.send} disabled={follow.pending} /> : null}
+      {follow.error ? <div className="av-banner av-banner--danger">{follow.error}</div> : null}
       {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
         <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
       <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
@@ -456,7 +462,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done ? <FilterAlignmentNote items={(r as Run & { filter_alignment?: Parameters<typeof FilterAlignmentNote>[0]["items"] }).filter_alignment} /> : null}
-      {done && lookup && answer ? <LookupAnswer a={answer} /> : null}
+      {done && lookup && answer ? <LookupAnswer a={answer} runId={r.id} /> : null}
       {done && chartEdit ? <>
         {report.summary ? <p className={verification.ok === false ? "av-banner av-banner--info" : "av-doc__method"}>{report.summary}</p> : null}
         <Figures runId={r.id} figures={(r as Run & { figures?: Figure[] }).figures ?? []} />

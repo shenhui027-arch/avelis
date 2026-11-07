@@ -27,6 +27,7 @@ from avelis.analysis import measures
 from avelis.analysis.dataset_projection import build_column_roles
 from avelis.analysis.grounding import _unit, display, number
 from avelis.ask.compiler import TIME_GRAINS, ValidationFailed, compile_metric_query, distinct_values_sql, validate_sql
+from avelis.ask.insights import build as build_insights
 from avelis.ask.intent import Intent, MetricCard, period_column
 from avelis.collect.service import freshness_boundary
 from avelis.config import get_settings
@@ -794,7 +795,28 @@ def _result_contract(
         "dimension_labels": dimension_labels,
         "measure_labels": labels,
     }
-    return {**result, "units": units, "polarity": polarity, "column_roles": build_column_roles(columns, meta)}
+    roles = build_column_roles(columns, meta)
+    time_aggregations = {
+        column: getattr(version, "time_aggregation", None) or "sum"
+        for column, version in ({value_column: requested[0][1]} if value_column is not None else metrics).items()
+        if column in columns
+    }
+    return {
+        **result,
+        "units": units,
+        "polarity": polarity,
+        "column_roles": roles,
+        "time_aggregations": time_aggregations,
+        "insights": build_insights(
+            columns,
+            result.get("rows") or [],
+            roles,
+            units,
+            polarity,
+            time_aggregations=time_aggregations,
+            truncated=result.get("truncated", False),
+        ),
+    }
 
 
 def _scratch(answer: Answer, user: User) -> Answer:

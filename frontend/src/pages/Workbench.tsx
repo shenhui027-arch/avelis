@@ -15,7 +15,7 @@ import { useState } from "react";
 const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
 const STAGE_MOD: Record<string, KitTone> = { collect: "collect", lineage: "lineage", change: "change", metric: "catalog", ask: "ask" };
 const STATUS_PARTS: [string, KitTone][] = [["published", "ok"], ["pending_review", "accent"], ["affected", "warn"], ["draft", "neutral"], ["retired", "danger"]];
-const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/ask" };
+const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/analysis" };
 const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
 
 export function Workbench() {
@@ -32,7 +32,7 @@ export function Workbench() {
         <div className="av-actions">
           <Link to="/lineage/import" className="av-btn av-btn--secondary">{t("导入血缘")}</Link>
           {canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary">{t("新建指标")}</Link>
-            : <Link to="/ask" className="av-btn av-btn--primary">{t("问数")}</Link>}
+            : <Link to="/analysis" className="av-btn av-btn--primary">{t("问数")}</Link>}
         </div>
       </div>
 
@@ -77,13 +77,13 @@ export function Workbench() {
               ) : (
                 <div className="av-list">
                   {d.blocked_answers.map((a) => (
-                    <Link key={a.id} to={a.thread_id ? `/ask/${a.thread_id}` : "/ask"} className="av-row av-workbench__blocked">
+                    <Link key={a.id} to={a.thread_id ? `/ask/${a.thread_id}` : "/analysis"} className="av-row av-workbench__blocked">
                       <Status value={a.status} />
                       <span className="av-row__main"><span className="av-row__title">{a.question}</span><span className="av-row__meta">{a.message}</span></span>
                       <span className="av-row__meta av-mono">{formatClock(a.asked_at, tz)}</span>
                     </Link>
                   ))}
-                  {!d.blocked_answers.length ? <Empty compact text={t("没有被拦截的提问")} action={<Link to="/ask" className="av-btn av-btn--secondary av-btn--sm">{t("开始问数")}</Link>} /> : null}
+                  {!d.blocked_answers.length ? <Empty compact text={t("没有被拦截的提问")} action={<Link to="/analysis" className="av-btn av-btn--secondary av-btn--sm">{t("开始问数")}</Link>} /> : null}
                 </div>
               )}
               </div>

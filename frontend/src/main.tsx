@@ -59,7 +59,8 @@ const router = createBrowserRouter([
       { path: "catalog/:section/:id", element: <CatalogPage /> },
       { path: "changes", element: <ChangesPage /> },
       { path: "changes/:id", element: <ChangesPage /> },
-      { path: "ask", element: <AskPage /> },
+      // 问数入口统一到分析页（取数类问题在那里直接给出答案）；旧会话链接仍可查看
+      { path: "ask", element: <Navigate to="/analysis" replace /> },
       { path: "ask/:threadId", element: <AskPage /> },
       { path: "analysis", element: <AnalysisPage /> },
       { path: "analysis/runs/:runId", element: <AnalysisPage /> },

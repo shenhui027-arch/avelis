@@ -36,8 +36,26 @@ class ChartPreference(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    kind: Literal["line", "bar", "grouped_bar", "stacked_bar", "diverging_bar", "donut", "multiples"] = Field(
-        description="只能选该数据集可画的图种"
+    kind: Literal[
+        "line",
+        "bar",
+        "grouped_bar",
+        "stacked_bar",
+        "diverging_bar",
+        "donut",
+        "multiples",
+        "area",
+        "combo",
+        "pareto",
+        "waterfall",
+        "heatmap",
+        "scatter",
+    ] = Field(
+        description=(
+            "只能选该数据集可画的图种；area 展示少量时间系列，combo 展示不同单位的两个度量，"
+            "pareto 展示非负可加度量的累计集中度，waterfall 展示成员对期间变化的贡献，"
+            "heatmap 展示时间与成员交叉的度量，scatter 展示两个度量的关系及可选的第三个大小度量"
+        )
     )
     title: str = Field(max_length=40, description="用一句结论概括结果，不超过 40 字")
     top_n: int | None = Field(None, ge=2, le=20, description="可选：横向条形或排名图保留前 N 项，其他图忽略")
@@ -84,11 +102,18 @@ class ChartPreference(BaseModel):
         selected = next((option for option in options if option["kind"] == self.kind), None)
         if selected is None:
             return options
+        if self.marks is not None and self.kind in ("heatmap", "scatter", "waterfall"):
+            raise ValueError(gettext("{kind} 不支持 marks；请省略 marks。", kind=self.kind))
+        if self.kind == "pareto" and self.sort not in (None, "value_desc"):
+            raise ValueError(gettext("pareto 只支持 value_desc 排序；请省略 sort 或使用 value_desc。"))
+        if self.kind == "waterfall" and self.sort is not None:
+            raise ValueError(gettext("waterfall 按变化绝对值降序排列；请省略 sort。"))
         if self.sort is not None and (selected.get("x") or {}).get("role") != "dimension":
             raise ValueError(gettext("时间序列图不支持 sort；请省略 sort，时间轴保持自然顺序。"))
         if self.top_n is not None and (
             (selected["orientation"] == "horizontal" and self.kind in ("bar", "grouped_bar", "diverging_bar"))
             or (self.kind == "multiples" and (selected.get("x") or {}).get("role") == "dimension")
+            or self.kind == "pareto"
         ):
             limit = self.top_n
         else:
@@ -105,7 +130,9 @@ class ChartPreference(BaseModel):
                 measures=self.measures,
                 sort=self.sort,
             )
-            selected = next(option for option in tuned if option["kind"] == self.kind)
+            selected = next((option for option in tuned if option["kind"] == self.kind), None)
+            if selected is None:
+                return tuned
         available = [category_label(category) for category in selected["categories"]]
         missing = [category for category in self.highlight or [] if category not in available]
         if missing:
@@ -180,6 +207,11 @@ def _category_order(value) -> tuple:
 def _unit_identity(unit: dict | None) -> tuple:
     unit = unit or {}
     return (unit.get("kind", "unknown"), unit.get("unit"), str(unit.get("scale") or 1), bool(unit.get("of_ratio")))
+
+
+def additive(column: str, units: dict) -> bool:
+    """只认登记过的可加性；未登记的探索、计算和旧结果不做相加类变换。"""
+    return (units.get(column) or {}).get("additive") is True
 
 
 @dataclass(frozen=True)
@@ -289,7 +321,7 @@ def recommend(
         return specs
     selected = next((s for s in selected_specs if s["kind"] == choice.kind), None)
     if selected is None:
-        return specs
+        return selected_specs if choice.kind == "diverging_bar" else specs
     selected = {**selected, "title": preference.get("title")}
     return [selected, *(s for s in selected_specs if s["kind"] != choice.kind)]
 
@@ -333,10 +365,6 @@ def _recommend(
 
     def value(row, column):
         return _number(cell(row, column))
-
-    def additive(column):
-        # 只认登记过的可加性（受治理口径按表达式确认）；探索、计算结果与旧结果没有登记时不做相加类变换。
-        return (units.get(column) or {}).get("additive") is True
 
     def series(column, values, *, name=None, mark="bar", axis=0, direction=None, other=False):
         label = roles[column].get("label") or column
@@ -422,6 +450,61 @@ def _recommend(
 
     category = member_key
 
+    def area_candidate(charts):
+        line = next((chart for chart in charts if chart["kind"] == "line"), None)
+        if line is not None and 1 <= len(line["series"]) <= 3:
+            return [alternate(line, "area", "line")]
+        return []
+
+    def combo_candidate(x, categories, values):
+        if len(measures) != 2 or (
+            len({_unit_identity(units.get(column)) for column in measures}) == 1
+            and not any((units.get(column) or {}).get("kind") == "ratio" for column in measures)
+        ):
+            return []
+        return [
+            spec(
+                "combo",
+                "multi_measure",
+                x,
+                categories,
+                [series(measures[0], values[0], mark="bar"), series(measures[1], values[1], mark="line", axis=1)],
+            )
+        ]
+
+    def scatter_candidate():
+        if len(measures) < 2 or len(rows) < 3:
+            return []
+        selected_rows = (
+            sorted(rows, key=lambda row: _category_order(label(category(row))))
+            if sort == "category"
+            else ordered(rows, lambda row: value(row, measures[0]), asc=sort == "value_asc")
+            if sort is not None
+            else rows
+        )
+        categories = [label(category(row)) for row in selected_rows]
+        values = [[value(row, column) for row in selected_rows] for column in measures[:3]]
+        if not any(x is not None and y is not None for x, y in zip(values[0], values[1], strict=True)):
+            return []
+        shown = list(zip(measures[:3], values[:3], strict=True))
+        chart = spec(
+            "scatter",
+            "multi_measure",
+            dimension,
+            categories,
+            [series(column, items, mark="line", axis=index) for index, (column, items) in enumerate(shown)],
+        )
+        chart["points"] = [
+            {
+                "name": category_label(category),
+                "x": values[0][index],
+                "y": values[1][index],
+                "size": values[2][index] if len(values) >= 3 else None,
+            }
+            for index, category in enumerate(chart["categories"])
+        ]
+        return [chart]
+
     if not time and not dimension and len(rows) == 1:
         comparisons = {group[0]: group for group in groups}
         kpis = []
@@ -454,7 +537,7 @@ def _recommend(
             categories = [label(category(row)) for row in kept]
             values = [[value(row, column) for row in kept] for column in columns]
             merged = None
-            if top_n is not None and tail and all(additive(c) for c in columns):
+            if top_n is not None and tail and all(additive(c, units) for c in columns):
                 merged = {"count": len(tail)}
                 categories.append(gettext("其他"))
                 for column, items in zip(columns, values, strict=True):
@@ -487,8 +570,67 @@ def _recommend(
             dropped=len(groups) - len(shown_groups),
             omitted_categories=omission,
         )
+        change_options = [default] if not single or any(item is not None for item in values[0]) else []
+        combo_categories, combo_values, combo_merged, combo_omission = comparison_data(measures[0], measures)
+        extra = combo_candidate(dimension, combo_categories, combo_values)
+        for chart in extra:
+            chart["others"] = combo_merged
+            chart["omitted_categories"] = combo_omission
+        if groups:
+            current, previous, change, _ = groups[0]
+            pairs = [tuple(value(row, column) for column in (current, previous, change)) for row in rows]
+            start = _sum(pair[1] for pair in pairs)
+            end = _sum(pair[0] for pair in pairs)
+            complete = all(
+                all(item is not None for item in pair)
+                and math.isclose(pair[0] - pair[1], pair[2], rel_tol=1e-9, abs_tol=1e-9)
+                for pair in pairs
+            )
+            if (
+                all(additive(column, units) for column in (current, previous, change))
+                and complete
+                and start is not None
+                and end is not None
+            ):
+                members = defaultdict(list)
+                for row in rows:
+                    members[category(row)].append(row)
+                changes_by_member = {
+                    member: _sum(value(row, change) for row in items) for member, items in members.items()
+                }
+                ranked = ordered(
+                    list(members),
+                    lambda member: abs(changes_by_member[member]) if changes_by_member[member] is not None else None,
+                )
+                kept, tail = ranked[:limit], ranked[limit:]
+                categories = [label(member) for member in kept]
+                changes = [changes_by_member[member] for member in kept]
+                if tail:
+                    categories.append(gettext("其他"))
+                    changes.append(_sum(changes_by_member[member] for member in tail))
+                position = start
+                for amount in changes:
+                    if amount is None or not math.isfinite(position + amount):
+                        complete = False
+                        break
+                    position += amount
+                if complete and math.isclose(position, end, rel_tol=1e-9, abs_tol=1e-9):
+                    waterfall = spec(
+                        "waterfall",
+                        "change",
+                        dimension,
+                        categories,
+                        [series(change, changes, direction=current)],
+                        others={"count": len(tail)} if tail else None,
+                    )
+                    waterfall["waterfall"] = {
+                        "start": {"label": gettext(previous.rsplit("·", 1)[1]), "value": start},
+                        "end": {"label": gettext("本期"), "value": end},
+                    }
+                    extra.append(waterfall)
+        extra.extend(scatter_candidate())
         if not same_unit:
-            return [default]
+            return [*change_options, *extra]
         comparison_columns = [column for current, previous, _, _ in groups for column in (current, previous)]
         categories, values, merged, omission = comparison_data(currents[0], comparison_columns)
         candidate = spec(
@@ -514,7 +656,7 @@ def _recommend(
             others=merged,
             omitted_categories=omission,
         )
-        return [default, candidate]
+        return [*change_options, candidate, *extra]
 
     def pivot(x_column, split, column):
         categories = list(dict.fromkeys(cell(row, x_column) for row in rows))
@@ -522,7 +664,7 @@ def _recommend(
         cells = defaultdict(list)
         for row in rows:
             cells[cell(row, x_column), split(row)].append(value(row, column))
-        values = {key: _sum(items) if additive(column) else items[0] for key, items in cells.items()}
+        values = {key: _sum(items) if additive(column, units) else items[0] for key, items in cells.items()}
         return categories, keys, values
 
     def multi(x, categories, values, *, temporal=False):
@@ -553,18 +695,24 @@ def _recommend(
                 [series(measures[0], values[0], mark=mark)],
                 orientation="vertical" if temporal else "horizontal",
             )
-            return [chart, candidate]
-        chart = spec(
-            "line" if temporal else "grouped_bar",
-            reason,
-            x,
-            categories,
-            [series(c, v, mark="line" if temporal else "bar") for c, v in zip(measures, values, strict=True)],
-            orientation="vertical" if temporal else "horizontal",
-        )
-        if temporal:
-            return [chart, alternate(chart, "bar" if len(measures) == 1 else "grouped_bar", "bar")]
-        return [chart]
+            charts = [chart, candidate]
+        else:
+            chart = spec(
+                "line" if temporal else "grouped_bar",
+                reason,
+                x,
+                categories,
+                [series(c, v, mark="line" if temporal else "bar") for c, v in zip(measures, values, strict=True)],
+                orientation="vertical" if temporal else "horizontal",
+            )
+            charts = (
+                [chart, alternate(chart, "bar" if len(measures) == 1 else "grouped_bar", "bar")]
+                if temporal
+                else [chart]
+            )
+        extra = area_candidate(charts) if temporal else []
+        extra.extend(combo_candidate(x, categories, values))
+        return [*charts, *extra]
 
     if time:
         periods = sorted(dict.fromkeys(cell(row, time) for row in rows), key=str)
@@ -595,7 +743,7 @@ def _recommend(
                     ]
                     # 聚合面板按其覆盖的原始成员数计数；截掉的“其他”不能再覆盖任何成员。
                     merged_count = sum(count for s, count in kept if s["other"])
-                    return [
+                    result = [
                         spec(
                             "multiples",
                             "time_by_dimension",
@@ -607,6 +755,12 @@ def _recommend(
                             + sum(count for _, count in candidates[MAX_PANELS:]),
                         )
                     ]
+                    extra = (
+                        combo_candidate(time, periods, [chart["series"][0]["values"] for chart in charts])
+                        if all(len(chart["series"]) == 1 for chart in charts)
+                        else []
+                    )
+                    return [*result, *extra, *scatter_candidate()]
                 column = measures[0]
                 _, members, values = pivot(time, member_key, column)
                 merged, dropped = None, 0
@@ -616,7 +770,7 @@ def _recommend(
                         members, lambda member: abs(sum(values.get((period, member)) or 0 for period in periods))
                     )
                     selected = ranked[:7]
-                    if additive(column):
+                    if additive(column, units):
                         merged = {"count": len(ranked) - 7}
                     else:
                         dropped = len(ranked) - 7
@@ -640,14 +794,56 @@ def _recommend(
                         )
                     )
                 chart = spec("line", "time_by_dimension", time, periods, lines, others=merged, dropped=dropped)
-                return [chart, alternate(chart, "stacked_bar" if additive(column) else "grouped_bar", "bar")]
+                result = [chart, alternate(chart, "stacked_bar" if additive(column, units) else "grouped_bar", "bar")]
+                extra = area_candidate(result)
+                heatmap_periods = [
+                    period
+                    for period in periods
+                    if period is not None and (not isinstance(period, str) or period.strip())
+                ]
+                heatmap_members = [
+                    member for member in members if any((period, member) in values for period in heatmap_periods)
+                ]
+                if (
+                    len(by_role["time"]) == len(dimensions) == 1
+                    and len(heatmap_periods) >= 3
+                    and len(heatmap_members) >= 2
+                ):
+                    ranked = ordered(
+                        heatmap_members, lambda member: _sum(values.get((period, member)) for period in heatmap_periods)
+                    )
+                    selected_members = ranked[:12] if len(heatmap_members) > 12 else heatmap_members
+                    cells = [
+                        [x_index, y_index, values.get((period, member))]
+                        for x_index, period in enumerate(heatmap_periods)
+                        for y_index, member in enumerate(selected_members)
+                    ]
+                    present = [cell[2] for cell in cells if cell[2] is not None]
+                    if present:
+                        heatmap = spec(
+                            "heatmap",
+                            "time_by_dimension",
+                            time,
+                            heatmap_periods,
+                            [series(column, [])],
+                            dropped=max(0, len(heatmap_members) - 12),
+                        )
+                        heatmap["heatmap"] = {
+                            "y": {"column": dimension, "label": roles[dimension].get("label") or dimension},
+                            "y_categories": [category_label(label(member)) for member in selected_members],
+                            "cells": cells,
+                            "min": min(present),
+                            "max": max(present),
+                        }
+                        extra.append(heatmap)
+                return [*result, *extra]
             # 时间分组结果通常每期一行；同一格的可加值合计，不可加值保留首行。
             values = []
             for column in measures:
                 cells = defaultdict(list)
                 for row in rows:
                     cells[cell(row, time)].append(value(row, column))
-                values.append([_sum(cells[p]) if additive(column) else cells[p][0] for p in periods])
+                values.append([_sum(cells[p]) if additive(column, units) else cells[p][0] for p in periods])
             return multi(time, periods, values, temporal=True)
         if not dimension:
             return []
@@ -659,7 +855,7 @@ def _recommend(
         grouped[category(row)].append(row)
     values = {
         category: [
-            _sum(value(row, column) for row in items) if additive(column) else value(items[0], column)
+            _sum(value(row, column) for row in items) if additive(column, units) else value(items[0], column)
             for column in measures
         ]
         for category, items in grouped.items()
@@ -680,17 +876,17 @@ def _recommend(
     if len(measures) >= 2:
         result = multi(dimension, categories, materialized)
         for chart in result:
-            if top_n is not None and tail and all(additive(s["column"]) for s in chart["series"]):
+            if top_n is not None and tail and all(additive(s["column"], units) for s in chart["series"]):
                 chart["others"] = {"count": len(tail)}
                 chart["categories"] = [*categories, gettext("其他")]
                 for s in chart["series"]:
                     index = measures.index(s["column"])
                     s["values"] = [*s["values"], _sum(values[category][index] for category in tail)]
             chart["omitted_categories"] = omitted(len(tail), chart["others"])
-        return result
+        return [*result, *scatter_candidate()]
     column = measures[0]
     merged = None
-    if tail and additive(column):
+    if tail and additive(column, units):
         merged = {"count": len(tail)}
         categories.append(gettext("其他"))
         materialized[0].append(_sum(values[category][0] for category in tail))
@@ -705,6 +901,40 @@ def _recommend(
         others=merged,
         omitted_categories=omitted(len(tail), merged),
     )
-    if additive(column) and len(categories) <= 8 and all(v is not None and v >= 0 for v in materialized[0]):
-        return [chart, alternate(chart, "donut", "bar")]
-    return [chart]
+    result = [chart]
+    if additive(column, units) and len(categories) <= 8 and all(v is not None and v >= 0 for v in materialized[0]):
+        result.append(alternate(chart, "donut", "bar"))
+    if (
+        additive(column, units)
+        and len(grouped) >= 4
+        and all(items[0] is not None and items[0] >= 0 for items in values.values())
+    ):
+        ranked = ordered(list(grouped), lambda category: values[category][0])
+        kept, tail = ranked[:limit], ranked[limit:]
+        categories = [label(category) for category in kept]
+        amounts = [values[category][0] for category in kept]
+        if tail:
+            categories.append(gettext("其他"))
+            amounts.append(_sum(values[category][0] for category in tail))
+        pareto = spec(
+            "pareto",
+            "composition",
+            dimension,
+            categories,
+            [series(column, amounts)],
+            others={"count": len(tail)} if tail else None,
+        )
+        scale = max(values[category][0] for category in ranked)
+        weights = [values[category][0] / scale if scale else 0.0 for category in ranked]
+        shown_weights = weights[:limit]
+        if tail:
+            shown_weights.append(math.fsum(weights[limit:]))
+        total = math.fsum(weights)
+        running = 0
+        cumulative = []
+        for weight in shown_weights:
+            running += weight
+            cumulative.append(min(1.0, running / total) if total else 0.0)
+        pareto["cumulative"] = cumulative
+        result.append(pareto)
+    return result

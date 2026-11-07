@@ -10,6 +10,7 @@ import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL,
 import { t } from "../../i18n";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
+import { Insights, Narrative } from "../../components/AnswerInsights";
 
 const STEP_LABEL: Record<string, string> = { understand: t("理解"), clarify: t("追问"), govern: t("版本与权限"), explain: t("解释") };
 
@@ -67,7 +68,7 @@ export function AskPage() {
             <Hint text={t("只按已发布口径回答；口径受影响时拦截，不会悄悄改用其他口径")} /></div>
           <div className="av-actions">
             <button type="button" className="av-btn av-btn--ghost" onClick={() => setShowHistory(!showHistory)}><Icon name="audit" />{t("会话")}</button>
-            <button type="button" className="av-btn av-btn--secondary" onClick={() => { setSelected(null); navigate("/ask"); }}><Icon name="plus" />{t("新会话")}</button>
+            <button type="button" className="av-btn av-btn--secondary" onClick={() => { setSelected(null); navigate("/analysis"); }}><Icon name="plus" />{t("新会话")}</button>
           </div>
         </div>
         {showHistory ? (
@@ -165,8 +166,8 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         </div>
       ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       <FilterAlignmentNote items={a.filter_alignment} />
-      {a.explanation && a.explanation_source === "model" ? <p className="av-answer-insight" title={t("模型对结果的说明，只引用上面的数值")}>
-        <Icon name="analysis" small />{a.explanation}</p> : null}
+      {result?.insights?.length && !single ? <Insights items={result.insights} /> : null}
+      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={onPick} disabled={disabled} /> : null}
       {result?.rows && !single && result.rows.length ? (
         <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
           <ResultTable result={result} dimensions={intent.group_by ?? []} />
@@ -187,6 +188,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
           <span className="av-row__end"><Link className="av-btn av-btn--secondary av-btn--sm" to="/changes">{t("查看变更")}</Link></span>
         </div>
       ) : null}
+      <div className="av-answer__ft">
       <div className="av-trace">
         {steps.map((s, i) => (
           <span key={i} className={stepClass(s, a)}>
@@ -195,7 +197,24 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         ))}
         {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>{t("只读执行")}</span> : null}
       </div>
+      {a.status === "answered" && result?.rows?.length ? <DeepenButton a={a} result={result} dimensions={intent.group_by ?? []} /> : null}
+      </div>
     </article>
+  );
+}
+
+/** 深入分析：把同一个问题交给分析智能体，产出带归因与依据的报告。 */
+function DeepenButton({ a, result, dimensions }: { a: Answer; result: AskResult; dimensions: string[] }) {
+  const navigate = useNavigate();
+  // 追问（如“按地区呢？”）只有一句片段：带上这条回答已解析出的期间、筛选、口径与维度，分析智能体才有完整的问题
+  const head = (a.message ?? "").split("：")[0].trim();
+  const dims = dimensions.length ? t("，按 {{dims}}", { dims: dimensions.map((c) => columnLabel(result, c)).join("、") }) : "";
+  const question = head ? `${a.question}（${head}${dims}）` : a.question;
+  const start = useAction(() => unwrap(api.POST("/api/analysis/runs", { body: { question, confirmation_mode: "auto" } as never })), ["analysis-runs"]);
+  return (
+    <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={start.isPending}
+      onClick={(e) => { e.stopPropagation(); start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`) }); }}>
+      <Icon name="analysis" small />{start.isPending ? t("正在开始…") : t("深入分析")}</button>
   );
 }
 
