@@ -102,7 +102,8 @@ def test_metric_time_migration_is_the_single_head_after_conversations():
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
     # 治理事件（ADR 0018）接在语义提示之后，MCP OAuth（ADR 0019）接在治理事件之后，迁移链仍只有一个 head
-    assert scripts.get_heads() == ["0024_event_outbox_dead_retention"]
+    assert scripts.get_heads() == ["0025_lineage_note"]
+    assert scripts.get_revision("0025_lineage_note").down_revision == "0024_event_outbox_dead_retention"
     assert scripts.get_revision("0024_event_outbox_dead_retention").down_revision == "0023_event_outbox_cleanup_index"
     assert scripts.get_revision("0023_event_outbox_cleanup_index").down_revision == "0022_oauth_cleanup_indexes"
     assert scripts.get_revision("0022_oauth_cleanup_indexes").down_revision == "0021_mcp_oauth"
