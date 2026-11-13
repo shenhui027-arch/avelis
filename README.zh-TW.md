@@ -71,6 +71,8 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 | ![血緣：選中表與檢查器](docs/images/zh-TW/lineage.png) | ![指標詳情：版本、表示式、維度與發布檢查](docs/images/zh-TW/catalog.png) |
 | **問數回答** | **深色主題** |
 | ![問數回答：確定性要點、模型解讀與熱力圖](docs/images/zh-TW/ask-answer.png) | ![深色主題的分析會話](docs/images/zh-TW/analysis-dark.png) |
+| **資產檔案** | **欄位怎麼來的** |
+| ![資產檔案：從哪些表來、這張表、被誰用，以及在用的口徑、最近誰問過、結構變化](docs/images/zh-TW/asset-dossier.png) | ![每個欄位的來源、加工類型與一句說明，模型起草、負責人確認，表示式收起](docs/images/zh-TW/asset-dossier-fields.png) |
 
 更多頁面（問數首頁、報告的「還沒查清」、匯出、個人經驗、設定、登入頁）見[介面導覽](docs/product-tour.zh-TW.md)。
 

@@ -71,6 +71,8 @@ See the [changelog](CHANGELOG.md) for every change and [Releases](https://github
 | ![Lineage graph with a selected table and the inspector](docs/images/en/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/en/catalog.png) |
 | **Ask answer** | **Dark theme** |
 | ![Ask answer: deterministic highlights, the model’s reading and a heatmap](docs/images/en/ask-answer.png) | ![Analysis session in the dark theme](docs/images/en/analysis-dark.png) |
+| **Asset dossier** | **How each column is derived** |
+| ![Asset dossier: where it comes from, the table, who uses it, plus metrics in use, recent askers and schema changes](docs/images/en/asset-dossier.png) | ![Source columns, derivation type and a plain sentence per column, drafted by the model and confirmed by the owner, expression collapsed](docs/images/en/asset-dossier-fields.png) |
 
 More pages (Q&A home, report follow-ups, export, personal experience, settings, sign-in page) are in the [product tour](docs/product-tour.en.md).
 
