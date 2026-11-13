@@ -74,10 +74,9 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
     <div className="av-hero-card av-dossier-hero">
       <div className="av-hero-card__hd av-dossier-hero__tags">
         <span className="av-tag"><Plat kind={a.datasource.kind} /></span>
-        {schema ? <span className="av-tag">{t("库 {{name}}", { name: schema })}</span> : null}
+        {schema ? <span className="av-tag">{t("库 {{name}}", { name: schema.split(".").pop() })}</span> : null}
         {a.kind !== "table" ? <span className="av-tag">{KIND_LABEL[a.kind] ?? a.kind}</span> : null}
         {writeMode ? <span className="av-tag">{WRITE_MODE_LABEL[writeMode] ?? writeMode}<Hint text={t("从导入的脚本推断")} /></span> : null}
-        {a.version ? <span className="av-tag">v{a.version.version_no}</span> : null}
         {a.status !== "active" ? <Status value={a.status} /> : null}
         {a.datasource.is_test_adapter ? <Pill tone="warn">{t("测试适配器")}</Pill> : null}
       </div>
