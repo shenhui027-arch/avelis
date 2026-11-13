@@ -355,18 +355,18 @@ def metrics_using(session: Session, user: User, asset: Asset) -> list[dict]:
 
 
 def _mentions(meta: dict | None, asset_id: str) -> bool:
+    # 只认真正查过的表（探索数据集的 tables）；asset_ids 是变更、数据健康等上下文数据集顺带列出的表，不算问过
     if not isinstance(meta, dict):
         return False
-    if asset_id in (meta.get("asset_ids") or []):
-        return True
     return any(isinstance(t, dict) and t.get("asset_id") == asset_id for t in meta.get("tables") or [])
 
 
 def asked(session: Session, user: User, asset: Asset, days: int = ASKED_DAYS) -> dict:
     """最近谁问过（schemas.DossierAskedOut）：近 days 天内引用过这张表的问数回答与分析运行，按人归并。
 
-    问数看 answer.evidence["sources"][*].asset_id；分析看 analysis_dataset.meta 的 tables[*].asset_id 与 asset_ids，
-    同一次分析运行只算一次。people 按最近一次时间倒序，最多 8 人；total 是总次数。
+    问数看 answer.evidence["sources"][*].asset_id；分析看 analysis_dataset.meta 的 tables[*].asset_id
+    （上下文数据集顺带列出的 asset_ids 不算），同一次分析运行只算一次。
+    people 按最近一次时间倒序，最多 8 人；total 是总次数。
     last_question 只在该人是当前用户、或当前用户是管理员时给出，其余为空。"""
     since = utcnow() - timedelta(days=days)
     hit_runs: set[str] = set()
@@ -453,13 +453,35 @@ def _clears(sql: str | None, dialect, asset: Asset) -> bool | None:
     if isinstance(tree, exp.TruncateTable):
         if tree.args.get("is_database"):
             return False
-        targets = [t for t in tree.expressions if isinstance(t, exp.Table)]
-    elif isinstance(tree, exp.Delete):
+        hit = [t for t in tree.expressions if isinstance(t, exp.Table) and _same_table(t, asset)]
+        if not hit:
+            return False
+        # 只清某个分区：不是整表清空，也不能据此说是追加
+        partial = tree.args.get("partition") or any(t.args.get("partition") for t in hit)
+        return None if partial else True
+    if isinstance(tree, exp.Delete):
         target = _delete_reset_target(tree)
-        targets = [target] if target is not None else []
-    else:
-        return None
-    return any(_same_table(t, asset) for t in targets)
+        if target is not None:
+            return _same_table(target, asset)
+        # 带条件的 DELETE：删的是这张表的一部分时无法归类，删的是别的表则与本表无关
+        table = tree.this
+        return None if isinstance(table, exp.Table) and _same_table(table, asset) else False
+    return None
+
+
+def _overwrites_whole(sql: str | None, dialect) -> bool:
+    """INSERT OVERWRITE 是否覆盖整张表：带分区的只覆盖一部分，解析不了也不算。"""
+    if not sql:
+        return False
+    try:
+        trees = [t for t in sqlglot.parse(sql, read=dialect.name) if t is not None]
+    except sqlglot.errors.SqlglotError:
+        return False
+    if len(trees) != 1 or not isinstance(trees[0], exp.Insert) or not trees[0].args.get("overwrite"):
+        return False
+    tree = trees[0]
+    target = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+    return isinstance(target, exp.Table) and not target.args.get("partition") and not tree.args.get("partition")
 
 
 def _dialect(session: Session, job: ImportJob):
@@ -481,7 +503,8 @@ def _write_mode(session: Session, asset: Asset, statements: list[ExtractedStatem
     for stmt in statements:
         kind = (stmt.statement_type or "").upper()
         if kind == "INSERT OVERWRITE":
-            modes.add("overwrite")
+            whole = _overwrites_whole(stmt.sql_text, _dialect(session, jobs[stmt.job_id]))
+            modes.add("overwrite" if whole else None)
         elif kind == "CREATE TABLE AS":
             modes.add("create")
         elif kind == "INSERT":
@@ -515,9 +538,10 @@ def produced(session: Session, user: User, asset: Asset, *, show_sql: bool) -> d
 
     脚本来自写入这张表的导入边（origin 为 import / model_confirmed，import_job_id 指向未被取代的 import_job）
     及其 attributes.statement_id 对应的 extracted_statement；按文件名、行号排序，最多 5 段。
-    show_sql 为假时 sql 置空。write_mode 只在能确定时给出：有 INSERT OVERWRITE，或同一文件里先 TRUNCATE / 整表 DELETE
-    这张表再 INSERT → overwrite；CREATE TABLE AS（含 CREATE OR REPLACE）→ create；只有 INSERT 且同文件没有清空它的语句
-    → append；MERGE、UPDATE 或几种写法并存 → 空。"""
+    show_sql 为假时 sql 置空。write_mode 说的是脚本自己的写法，只在能确定时给出：不带分区的 INSERT OVERWRITE，
+    或同一文件里先 TRUNCATE / 整表 DELETE 这张表再 INSERT → overwrite；CREATE TABLE AS（含 CREATE OR REPLACE）→ create；
+    只有 INSERT 且同文件没有动过这张表的清空语句 → append；按分区覆盖、按条件删除后再写、MERGE、UPDATE
+    或几种写法并存 → 空。"""
     if asset.kind in ("view", "materialized_view"):
         return {"kind": "view", "write_mode": None, "scripts": []}
     edges = session.execute(

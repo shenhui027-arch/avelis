@@ -15,7 +15,7 @@ type TableRef = NonNullable<AssetDossier["upstream"]>[number];
 const UPSTREAM_LIMIT = 4;
 
 export const WRITE_MODE_LABEL: Record<string, string> = {
-  overwrite: t("每次整表覆盖"), append: t("每次追加"), create: t("每次重建"),
+  overwrite: t("每次整表覆盖"), append: t("脚本追加写入"), create: t("每次重建"),
 };
 
 export function FlowBand({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage: Message }) {

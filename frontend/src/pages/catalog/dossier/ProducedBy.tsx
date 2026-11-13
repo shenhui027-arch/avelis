@@ -5,7 +5,7 @@ import { formatDate } from "../../../format";
 import { t } from "../../../i18n";
 
 const WRITE_MODE_SENTENCE: Record<string, string> = {
-  overwrite: t("每次整表覆盖写入。"), append: t("每次在已有数据后追加。"), create: t("每次删掉重建。"),
+  overwrite: t("每次整表覆盖写入。"), append: t("脚本每次在已有数据后追加。"), create: t("每次删掉重建。"),
 };
 
 export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
@@ -31,8 +31,8 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
         </div>
       ) : (
         <>
-          {scripts.map((s) => (
-            <div key={`${s.job_id}-${s.line_start}`} className="av-dossier-produced__item">
+          {scripts.map((s, i) => (
+            <div key={`${s.job_id}-${s.line_start}-${i}`} className="av-dossier-produced__item">
               <p>
                 {t("由脚本 {{file}}（第 {{start}}–{{end}} 行）写入", { file: s.filename, start: s.line_start, end: s.line_end })}
                 {mode ? <span className="av-dossier-produced__mode">{mode}</span> : null}

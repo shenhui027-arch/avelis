@@ -435,7 +435,18 @@ def produce(session, name, *jobs, show_sql=False):
         ([("INSERT OVERWRITE", "INSERT OVERWRITE db.{t} SELECT col_s FROM db.t_src", True)], "overwrite"),
         ([("TRUNCATE TABLE", "TRUNCATE TABLE db.{t}", False), INSERT], "overwrite"),
         ([("DELETE", "DELETE FROM {t}", False), INSERT], "overwrite"),
-        ([("DELETE", "DELETE FROM db.{t} WHERE col_x = 1", False), INSERT], "append"),
+        ([("DELETE", "DELETE FROM db.{t} WHERE col_x = 1", False), INSERT], None),
+        ([("DELETE", "DELETE FROM db.t_other WHERE col_x = 1", False), INSERT], "append"),
+        (
+            [
+                (
+                    "INSERT OVERWRITE",
+                    "INSERT OVERWRITE TABLE db.{t} PARTITION (col_p = 1) SELECT col_s FROM db.t_src",
+                    True,
+                )
+            ],
+            None,
+        ),
         ([("TRUNCATE TABLE", "TRUNCATE TABLE db.t_other", False), INSERT], "append"),
         ([("TRUNCATE TABLE", "TRUNCATE TABLE other_db.{t}", False), INSERT], "append"),
         ([INSERT, ("TRUNCATE TABLE", "TRUNCATE TABLE db.{t}", False)], "append"),

@@ -86,7 +86,7 @@ function DomainSelect({ asset }: { asset: AssetDetailT }) {
   const roles = useRoles();
   const [message, setMessage] = useMessage();
   const patch = useAction((domain_id: string | null) => unwrap(api.PATCH("/api/assets/{asset_id}", {
-    params: { path: { asset_id: asset.id } }, body: { domain_id } })), ["asset", "assets", "graph"]);
+    params: { path: { asset_id: asset.id } }, body: { domain_id } })), ["asset", "assets", "graph", "dossier"]);
   return (
     <span className="av-asset-domain" title={message?.text}>
       <Select value={asset.domain_id ?? ""} label={t("业务域")} disabled={patch.isPending || (!roles.has("steward") && !roles.has("admin"))}

@@ -5,15 +5,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from avelis import audit, modelcfg
 from avelis.db import utcnow
 from avelis.governance import access, dossier
-from avelis.governance.errors import Forbidden, Invalid, NotFound
+from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.i18n import Msg
 from avelis.importer.candidates import redact
 from avelis.models import Asset, AssetVersion, LineageNote, User
@@ -58,7 +60,18 @@ def model_available(session: Session) -> bool:
 
 
 def _iso(value) -> str | None:
-    return value.isoformat() if value is not None else None
+    if value is None:
+        return None
+    return (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).isoformat()
+
+
+def _flush(session: Session) -> None:
+    """（资产，字段）唯一：两个人同时第一次写同一条说明时，后到的一方得到明确的冲突而不是服务器错误。"""
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise Conflict(Msg("这条说明刚被其他人更新，请刷新后再试")) from exc
 
 
 def _out(session: Session, note: LineageNote, status: str | None = None) -> dict:
@@ -131,7 +144,7 @@ def save(session: Session, user: User, asset: Asset, column: str, text: str) -> 
     note.confirmed_at = now
     note.updated_at = now
     session.add(note)
-    session.flush()
+    _flush(session)
     audit.record(session, user, "lineage_note.confirm", "asset", asset.id, column=column or None, origin=origin)
     return _out(session, note)
 
@@ -263,7 +276,7 @@ def generate(session: Session, user: User, asset: Asset, columns: list[str] | No
         note.updated_at = now
         session.add(note)
         notes.append(note)
-    session.flush()
+    _flush(session)
     audit.record(
         session,
         user,
