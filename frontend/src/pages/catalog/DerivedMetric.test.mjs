@@ -95,7 +95,7 @@ assert.match(detail, /区域/);
 assert.doesNotMatch(detail, /基础资产|时间字段|统计粒度|undefined/, "Derived dimensions have no source column");
 const dependency = render(page.VersionBody, { v: version, tab: "dependency", canEdit: false, onEdit() {} });
 assert.match(dependency, /锁定组成版本/);
-assert.doesNotMatch(dependency, /依赖与指纹|暂无依赖记录/);
+assert.doesNotMatch(dependency, /依赖与校验码|暂无依赖记录/);
 assert.match(render(page.DerivedComponents, { components: [] }), /提交后锁定/);
 client.setQueryData(["metrics"], []);
 assert.match(render(page.DerivedComponents, { components: version.components }), /href="\/catalog\/metrics\/paid-sales"/, "The locked metric ID works without catalog lookup");

@@ -519,7 +519,7 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("关闭检查器")} onClick={onClose}><Icon name="close" /></button>
           </div>
         </div>
-        <span className="av-mono av-lineage__qualified">{node.qualified}{column ? <span className="av-lineage__column-name">.{column}</span> : null}</span>
+        <span className="av-mono av-lineage__qualified">{node.kind !== "design_time" ? <Link to={`/catalog/assets/${node.id}`}>{node.qualified}</Link> : node.qualified}{column ? <span className="av-lineage__column-name">.{column}</span> : null}</span>
         {node.note ? <span className="av-caption">{node.note}</span> : null}
       </div>
       <div className="av-inspector__bd">
@@ -535,7 +535,7 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
         {column ? (
           <>
             {col ? <dl className="av-kv"><dt>{t("类型")}</dt><dd className="av-mono">{col.data_type}</dd>
-              <dt>{t("推导")}</dt><dd><Status value={col.fingerprint_status ?? "unknown"} /> <span className="av-mono av-muted">{col.fingerprint?.slice(0, 10)}</span></dd>
+              <dt>{t("推导")}</dt><dd><span data-tip={col.fingerprint ? t("加工方式校验码 {{v1}}", { v1: col.fingerprint.slice(0, 10) }) : undefined}><Status value={col.fingerprint_status ?? "unknown"} /></span></dd>
               {col.fingerprint_reason ? <><dt>{t("原因")}</dt><dd>{col.fingerprint_reason}</dd></> : null}
               <dt>{t("业务含义")}</dt><dd>{col.confirmations.find((c) => c.valid)?.meaning ?? <span className="av-muted">{t("未确认")}</span>}</dd></dl> : null}
             <Flow title={t("来源")} onPick={(k) => { const c = colIn.find((x) => `${x.fromId}::${x.source_column}` === k); if (c?.source_column) onPickColumn(c.fromId, c.source_column); }} items={colIn.map((c) => ({ key: `${c.from}.${c.source_column}`, target: `${c.fromId}::${c.source_column}`, left: `${shortName(c.from)}.${c.source_column}`, rel: c.relation, origins: [c.origin], expr: c.expression }))} />

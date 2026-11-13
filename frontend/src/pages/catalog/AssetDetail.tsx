@@ -1,17 +1,19 @@
-// 资产详情：字段（推导指纹、业务含义确认）、定义与解析、粒度、同一张表、版本。
+// 资产详情：档案（默认，ADR 0022）、字段（推导校验码、业务含义确认）、定义与解析、粒度、同一张表、版本。
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { api, ApiError, unwrap } from "../../api/client";
-import { errorText, useAction, useAsset, useDomains, useTimeZone, type AssetDetail as AssetDetailT } from "../../api/hooks";
+import { errorText, useAction, useAsset, useDomains, useDossier, useTimeZone, type AssetDetail as AssetDetailT } from "../../api/hooks";
 import {
-  Banner, Code, CommentDoc, Crumbs, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Status, Tabs, useMessage,
+  Banner, Code, CommentDoc, Crumbs, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Skeleton, Status, Tabs, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
+import { AssetDossier } from "./dossier/AssetDossier";
+import { FlowBand } from "./dossier/FlowBand";
 
-type Tab = "columns" | "definition" | "grain" | "link" | "versions";
+type Tab = "dossier" | "columns" | "definition" | "grain" | "link" | "versions";
 
 export function AssetDetail({ assetId }: { assetId: string }) {
   const asset = useAsset(assetId);
@@ -22,46 +24,53 @@ export function AssetDetail({ assetId }: { assetId: string }) {
 }
 
 function AssetContent({ a }: { a: AssetDetailT }) {
-  const [tab, setTab] = useState<Tab>("columns");
+  const [tab, setTab] = useState<Tab>("dossier");
   const [message, setMessage] = useMessage();
+  const dossier = useDossier(a.id);
   const copyQualified = async () => {
     try {
-      if (!navigator.clipboard) throw new Error(t("当前浏览器不支持复制，请选择限定名后复制"));
+      if (!navigator.clipboard) throw new Error(t("当前浏览器不支持复制，请选择表名后复制"));
       await navigator.clipboard.writeText(a.qualified);
-      setMessage({ ok: true, text: t("已复制完整限定名") });
+      setMessage({ ok: true, text: t("已复制表名 {{name}}", { name: a.qualified }) });
     } catch (e) { setMessage({ ok: false, text: errorText(e) }); }
   };
   const external = a.kind === "external_table" || a.kind === "catalog_table" || a.linked_from.length > 0;
   return (
     <div className="av-pane__body">
-      <div className="av-page av-asset-detail">
+      <div className="av-page av-asset-detail av-dossier-page">
         <div className="av-asset-heading">
-          <Crumbs back={{ label: t("资产"), to: "/catalog/assets" }}
-            items={[<><Plat kind={a.datasource.kind} /> {a.datasource.name}</>, <span className="av-mono">{a.qualified.split(".").slice(0, -1).join(".")}</span>]} />
           <div className="av-pagehd">
-            <div className="av-pagehd__title">
-              <h1 className="av-mono">{a.qualified.split(".").pop()}</h1>
-              <span className="av-tag">{KIND_LABEL[a.kind] ?? a.kind}</span>
-              {a.version ? <span className="av-tag">v{a.version.version_no}</span> : null}
-              {a.status !== "active" ? <Status value={a.status} /> : null}
-              {a.datasource.is_test_adapter ? <Pill tone="warn">{t("测试适配器")}</Pill> : null}
-            </div>
+            <Crumbs back={{ label: t("资产"), to: "/catalog/assets" }}
+              items={[<><Plat kind={a.datasource.kind} /> {a.datasource.name}</>, <span className="av-mono">{a.qualified.split(".").slice(0, -1).join(".")}</span>]} />
             <div className="av-actions">
               <DomainSelect asset={a} />
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={copyQualified}>{t("复制限定名")}</button>
-              <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${a.id}`}><Icon name="lineage" small />{t("血缘")}</Link>
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={copyQualified}>{t("复制表名")}</button>
+              <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${a.id}`}><Icon name="lineage" small />{t("看血缘图")}</Link>
             </div>
           </div>
-          {a.version?.comment ? <span className="av-caption">{a.version.comment}</span> : null}
+          {dossier.data ? <FlowBand a={a} d={dossier.data} onMessage={setMessage} /> : dossier.isPending ? <Skeleton rows={1} height={160} /> : (
+            <>
+              <div className="av-pagehd__title">
+                <h1 className="av-mono">{a.qualified.split(".").pop()}</h1>
+                <span className="av-tag">{KIND_LABEL[a.kind] ?? a.kind}</span>
+                {a.version ? <span className="av-tag">v{a.version.version_no}</span> : null}
+                {a.status !== "active" ? <Status value={a.status} /> : null}
+                {a.datasource.is_test_adapter ? <Pill tone="warn">{t("测试适配器")}</Pill> : null}
+              </div>
+              {a.version?.comment ? <span className="av-caption">{a.version.comment}</span> : null}
+            </>
+          )}
         </div>
         <Banner message={message} />
         <Tabs value={tab} onChange={setTab} options={[
+          { value: "dossier", label: t("档案") },
           { value: "columns", label: <>{t("字段")} <span className="av-count">{a.columns.length}</span></> },
           ...(a.definition ? [{ value: "definition" as Tab, label: t("定义") }] : []),
           { value: "grain", label: t("粒度") },
           ...(external ? [{ value: "link" as Tab, label: t("同一张表") }] : []),
           { value: "versions", label: <>{t("版本")} <span className="av-count">{a.versions.length}</span></> },
         ]} />
+        {tab === "dossier" ? <AssetDossier a={a} dossier={dossier} /> : null}
         {tab === "columns" ? <Columns a={a} /> : null}
         {tab === "definition" ? <Definition a={a} /> : null}
         {tab === "grain" ? <Grains a={a} /> : null}
@@ -100,7 +109,7 @@ function Columns({ a }: { a: AssetDetailT }) {
     <section className="av-panel">
       <Banner message={message} />
       <div className="av-table-wrap"><table className="av-table av-asset-table av-asset-table--columns">
-        <thead><tr><th>{t("字段")} <Hint text={t("字段含义以数据库列注释为准；缺注释请在数据库中补齐")} /></th><th>{t("类型")}</th><th>{t("推导")} <Hint text={t("字段推导指纹：上游字段、表达式、过滤与关联条件。指纹变化时，绑定它的确认与口径不再生效")} /></th><th>{t("业务含义")}</th><th className="end" /></tr></thead>
+        <thead><tr><th>{t("字段")} <Hint text={t("字段含义以数据库列注释为准；缺注释请在数据库中补齐")} /></th><th>{t("类型")}</th><th>{t("推导")} <Hint text={t("根据上游字段、表达式、过滤与关联条件算出的校验码；加工方式变了它就会变，之前的确认与口径需要重新确认")} /></th><th>{t("业务含义")}</th><th className="end" /></tr></thead>
         <tbody>
           {a.columns.map((c) => {
             const valid = c.confirmations.find((x) => x.valid);
@@ -110,8 +119,8 @@ function Columns({ a }: { a: AssetDetailT }) {
                 <td className="av-mono">{c.name}{c.is_key ? <span className="av-tag av-asset-inline-gap">{t("键")}</span> : null}
                   <div><CommentDoc doc={c.doc} /></div></td>
                 <td className="av-mono av-muted">{c.data_type}</td>
-                <td title={c.fingerprint_reason ?? undefined}><Status value={c.fingerprint_status ?? "unknown"} />
-                  <span className="av-mono av-muted av-asset-inline-gap">{c.fingerprint?.slice(0, 8)}</span></td>
+                <td><span data-tip={[c.fingerprint_reason, c.fingerprint ? t("校验码 {{code}}", { code: c.fingerprint.slice(0, 8) }) : null].filter(Boolean).join(" · ") || undefined}>
+                  <Status value={c.fingerprint_status ?? "unknown"} /></span></td>
                 <td>
                   {confirming === c.name ? (
                     <label className="av-field"><span className="av-label">{t("业务含义")}</span><input className="av-input" autoFocus value={meaning} placeholder={t("例如：这一列在业务上表示什么")} onChange={(e) => setMeaning(e.target.value)} /></label>
@@ -125,7 +134,7 @@ function Columns({ a }: { a: AssetDetailT }) {
                       <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setConfirming(null)}>{t("取消")}</button>
                       <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={!meaning.trim() || confirm.isPending}
                         onClick={() => confirm.mutate(c.name, {
-                          onSuccess: () => { setConfirming(null); setMeaning(""); setMessage({ ok: true, text: t("已确认 {{name}} 的业务含义（绑定当前推导指纹）", { name: c.name }) }); },
+                          onSuccess: () => { setConfirming(null); setMeaning(""); setMessage({ ok: true, text: t("已确认 {{name}} 的业务含义", { name: c.name }) }); },
                           onError: (e) => setMessage({ ok: false, text: errorText(e) }),
                         })}>{t("确认")}</button>
                     </div>
@@ -151,7 +160,7 @@ function Definition({ a }: { a: AssetDetailT }) {
         <div className="av-panel__bd av-asset-stack">
           <Code sql={a.definition?.raw_sql ?? ""} />
           {parse?.reason ? <span className="av-status av-status--warn">{parse.reason}</span> : null}
-          <span className="av-caption av-mono">{t("规范化指纹")} {a.definition?.canonical_hash.slice(0, 16)} · {parse?.parser_version}</span>
+          <span className="av-caption av-mono">{t("定义校验码")} {a.definition?.canonical_hash.slice(0, 16)} · {parse?.parser_version}</span>
         </div>
       </section>
       {details.columns?.length ? (

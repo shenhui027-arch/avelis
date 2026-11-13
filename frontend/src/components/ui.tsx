@@ -72,12 +72,13 @@ export function Pager({ offset, shown, page, hasNext, busy, onChange }: { offset
 }
 
 const PLAT: Record<string, string> = {
-  starrocks: "SR", mysql: "MY", postgres: "PG", clickhouse: "CH", doris: "DR", sqlserver: "MS", oracle: "OR", hive: "HV",
-  fake: "FK",
+  starrocks: "StarRocks", mysql: "MySQL", postgres: "PostgreSQL", clickhouse: "ClickHouse", doris: "Doris", sqlserver: "SQL Server",
+  oracle: "Oracle", hive: "Hive", fake: t("测试适配器"),
 };
 
+/** 引擎名：显示全称（与后端引擎登记的 label 一致），未知类型原样显示。 */
 export function Plat({ kind }: { kind: string }) {
-  return <span className="av-plat">{PLAT[kind] ?? kind.slice(0, 2).toUpperCase()}</span>;
+  return <span className="av-plat">{PLAT[kind] ?? kind}</span>;
 }
 
 export const KIND_LABEL: Record<string, string> = {

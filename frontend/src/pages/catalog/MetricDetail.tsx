@@ -30,7 +30,7 @@ const POLARITIES = [["", t("不区分")], ["up_good", t("越高越好")], ["down
 const optionLabel = (options: readonly (readonly [string, string])[], value: string | null | undefined) =>
   options.find(([v]) => v === (value ?? ""))?.[1] ?? value ?? "—";
 
-/** 量纲与期望方向：基础与派生指标共用（只影响显示与判断，不计入依赖指纹） */
+/** 量纲与期望方向：基础与派生指标共用（只影响显示与判断，不计入依赖校验码） */
 function MeasureSemantics({ valueKind, polarity, onChange }: {
   valueKind: string; polarity: string; onChange: (patch: { value_kind?: string; polarity?: string }) => void;
 }) {
@@ -306,16 +306,15 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
       <div className="av-panel__bd"><DerivedComponents components={v.components ?? []} /></div>
     </section> : null}
     {tab === "dependency" && v.kind !== "derived" ? <section className="av-panel">
-      <div className="av-panel__hd"><h2 className="av-panel__title">{t("依赖与指纹")} <Hint text={t("提交时记录依赖字段指纹；指纹变化后需重新复核")} /></h2></div>
+      <div className="av-panel__hd"><h2 className="av-panel__title">{t("依赖与校验码")} <Hint text={t("提交时记下每个依赖字段的校验码；字段的加工方式变了校验码就会变，需要重新复核")} /></h2></div>
       {v.dependency.length ? <div className="av-table-wrap"><table className="av-table av-metric-detail__table">
-        <thead><tr><th>{t("字段")}</th><th>{t("用途")}</th><th>{t("提交时指纹")}</th><th>{t("当前")}</th></tr></thead>
+        <thead><tr><th>{t("字段")}</th><th>{t("用途")}</th><th>{t("当前")}</th></tr></thead>
         <tbody>{v.dependency.map((d) => {
           const drift = (v.drift ?? []).find((x) => x.asset_id === d.asset_id && x.column === d.column);
           return <tr key={`${String(d.asset_id)}${String(d.column)}`}>
-            <td className="av-mono">{shortName(String(d.qualified))}.{String(d.column)}</td>
+            <td className="av-mono">{d.asset_id ? <Link to={`/catalog/assets/${String(d.asset_id)}`}>{shortName(String(d.qualified))}</Link> : shortName(String(d.qualified))}.{String(d.column)}</td>
             <td>{ROLE_LABEL[String(d.role)] ?? String(d.role)}</td>
-            <td className="av-mono av-muted">{String(d.fingerprint ?? "").slice(0, 10) || "—"}</td>
-            <td>{drift ? <Status value={String(drift.current_status) === "ok" ? "affected" : String(drift.current_status)} label={String(drift.current_status) === "ok" ? t("已变化") : undefined} /> : <Status value="ok" label={t("一致")} />}</td>
+            <td data-tip={d.fingerprint ? t("提交时的校验码 {{v1}}", { v1: String(d.fingerprint).slice(0, 10) }) : undefined}>{drift ? <Status value={String(drift.current_status) === "ok" ? "affected" : String(drift.current_status)} label={String(drift.current_status) === "ok" ? t("已变化") : undefined} /> : <Status value="ok" label={t("一致")} />}</td>
           </tr>;
         })}</tbody>
       </table></div> : <Empty text={t("暂无依赖记录")} compact />}

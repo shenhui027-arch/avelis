@@ -178,9 +178,9 @@ function Detail({ id }: { id: string }) {
                   <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th>{first ? null : <th>{t("数据库用户")}</th>}</tr></thead>
                   <tbody>{shown.map((e) => (
                     <tr key={e.id}>
-                      <td className="av-mono" style={{ paddingLeft: 16 }}>{shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
+                      <td className="av-mono" style={{ paddingLeft: 16 }}>{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset)}</Link> : shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
                       <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={first && e.kind === "added" ? t("登记") : EVENT[e.kind] ?? e.kind} /></td>
-                      <td className="av-caption" style={{ whiteSpace: "normal" }}>{eventDetail(e)}</td>
+                      <td className="av-caption" style={{ whiteSpace: "normal" }} data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String(e.before.hash ?? "").slice(0, 8), v2: String(e.after.hash ?? "").slice(0, 8) }) : undefined}>{eventDetail(e)}</td>
                       {first ? null : <td><Actor e={e} /></td>}
                     </tr>))}</tbody>
                 </table>
@@ -195,7 +195,7 @@ function Detail({ id }: { id: string }) {
                   const m = i.object_type === "metric_version" ? metricName(i.object_id) : null;
                   return (
                     <tr key={i.id}>
-                      <td style={{ paddingLeft: 16 }}>{m ? m.name : <span className="av-mono">{i.object_type === "asset" ? `${assetName(i.object_id)}${assetFromPath(i.path)}` : OBJECT[i.object_type] ?? i.object_type}</span>}</td>
+                      <td style={{ paddingLeft: 16 }}>{m ? m.name : <span className="av-mono">{i.object_type === "asset" ? <><Link to={`/catalog/assets/${i.object_id}`}>{assetName(i.object_id)}</Link>{assetFromPath(i.path)}</> : OBJECT[i.object_type] ?? i.object_type}</span>}</td>
                       <td className="av-caption" style={{ whiteSpace: "normal" }}>{i.reason}</td>
                       <td>{m ? <Status value={m.status} /> : <Status value={i.level === "affected" ? "affected" : "unknown"} label={i.level === "affected" ? t("受影响") : t("可能受影响")} />}</td>
                       <td className="end">{m ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/metrics/${m.id}`}>{t("查看")}</Link> : null}</td>
@@ -230,7 +230,7 @@ function eventDetail(e: { kind: string; before: Record<string, unknown>; after: 
     case "column_comment_changed": case "comment_changed": return `${String(e.before.comment ?? t("（无）"))} → ${String(e.after.comment ?? t("（无）"))}`;
     case "renamed": case "rename_candidate": return `${String(e.before.name)} → ${String(e.after.name)}${e.after.basis ? `（${String(e.after.basis)}）` : ""}`;
     case "derivation_changed": case "upstream_broken": return String(e.after.reason ?? t("上游字段、表达式或条件变化"));
-    case "definition_changed": return t("规范化指纹 {{v1}} → {{v2}}", { v1: String(e.before.hash ?? "").slice(0, 8), v2: String(e.after.hash ?? "").slice(0, 8) });
+    case "definition_changed": return t("定义校验码已变化");
     case "identity_link_changed": return `${String(e.before.status ?? "—")} → ${String(e.after.status)}${e.after.reason ? `：${String(e.after.reason)}` : ""}`;
     default: return "";
   }
@@ -254,7 +254,7 @@ function ReviewPanel({ task }: { task: Task }) {
   const published = (metrics.data ?? []).flatMap((m) => m.versions.filter((v) => v.status === "published" && v.id !== task.target.id)
     .map((v) => ({ id: v.id, label: `${m.name} V${v.version_no}` })));
   const options = [
-    { id: "restored" as const, title: t("恢复原定义"), meta: t("数据库已改回原定义并重新采集；指纹一致后恢复发布") },
+    { id: "restored" as const, title: t("恢复原定义"), meta: t("数据库已改回原定义并重新采集；校验码一致后恢复发布") },
     { id: "new_version" as const, title: t("发布新口径"), meta: t("改用另一个已发布的指标版本；原版本失效并保留") },
     { id: "retired" as const, title: t("停用指标"), meta: t("不提供替代口径") },
   ];

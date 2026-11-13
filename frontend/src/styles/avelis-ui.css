@@ -111,7 +111,7 @@
 .av-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--text-tertiary); }
 .av-swatch--violet { background: var(--domain-violet); } .av-swatch--teal { background: var(--domain-teal); } .av-swatch--sky { background: var(--domain-sky); }
 .av-swatch--rose { background: var(--domain-rose); } .av-swatch--lime { background: var(--domain-lime); } .av-swatch--sand { background: var(--domain-sand); }
-.av-plat { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 22px; padding: 0 4px; border-radius: 3px; background: var(--bg-active); color: var(--text-secondary); font: 500 10px/1 var(--font-mono); letter-spacing: .02em; }
+.av-plat { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 22px; max-width: 120px; padding: 0 6px; border-radius: 3px; background: var(--bg-active); color: var(--text-secondary); font: 500 10px/1 var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 
 /* Panel, key-value, list rows */
 .av-panel { min-width: 0; background: var(--bg-surface); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); box-shadow: var(--shadow-glass); }
