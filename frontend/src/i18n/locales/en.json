@@ -1727,5 +1727,7 @@
   "定义校验码 {{v1}} → {{v2}}": "Definition checksum {{v1}} → {{v2}}",
   "定义校验码已变化": "Definition checksum changed",
   "数据库已改回原定义并重新采集；校验码一致后恢复发布": "The database was reverted and collected again; publishing resumes once the checksum matches",
-  "加工方式校验码 {{v1}}": "Derivation checksum {{v1}}"
+  "加工方式校验码 {{v1}}": "Derivation checksum {{v1}}",
+  "显示全部 {{count}} 条_one": "Show all {{count}}",
+  "显示全部 {{count}} 条_other": "Show all {{count}}"
 }

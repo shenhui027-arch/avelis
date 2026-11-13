@@ -1,5 +1,5 @@
 // 档案页的一排等高卡片：在用的口径、最近谁问过、最近结构变化。没有数据的卡片整张不渲染。
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import type { Schemas } from "../../../api/client";
@@ -28,14 +28,23 @@ export function DossierCards({ d, changes }: { d: AssetDossier; changes: ChangeR
   );
 }
 
-function Card({ tone, icon, title, aside, children }: { tone: KitTone; icon: string; title: string; aside?: ReactNode; children: ReactNode }) {
+/** 每张卡默认最多显示几行：三张卡高度相近，行数多的不会把同排的卡撑出大片空白。 */
+const CARD_ROWS = 4;
+
+function Card({ tone, icon, title, aside, children }: { tone: KitTone; icon: string; title: string; aside?: ReactNode; children: ReactNode[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = open ? children : children.slice(0, CARD_ROWS);
   return (
     <section className={`av-panel av-stage tone-${tone} av-dossier-card`} aria-label={title}>
       <div className="av-dossier-card__hd">
         <h2><Tile icon={icon} tone={tone} size="sm" />{title}</h2>
         {aside ? <span className="av-dossier-card__aside">{aside}</span> : null}
       </div>
-      <div className="av-dossier-list">{children}</div>
+      <div className="av-dossier-list">{rows}</div>
+      {children.length > CARD_ROWS && !open ? (
+        <button type="button" className="av-btn av-btn--ghost av-btn--sm av-dossier-card__more" onClick={() => setOpen(true)}>
+          {t("显示全部 {{count}} 条", { count: children.length })}</button>
+      ) : null}
     </section>
   );
 }

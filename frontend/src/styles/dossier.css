@@ -99,12 +99,12 @@
 }
 
 /* --- 窄页面：流向带纵向堆叠（箭头朝下）；字段血缘表每行改成纵向块 ------------------------------------ */
-@container av-dossier (max-width: 900px) {
+@container av-dossier (max-width: 760px) {
   .av-dossier-flow { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
   .av-dossier-flow__wire { padding: var(--space-1) 0; }
   .av-dossier-flow__wire .av-icon { transform: rotate(90deg); }
 }
-@container av-dossier (max-width: 720px) {
+@container av-dossier (max-width: 640px) {
   .av-dossier-lineage__table, .av-dossier-lineage__table tbody, .av-dossier-lineage__table tr, .av-dossier-lineage__table td { display: block; width: auto; }
   .av-dossier-lineage__table thead { display: none; }
   .av-dossier-lineage__table tr { padding: var(--space-3); border-top: 1px solid var(--line-subtle); }
@@ -114,3 +114,5 @@
   .av-dossier-lineage__table td.av-dossier-lineage__arrow .av-icon { transform: rotate(90deg); }
   .av-dossier-lineage__table tbody tr:hover td { background: transparent; }
 }
+
+.av-dossier-card__more { align-self: flex-start; margin-top: var(--space-1); }
