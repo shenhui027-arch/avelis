@@ -2228,6 +2228,169 @@
     }
    }
   },
+  "/api/assets/{asset_id}/dossier": {
+   "get": {
+    "tags": [
+     "资产档案"
+    ],
+    "summary": "Asset Dossier",
+    "operationId": "asset_dossier_api_assets__asset_id__dossier_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AssetDossierOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/lineage-notes": {
+   "put": {
+    "tags": [
+     "资产档案"
+    ],
+    "summary": "Save Lineage Note",
+    "description": "确认或改写一句说明（保存即确认）。需要这张表所在业务域的负责人或维护者；未归属业务域的表需要维护者角色。",
+    "operationId": "save_lineage_note_api_assets__asset_id__lineage_notes_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LineageNoteIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LineageNoteOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/lineage-notes/generate": {
+   "post": {
+    "tags": [
+     "资产档案"
+    ],
+    "summary": "Generate Lineage Notes",
+    "description": "让模型起草说明（草稿，待确认）。权限同保存；没有可用模型或已关闭向模型发送代码片段时不生成，返回原因。",
+    "operationId": "generate_lineage_notes_api_assets__asset_id__lineage_notes_generate_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LineageNoteGenerateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LineageNoteGenerateOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/metrics": {
    "get": {
     "tags": [
@@ -9728,6 +9891,113 @@
     ],
     "title": "AssetDetailOut"
    },
+   "AssetDossierOut": {
+    "properties": {
+     "asset": {
+      "$ref": "#/components/schemas/AssetOut"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain"
+     },
+     "owner": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DossierPersonOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "summary": {
+      "$ref": "#/components/schemas/DossierSummaryOut"
+     },
+     "column_count": {
+      "type": "integer",
+      "title": "Column Count",
+      "default": 0
+     },
+     "upstream": {
+      "items": {
+       "$ref": "#/components/schemas/DossierTableRefOut"
+      },
+      "type": "array",
+      "title": "Upstream"
+     },
+     "downstream": {
+      "items": {
+       "$ref": "#/components/schemas/DossierTableRefOut"
+      },
+      "type": "array",
+      "title": "Downstream"
+     },
+     "metrics": {
+      "items": {
+       "$ref": "#/components/schemas/DossierMetricOut"
+      },
+      "type": "array",
+      "title": "Metrics"
+     },
+     "asked": {
+      "$ref": "#/components/schemas/DossierAskedOut"
+     },
+     "produced": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DossierProducedOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "fields": {
+      "items": {
+       "$ref": "#/components/schemas/DossierFieldOut"
+      },
+      "type": "array",
+      "title": "Fields"
+     },
+     "can_edit_notes": {
+      "type": "boolean",
+      "title": "Can Edit Notes",
+      "default": false
+     },
+     "model_available": {
+      "type": "boolean",
+      "title": "Model Available",
+      "default": false
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "asset",
+     "summary",
+     "asked"
+    ],
+    "title": "AssetDossierOut"
+   },
    "AssetOut": {
     "properties": {
      "id": {
@@ -11016,6 +11286,96 @@
     ],
     "title": "ChangeSetOut"
    },
+   "ChartHeatmap": {
+    "properties": {
+     "y": {
+      "$ref": "#/components/schemas/ChartHeatmapY"
+     },
+     "y_categories": {
+      "items": {},
+      "type": "array",
+      "title": "Y Categories"
+     },
+     "cells": {
+      "items": {
+       "prefixItems": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "integer"
+        },
+        {
+         "anyOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       ],
+       "type": "array",
+       "maxItems": 3,
+       "minItems": 3
+      },
+      "type": "array",
+      "title": "Cells"
+     },
+     "min": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Min"
+     },
+     "max": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "y",
+     "y_categories",
+     "cells",
+     "min",
+     "max"
+    ],
+    "title": "ChartHeatmap"
+   },
+   "ChartHeatmapY": {
+    "properties": {
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "column",
+     "label"
+    ],
+    "title": "ChartHeatmapY"
+   },
    "ChartKpi": {
     "properties": {
      "label": {
@@ -11199,6 +11559,56 @@
     ],
     "title": "ChartOthers"
    },
+   "ChartPoint": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "x": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "X"
+     },
+     "y": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Y"
+     },
+     "size": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Size"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "name",
+     "x",
+     "y",
+     "size"
+    ],
+    "title": "ChartPoint"
+   },
    "ChartSeries": {
     "properties": {
      "name": {
@@ -11293,7 +11703,13 @@
        "stacked_bar",
        "diverging_bar",
        "donut",
-       "multiples"
+       "multiples",
+       "area",
+       "combo",
+       "pareto",
+       "waterfall",
+       "heatmap",
+       "scatter"
       ],
       "title": "Kind"
      },
@@ -11413,6 +11829,56 @@
       ],
       "title": "Highlight",
       "description": "要突出的显示类目名，其余类目应弱化"
+     },
+     "cumulative": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "number",
+         "maximum": 1.0,
+         "minimum": 0.0
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cumulative"
+     },
+     "waterfall": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChartWaterfall"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "heatmap": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChartHeatmap"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "points": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/ChartPoint"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Points"
      }
     },
     "additionalProperties": true,
@@ -11429,6 +11895,49 @@
      "dropped_series"
     ],
     "title": "ChartSpec"
+   },
+   "ChartWaterfall": {
+    "properties": {
+     "start": {
+      "$ref": "#/components/schemas/ChartWaterfallEndpoint"
+     },
+     "end": {
+      "$ref": "#/components/schemas/ChartWaterfallEndpoint"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "start",
+     "end"
+    ],
+    "title": "ChartWaterfall"
+   },
+   "ChartWaterfallEndpoint": {
+    "properties": {
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "label",
+     "value"
+    ],
+    "title": "ChartWaterfallEndpoint"
    },
    "ChartX": {
     "properties": {
@@ -12922,6 +13431,467 @@
      "code"
     ],
     "title": "DomainRef"
+   },
+   "DossierAskedOut": {
+    "properties": {
+     "days": {
+      "type": "integer",
+      "title": "Days",
+      "default": 30
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total",
+      "default": 0
+     },
+     "people": {
+      "items": {
+       "$ref": "#/components/schemas/DossierAskerOut"
+      },
+      "type": "array",
+      "title": "People"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "DossierAskedOut"
+   },
+   "DossierAskerOut": {
+    "properties": {
+     "user": {
+      "$ref": "#/components/schemas/DossierPersonOut"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     },
+     "last_asked_at": {
+      "type": "string",
+      "title": "Last Asked At"
+     },
+     "last_question": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Question"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "user",
+     "count",
+     "last_asked_at"
+    ],
+    "title": "DossierAskerOut"
+   },
+   "DossierFieldOut": {
+    "properties": {
+     "column": {
+      "type": "string",
+      "title": "Column"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "relation": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "value_direct",
+         "value_computed",
+         "value_aggregated"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Relation"
+     },
+     "sources": {
+      "items": {
+       "$ref": "#/components/schemas/DossierSourceColumnOut"
+      },
+      "type": "array",
+      "title": "Sources"
+     },
+     "expression": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expression"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Origin"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LineageNoteOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "column"
+    ],
+    "title": "DossierFieldOut",
+    "description": "本表一个字段的来历：来源字段、加工类型、表达式，以及（可能有的）人话说明。"
+   },
+   "DossierMetricOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version_id": {
+      "type": "string",
+      "title": "Version Id"
+     },
+     "version_no": {
+      "type": "integer",
+      "title": "Version No"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "role": {
+      "type": "string",
+      "enum": [
+       "base",
+       "dependency",
+       "join"
+      ],
+      "title": "Role"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "code",
+     "name",
+     "version_id",
+     "version_no",
+     "status",
+     "role"
+    ],
+    "title": "DossierMetricOut"
+   },
+   "DossierPersonOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "display_name"
+    ],
+    "title": "DossierPersonOut"
+   },
+   "DossierProducedOut": {
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "view",
+       "script"
+      ],
+      "title": "Kind"
+     },
+     "write_mode": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "overwrite",
+         "append",
+         "create"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Write Mode"
+     },
+     "scripts": {
+      "items": {
+       "$ref": "#/components/schemas/DossierScriptOut"
+      },
+      "type": "array",
+      "title": "Scripts"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "kind"
+    ],
+    "title": "DossierProducedOut",
+    "description": "这张表是怎么产出的。kind=view 时定义在资产详情的 definition 里；write_mode 推断不出来就是空。"
+   },
+   "DossierScriptOut": {
+    "properties": {
+     "job_id": {
+      "type": "string",
+      "title": "Job Id"
+     },
+     "batch_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Batch Id"
+     },
+     "filename": {
+      "type": "string",
+      "title": "Filename"
+     },
+     "statement_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Statement Type"
+     },
+     "line_start": {
+      "type": "integer",
+      "title": "Line Start"
+     },
+     "line_end": {
+      "type": "integer",
+      "title": "Line End"
+     },
+     "sql": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql"
+     },
+     "imported_at": {
+      "type": "string",
+      "title": "Imported At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "job_id",
+     "filename",
+     "line_start",
+     "line_end",
+     "imported_at"
+    ],
+    "title": "DossierScriptOut",
+    "description": "写入这张表的一段导入脚本。sql 只给能维护这张表的人（见 can_edit_notes），其他人为空。"
+   },
+   "DossierSourceColumnOut": {
+    "properties": {
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref"
+    ],
+    "title": "DossierSourceColumnOut"
+   },
+   "DossierSummaryOut": {
+    "properties": {
+     "text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Text"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "comment",
+         "note"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LineageNoteOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "DossierSummaryOut",
+    "description": "一句话说明：数据库表注释优先（source=comment）；没有注释时用说明（source=note，可能是待确认的草稿）。"
+   },
+   "DossierTableRefOut": {
+    "properties": {
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "ref": {
+      "type": "string",
+      "title": "Ref"
+     },
+     "comment": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Comment"
+     },
+     "datasource_kind": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasource Kind"
+     },
+     "columns": {
+      "type": "integer",
+      "title": "Columns",
+      "default": 0
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ref"
+    ],
+    "title": "DossierTableRefOut",
+    "description": "上游或下游的一张表。asset_id 为空：未采集，或当前用户无权查看（此时只给写法，不给注释）。"
    },
    "EffortOut": {
     "properties": {
@@ -14882,6 +15852,167 @@
      "join_path_id"
     ],
     "title": "JoinStep"
+   },
+   "LineageNoteGenerateIn": {
+    "properties": {
+     "columns": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array",
+        "maxItems": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Columns"
+     },
+     "summary": {
+      "type": "boolean",
+      "title": "Summary",
+      "default": true
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "LineageNoteGenerateIn"
+   },
+   "LineageNoteGenerateOut": {
+    "properties": {
+     "notes": {
+      "items": {
+       "$ref": "#/components/schemas/LineageNoteOut"
+      },
+      "type": "array",
+      "title": "Notes"
+     },
+     "skipped": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "no_model",
+         "policy",
+         "nothing"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skipped"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "LineageNoteGenerateOut"
+   },
+   "LineageNoteIn": {
+    "properties": {
+     "column": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 255
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     },
+     "text": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Text"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "text"
+    ],
+    "title": "LineageNoteIn"
+   },
+   "LineageNoteOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "column": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Column"
+     },
+     "text": {
+      "type": "string",
+      "title": "Text"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "confirmed",
+       "stale"
+      ],
+      "title": "Status"
+     },
+     "origin": {
+      "type": "string",
+      "enum": [
+       "model",
+       "human"
+      ],
+      "title": "Origin"
+     },
+     "confirmed_by": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DossierPersonOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "confirmed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Confirmed At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "text",
+     "status",
+     "origin",
+     "updated_at"
+    ],
+    "title": "LineageNoteOut",
+    "description": "一句人话说明。column 为空是整张表的说明；stale 表示写说明之后字段的来源或表达式变了。"
    },
    "LinkOut": {
     "properties": {

@@ -1302,3 +1302,145 @@ class NotificationOut(Out):
     link: str | None = None
     read_at: str | None = None
     created_at: str
+
+
+# --- 资产档案页（ADR 0022） ---------------------------------------------------------
+
+
+class DossierPersonOut(Out):
+    id: str
+    display_name: str
+
+
+class LineageNoteOut(Out):
+    """一句人话说明。column 为空是整张表的说明；stale 表示写说明之后字段的来源或表达式变了。"""
+
+    id: str
+    column: str | None = None
+    text: str
+    status: Literal["draft", "confirmed", "stale"]
+    origin: Literal["model", "human"]
+    confirmed_by: DossierPersonOut | None = None
+    confirmed_at: str | None = None
+    updated_at: str
+
+
+class DossierSummaryOut(Out):
+    """一句话说明：数据库表注释优先（source=comment）；没有注释时用说明（source=note，可能是待确认的草稿）。"""
+
+    text: str | None = None
+    source: Literal["comment", "note"] | None = None
+    note: LineageNoteOut | None = None
+
+
+class DossierTableRefOut(Out):
+    """上游或下游的一张表。asset_id 为空：未采集，或当前用户无权查看（此时只给写法，不给注释）。"""
+
+    asset_id: str | None = None
+    ref: str
+    comment: str | None = None
+    datasource_kind: str | None = None
+    columns: int = 0
+
+
+class DossierMetricOut(Out):
+    id: str
+    code: str
+    name: str
+    version_id: str
+    version_no: int
+    status: str
+    description: str | None = None
+    role: Literal["base", "dependency", "join"]
+
+
+class DossierAskerOut(Out):
+    user: DossierPersonOut
+    count: int
+    last_asked_at: str
+    # 问题原文只给本人与管理员
+    last_question: str | None = None
+
+
+class DossierAskedOut(Out):
+    days: int = 30
+    total: int = 0
+    people: list[DossierAskerOut] = Field(default_factory=list)
+
+
+class DossierSourceColumnOut(Out):
+    asset_id: str | None = None
+    ref: str
+    column: str | None = None
+
+
+class DossierFieldOut(Out):
+    """本表一个字段的来历：来源字段、加工类型、表达式，以及（可能有的）人话说明。"""
+
+    column: str
+    comment: str | None = None
+    relation: Literal["value_direct", "value_computed", "value_aggregated"] | None = None
+    sources: list[DossierSourceColumnOut] = Field(default_factory=list)
+    expression: str | None = None
+    origin: str | None = None
+    note: LineageNoteOut | None = None
+
+
+class DossierScriptOut(Out):
+    """写入这张表的一段导入脚本。sql 只给能维护这张表的人（见 can_edit_notes），其他人为空。"""
+
+    job_id: str
+    batch_id: str | None = None
+    filename: str
+    statement_type: str | None = None
+    line_start: int
+    line_end: int
+    sql: str | None = None
+    imported_at: str
+
+
+class DossierProducedOut(Out):
+    """这张表是怎么产出的。kind=view 时定义在资产详情的 definition 里；write_mode 推断不出来就是空。"""
+
+    kind: Literal["view", "script"]
+    write_mode: Literal["overwrite", "append", "create"] | None = None
+    scripts: list[DossierScriptOut] = Field(default_factory=list)
+
+
+class AssetDossierOut(Out):
+    asset: AssetOut
+    comment: str | None = None
+    domain: Json | None = None
+    owner: DossierPersonOut | None = None
+    summary: DossierSummaryOut
+    column_count: int = 0
+    upstream: list[DossierTableRefOut] = Field(default_factory=list)
+    downstream: list[DossierTableRefOut] = Field(default_factory=list)
+    metrics: list[DossierMetricOut] = Field(default_factory=list)
+    asked: DossierAskedOut
+    produced: DossierProducedOut | None = None
+    fields: list[DossierFieldOut] = Field(default_factory=list)
+    can_edit_notes: bool = False
+    model_available: bool = False
+
+
+class LineageNoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 空或不传：整张表的一句话说明
+    column: str | None = Field(default=None, max_length=255)
+    text: str = Field(min_length=1, max_length=500)
+
+
+class LineageNoteGenerateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 不传：所有还没有已确认说明的字段
+    columns: list[str] | None = Field(default=None, max_length=500)
+    summary: bool = True
+
+
+class LineageNoteGenerateOut(Out):
+    notes: list[LineageNoteOut] = Field(default_factory=list)
+    # 没有生成时的原因：no_model（没有可用模型）、policy（已关闭向模型发送代码片段）、nothing（没有需要写的字段）
+    skipped: Literal["no_model", "policy", "nothing"] | None = None
