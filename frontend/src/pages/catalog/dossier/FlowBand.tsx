@@ -7,7 +7,7 @@ import { Hint, Icon, KIND_LABEL, Pill, Plat, Status, Tile } from "../../../compo
 import { formatShortTime } from "../../../format";
 import { t } from "../../../i18n";
 import { initialOf, latestAsker, schemaOf, summaryState, tableName, usage, visible } from "./dossier";
-import { NoteEditor, useSaveNote } from "./notes";
+import { NoteEditor, noteRevision, useSaveNote } from "./notes";
 
 type Message = (m: { ok: boolean; text: string }) => void;
 type TableRef = NonNullable<AssetDossier["upstream"]>[number];
@@ -66,7 +66,7 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
   const writeMode = d.produced?.write_mode;
   const schema = schemaOf(a.qualified);
   const count = d.column_count ?? a.columns.length;
-  const submit = (text: string, confirm: boolean) => save.mutate({ column: null, text, seen: { updatedAt: summary?.updated_at ? String(summary.updated_at) : null } }, {
+  const submit = (text: string, confirm: boolean) => save.mutate({ column: null, text, seen: { updatedAt: noteRevision(summary?.note) } }, {
     onSuccess: () => { setEditing(false); onMessage({ ok: true, text: confirm ? t("已确认这张表的说明") : t("已保存这张表的说明") }); },
     onError: (e) => onMessage({ ok: false, text: errorText(e) }),
   });

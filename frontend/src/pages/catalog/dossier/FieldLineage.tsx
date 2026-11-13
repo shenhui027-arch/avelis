@@ -7,7 +7,7 @@ import { errorText, useAction, type AssetDossier } from "../../../api/hooks";
 import { Banner, Icon, Pill, RELATION_LABEL, Tile, useMessage } from "../../../components/ui";
 import { t } from "../../../i18n";
 import { needsConfirm, noteCounts, noteState, sourceLabel, visible } from "./dossier";
-import { NoteEditor, useSaveNote, type NoteSeen } from "./notes";
+import { NoteEditor, noteRevision, useSaveNote, type NoteSeen } from "./notes";
 
 type Field = NonNullable<AssetDossier["fields"]>[number];
 
@@ -153,5 +153,5 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
 /** 这一行此刻显示的版本（来历与说明修订），随确认请求带回。 */
 function seenOf(fields: NonNullable<AssetDossier["fields"]>, column: string): NoteSeen {
   const f = fields.find((item) => item.column === column);
-  return { basisHash: f?.basis_hash ?? null, updatedAt: f?.note?.updated_at ? String(f.note.updated_at) : null };
+  return { basisHash: f?.basis_hash ?? null, updatedAt: noteRevision(f?.note) };
 }

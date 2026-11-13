@@ -9,6 +9,11 @@ import { t } from "../../../i18n";
 /** 用户确认时页面上显示的版本：字段的来历版本（整张表的说明没有）与说明的修订时间（没有说明时为 null）。 */
 export type NoteSeen = { basisHash?: string | null; updatedAt: string | null };
 
+/** 一条说明的修订标识（它的 updated_at）；没有说明时为 null。整表说明在 summary.note 上，字段说明在 field.note 上。 */
+export function noteRevision(note: { updated_at: string } | null | undefined): string | null {
+  return note?.updated_at ?? null;
+}
+
 /** 保存一句说明：column 为空表示整张表的说明。带上用户看到的来历版本与说明修订，后端发现已变化会拒绝（409）。
  *  保存后档案查询失效刷新；被拒绝时也刷新，让用户看到最新的来源再决定。 */
 export function useSaveNote(assetId: string) {
