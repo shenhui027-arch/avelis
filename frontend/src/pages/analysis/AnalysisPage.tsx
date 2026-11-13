@@ -323,10 +323,9 @@ function Figures({ runId, figures }: { runId: string; figures: Figure[] }) {
 }
 
 /** 取数类问题（ADR 0013 合并入口）：由问数引擎直接给出受治理查询结果，不展开多步分析。 */
-function LookupAnswer({ a, runId }: { a: Answer; runId: string }) {
+/** onContinue：对话级的续问入口（接在最新一轮之后）；最新一轮没结束或已有续问在途时为空，追问按钮随之禁用。 */
+function LookupAnswer({ a, onContinue }: { a: Answer; onContinue?: (text: string) => void }) {
   const result = (a.result ?? {}) as AskResult;
-  // 模型解读里的追问：在同一对话里接着问（与底部输入框相同）
-  const follow = useContinue(runId);
   const intent = (a.intent ?? {}) as AskIntent;
   const single = result.rows?.length === 1 && result.columns?.length === 1;
   const style = useNumberStyle();
@@ -338,8 +337,7 @@ function LookupAnswer({ a, runId }: { a: Answer; runId: string }) {
         <span className="av-caption">{a.message}</span></div>
         : <p className="av-doc__lead">{a.message}</p>}
       {!single && result.insights?.length ? <Insights items={result.insights} /> : null}
-      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={follow.send} disabled={follow.pending} /> : null}
-      {follow.error ? <div className="av-banner av-banner--danger">{follow.error}</div> : null}
+      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={(text) => onContinue?.(text)} disabled={!onContinue} /> : null}
       {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
         <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
       <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
@@ -463,7 +461,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done ? <FilterAlignmentNote items={(r as Run & { filter_alignment?: Parameters<typeof FilterAlignmentNote>[0]["items"] }).filter_alignment} /> : null}
-      {done && lookup && answer ? <LookupAnswer a={answer} runId={r.id} /> : null}
+      {done && lookup && answer ? <LookupAnswer a={answer} onContinue={onContinue} /> : null}
       {done && chartEdit ? <>
         {report.summary ? <p className={verification.ok === false ? "av-banner av-banner--info" : "av-doc__method"}>{report.summary}</p> : null}
         <Figures runId={r.id} figures={(r as Run & { figures?: Figure[] }).figures ?? []} />

@@ -66,7 +66,7 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
   const writeMode = d.produced?.write_mode;
   const schema = schemaOf(a.qualified);
   const count = d.column_count ?? a.columns.length;
-  const submit = (text: string, confirm: boolean) => save.mutate({ column: null, text }, {
+  const submit = (text: string, confirm: boolean) => save.mutate({ column: null, text, seen: { updatedAt: summary?.updated_at ? String(summary.updated_at) : null } }, {
     onSuccess: () => { setEditing(false); onMessage({ ok: true, text: confirm ? t("已确认这张表的说明") : t("已保存这张表的说明") }); },
     onError: (e) => onMessage({ ok: false, text: errorText(e) }),
   });

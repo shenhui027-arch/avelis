@@ -1383,6 +1383,8 @@ class DossierFieldOut(Out):
     sources: list[DossierSourceColumnOut] = Field(default_factory=list)
     expression: str | None = None
     origin: str | None = None
+    # 来历版本：来源字段与表达式的摘要。确认说明时原样带回，后端据此判断确认的是不是用户看到的那一版
+    basis_hash: str | None = None
     note: LineageNoteOut | None = None
 
 
@@ -1430,6 +1432,10 @@ class LineageNoteIn(BaseModel):
     # 空或不传：整张表的一句话说明
     column: str | None = Field(default=None, max_length=255)
     text: str = Field(min_length=1, max_length=500)
+    # 用户确认时页面上显示的来历版本（DossierFieldOut.basis_hash）；与当前不一致返回 409，要求刷新核对
+    expected_basis_hash: str | None = Field(default=None, max_length=128)
+    # 用户看到的说明修订（LineageNoteOut.updated_at）；显式传 null 表示当时还没有说明。不传则不校验
+    expected_updated_at: str | None = Field(default=None, max_length=64)
 
 
 class LineageNoteGenerateIn(BaseModel):

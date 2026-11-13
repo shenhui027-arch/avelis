@@ -92,9 +92,12 @@ def _out(session: Session, note: LineageNote, status: str | None = None) -> dict
     }
 
 
-def _notes(session: Session, asset: Asset, *, fresh: bool = False) -> dict[str, LineageNote]:
+def _notes(session: Session, asset: Asset, *, fresh: bool = False, lock: bool = False) -> dict[str, LineageNote]:
     stmt = select(LineageNote).where(LineageNote.asset_id == asset.id)
-    if fresh:
+    if lock:
+        # 保存前锁住这张表的说明行：修订校验与写入之间不让别的保存插进来
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    elif fresh:
         # 重新读库：等模型期间别人可能已经确认或改写了说明
         stmt = stmt.execution_options(populate_existing=True)
     return {n.column_name: n for n in session.scalars(stmt)}
@@ -116,10 +119,26 @@ def _current_basis(session: Session, asset: Asset) -> dict[str, dict]:
     return {item["column"]: item for item in dossier.field_lineage(session, asset)}
 
 
-def save(session: Session, user: User, asset: Asset, column: str, text: str) -> dict:
+UNCHECKED = object()
+
+
+def save(
+    session: Session,
+    user: User,
+    asset: Asset,
+    column: str,
+    text: str,
+    *,
+    expected_basis_hash: str | None = None,
+    expected_updated_at=UNCHECKED,
+) -> dict:
     """保存即确认：写入或覆盖（资产，字段）的说明为 confirmed，记录确认人与当前 basis_hash，并记审计
     （动作 lineage_note.confirm）。文本与现有模型草稿相同则 origin 保持 model，否则为 human。
-    column 非空时必须是本表当前有来历的字段，否则 NotFound；无权限 Forbidden。返回 LineageNoteOut 形状。"""
+    column 非空时必须是本表当前有来历的字段，否则 NotFound；无权限 Forbidden。返回 LineageNoteOut 形状。
+
+    确认必须对应用户看到的那一版：expected_basis_hash 与字段当前来历不一致、或 expected_updated_at
+    （用户所见说明的修订时间，None 表示当时没有说明）与现有说明不一致时 Conflict，不改动说明。
+    两者不传时不校验（旧客户端）。"""
     _require_edit(session, user, asset)
     column = column or ""
     text = (text or "").strip()
@@ -133,8 +152,12 @@ def save(session: Session, user: User, asset: Asset, column: str, text: str) -> 
         if field is None:
             raise NotFound(Msg("字段“{column}”不存在，或没有来源信息", column=column))
         basis_hash = field["basis_hash"]
+        if expected_basis_hash is not None and expected_basis_hash != basis_hash:
+            raise Conflict(Msg("字段“{column}”的来源或加工方式已经变了，请刷新后核对再确认", column=column))
     now = utcnow()
-    note = _notes(session, asset).get(column)
+    note = _notes(session, asset, lock=True).get(column)
+    if expected_updated_at is not UNCHECKED and expected_updated_at != (_iso(note.updated_at) if note else None):
+        raise Conflict(Msg("这条说明已被其他人修改，请刷新后再确认"))
     if note is None:
         note = LineageNote(asset_id=asset.id, column_name=column, created_by=user.id, created_at=now)
         origin = "human"

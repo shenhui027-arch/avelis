@@ -13552,6 +13552,17 @@
       ],
       "title": "Origin"
      },
+     "basis_hash": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Basis Hash"
+     },
      "note": {
       "anyOf": [
        {
@@ -15929,6 +15940,30 @@
       "maxLength": 500,
       "minLength": 1,
       "title": "Text"
+     },
+     "expected_basis_hash": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expected Basis Hash"
+     },
+     "expected_updated_at": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expected Updated At"
      }
     },
     "additionalProperties": false,

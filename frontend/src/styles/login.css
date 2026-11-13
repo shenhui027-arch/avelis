@@ -78,7 +78,8 @@
 .av-login__reveal:hover { background: var(--bg-active); color: var(--text-primary); }
 .av-login__reveal:focus-visible, .av-login__switch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .av-login__submit { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 52px; margin-top: 4px; border: none; border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--mod-collect), var(--brand-gradient)); color: var(--text-on-primary); font: 500 16px/22px var(--font-sans); cursor: pointer;
+  /* 文字在整段渐变上都要达到 4.5:1：从按钮色起，向更深的蓝过渡，不从明亮的模块色起（contrast.test.mjs 校验） */
+  background: linear-gradient(135deg, var(--brand-gradient), color-mix(in srgb, var(--brand-gradient) 80%, #0a2a6b)); color: var(--text-on-primary); font: 500 16px/22px var(--font-sans); cursor: pointer;
   box-shadow: 0 12px 24px -12px color-mix(in srgb, var(--brand-gradient) 70%, transparent); }
 .av-login__submit:hover:not(:disabled) { filter: brightness(1.06); }
 .av-login__submit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
