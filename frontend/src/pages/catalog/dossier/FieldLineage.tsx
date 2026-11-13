@@ -7,7 +7,7 @@ import { errorText, useAction, type AssetDossier } from "../../../api/hooks";
 import { Banner, Icon, Pill, RELATION_LABEL, Tile, useMessage } from "../../../components/ui";
 import { t } from "../../../i18n";
 import { needsConfirm, noteCounts, noteState, sourceLabel, visible } from "./dossier";
-import { NoteEditor, noteRevision, useSaveNote, type NoteSeen } from "./notes";
+import { isConflict, NoteEditor, noteRevision, useSaveNote, type NoteSeen } from "./notes";
 
 type Field = NonNullable<AssetDossier["fields"]>[number];
 
@@ -38,7 +38,7 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
       setEditing(null);
       setMessage({ ok: true, text: confirm ? t("已确认 {{name}} 的说明", { name: column }) : t("已保存 {{name}} 的说明", { name: column }) });
     },
-    onError: (e) => setMessage({ ok: false, text: errorText(e) }),
+    onError: (e) => { if (isConflict(e)) setEditing(null); setMessage({ ok: false, text: errorText(e) }); },
   });
   const runGenerate = () => generate.mutate(undefined, {
     onSuccess: (r) => {

@@ -2,7 +2,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { api, unwrap } from "../../../api/client";
+import { api, ApiError, unwrap } from "../../../api/client";
 import { useAction } from "../../../api/hooks";
 import { t } from "../../../i18n";
 
@@ -12,6 +12,12 @@ export type NoteSeen = { basisHash?: string | null; updatedAt: string | null };
 /** 一条说明的修订标识（它的 updated_at）；没有说明时为 null。整表说明在 summary.note 上，字段说明在 field.note 上。 */
 export function noteRevision(note: { updated_at: string } | null | undefined): string | null {
   return note?.updated_at ?? null;
+}
+
+/** 保存被拒绝是因为来源或说明在此期间变了（409）。此时要关掉编辑框：框里还是旧文字，
+ *  留着再点一次保存，就会带着刷新后的修订号覆盖别人的说明。 */
+export function isConflict(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409;
 }
 
 /** 保存一句说明：column 为空表示整张表的说明。带上用户看到的来历版本与说明修订，后端发现已变化会拒绝（409）。
