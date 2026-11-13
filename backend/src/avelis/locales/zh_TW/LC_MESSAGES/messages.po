@@ -2392,3 +2392,18 @@ msgstr "累計占比"
 
 msgid "图表偏好无效：{reason}；可选 kind：{available}"
 msgstr "圖表偏好無效：{reason}；可選 kind：{available}"
+
+msgid "需要这张表所在业务域的负责人或维护者身份"
+msgstr "需要這張表所在業務域的負責人或維護者身份"
+
+msgid "说明不能为空"
+msgstr "說明不能為空"
+
+msgid "说明不能超过 {limit} 个字"
+msgstr "說明不能超過 {limit} 個字"
+
+msgid "字段“{column}”不存在，或没有来源信息"
+msgstr "欄位「{column}」不存在，或沒有來源資訊"
+
+msgid "模型没有返回可用的说明，请稍后再试"
+msgstr "模型沒有回傳可用的說明，請稍後再試"
