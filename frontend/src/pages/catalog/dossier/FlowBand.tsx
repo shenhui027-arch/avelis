@@ -96,6 +96,11 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
               </> : null}
             </div>
           ) : null}
+          {state === "confirmed" && summary.source === "note" && d.can_edit_notes ? (
+            <div className="av-dossier-hero__note">
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("改一下")}</button>
+            </div>
+          ) : null}
         </div>
       ) : d.can_edit_notes ? (
         <div className="av-dossier-hero__note">

@@ -169,22 +169,33 @@ def field_lineage(session: Session, asset: Asset) -> list[dict]:
         )
         .order_by(LineageEdge.created_at, LineageEdge.id)
     ).all()
-    grouped: dict[str, list] = {}
+    exact: dict[str, list] = {}
     for row in rows:
-        grouped.setdefault(row.target_column.lower(), []).append(row)
-    if not grouped:
+        exact.setdefault(row.target_column, []).append(row)
+    if not exact:
         return []
 
     columns = _columns(session, asset)
     if columns:
-        ordered = [(c.name, c.comment) for c in columns if c.name.lower() in grouped]
+        # 边上的字段名与采集到的字段名大小写可能不同：先按原名对，对不上且不会混淆两个只差大小写的字段时才忽略大小写
+        folded: dict[str, list[str]] = {}
+        for c in columns:
+            folded.setdefault(c.name.lower(), []).append(c.name)
+        grouped: dict[str, list] = {}
+        for written, edges in exact.items():
+            names = folded.get(written.lower(), [])
+            target = written if written in names else (names[0] if len(names) == 1 else None)
+            if target is not None:
+                grouped.setdefault(target, []).extend(edges)
+        ordered = [(c.name, c.comment) for c in columns if c.name in grouped]
     else:
         # 没有采集到当前版本时按字段名排序
-        ordered = sorted((edges[0].target_column, None) for edges in grouped.values())
+        grouped = exact
+        ordered = sorted((name, None) for name in grouped)
 
     out = []
     for name, comment in ordered:
-        edges = grouped[name.lower()]
+        edges = grouped[name]
         parsed = [e for e in edges if e.origin == "parsed"]
         chosen = parsed or edges
         relation = max((e.relation for e in chosen), key=lambda r: _RELATION_RANK.get(r, -1))
@@ -429,15 +440,16 @@ def asked(session: Session, user: User, asset: Asset, days: int = ASKED_DAYS) ->
 # --- 产出方式 ---------------------------------------------------------------------
 
 
-def _same_table(table: exp.Table, asset: Asset) -> bool:
+def _same_table(table: exp.Table, asset: Asset, default_db: str | None = None) -> bool:
+    """语句里的表是不是这张表：没写库名时按导入文件的默认库判断，默认库也没有才只比表名。"""
     name = table.name.lower()
     if name != asset.name.lower():
         return False
-    db = table.db.lower() if table.db else ""
+    db = (table.db or default_db or "").lower()
     return not db or db == asset.db_name.lower()
 
 
-def _clears(sql: str | None, dialect, asset: Asset) -> bool | None:
+def _clears(sql: str | None, dialect, asset: Asset, default_db: str | None = None) -> bool | None:
     """这条 TRUNCATE / DELETE 是否清空了整张表：是 True，不是 False，解析不了 None。"""
     from avelis.importer.statements import _delete_reset_target
 
@@ -453,7 +465,7 @@ def _clears(sql: str | None, dialect, asset: Asset) -> bool | None:
     if isinstance(tree, exp.TruncateTable):
         if tree.args.get("is_database"):
             return False
-        hit = [t for t in tree.expressions if isinstance(t, exp.Table) and _same_table(t, asset)]
+        hit = [t for t in tree.expressions if isinstance(t, exp.Table) and _same_table(t, asset, default_db)]
         if not hit:
             return False
         # 只清某个分区：不是整表清空，也不能据此说是追加
@@ -462,10 +474,10 @@ def _clears(sql: str | None, dialect, asset: Asset) -> bool | None:
     if isinstance(tree, exp.Delete):
         target = _delete_reset_target(tree)
         if target is not None:
-            return _same_table(target, asset)
+            return _same_table(target, asset, default_db)
         # 带条件的 DELETE：删的是这张表的一部分时无法归类，删的是别的表则与本表无关
         table = tree.this
-        return None if isinstance(table, exp.Table) and _same_table(table, asset) else False
+        return None if isinstance(table, exp.Table) and _same_table(table, asset, default_db) else False
     return None
 
 
@@ -520,7 +532,10 @@ def _write_mode(session: Session, asset: Asset, statements: list[ExtractedStatem
                     )
                 )
             dialect = _dialect(session, jobs[stmt.job_id])
-            results = [_clears(c.sql_text, dialect, asset) for c in clearing[stmt.job_id] if c.seq < stmt.seq]
+            default_db = jobs[stmt.job_id].default_db
+            results = [
+                _clears(c.sql_text, dialect, asset, default_db) for c in clearing[stmt.job_id] if c.seq < stmt.seq
+            ]
             if any(r is None for r in results):
                 modes.add(None)
             else:

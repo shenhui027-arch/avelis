@@ -92,8 +92,12 @@ def _out(session: Session, note: LineageNote, status: str | None = None) -> dict
     }
 
 
-def _notes(session: Session, asset: Asset) -> dict[str, LineageNote]:
-    return {n.column_name: n for n in session.scalars(select(LineageNote).where(LineageNote.asset_id == asset.id))}
+def _notes(session: Session, asset: Asset, *, fresh: bool = False) -> dict[str, LineageNote]:
+    stmt = select(LineageNote).where(LineageNote.asset_id == asset.id)
+    if fresh:
+        # 重新读库：等模型期间别人可能已经确认或改写了说明
+        stmt = stmt.execution_options(populate_existing=True)
+    return {n.column_name: n for n in session.scalars(stmt)}
 
 
 def notes_for(session: Session, asset: Asset, basis: dict[str, str]) -> dict[str, dict]:
@@ -262,8 +266,12 @@ def generate(session: Session, user: User, asset: Asset, columns: list[str] | No
 
     now = utcnow()
     notes = []
+    existing = _notes(session, asset, fresh=True)
     for column, text, basis_hash in drafts:
         note = existing.get(column)
+        if note is not None and note.status == "confirmed" and (not column or note.basis_hash == basis_hash):
+            # 等模型返回的这段时间里有人确认或改写了它：以人的为准
+            continue
         if note is None:
             note = LineageNote(asset_id=asset.id, column_name=column, created_by=user.id, created_at=now)
         note.text = text
