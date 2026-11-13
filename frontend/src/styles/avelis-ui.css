@@ -111,7 +111,7 @@
 .av-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--text-tertiary); }
 .av-swatch--violet { background: var(--domain-violet); } .av-swatch--teal { background: var(--domain-teal); } .av-swatch--sky { background: var(--domain-sky); }
 .av-swatch--rose { background: var(--domain-rose); } .av-swatch--lime { background: var(--domain-lime); } .av-swatch--sand { background: var(--domain-sand); }
-.av-plat { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 22px; padding: 0 4px; border-radius: 3px; background: var(--bg-active); color: var(--text-secondary); font: 500 10px/1 var(--font-mono); letter-spacing: .02em; }
+.av-plat { display: inline-flex; align-items: center; justify-content: center; height: 16px; min-width: 22px; max-width: 120px; padding: 0 6px; border-radius: 3px; background: var(--bg-active); color: var(--text-secondary); font: 500 10px/1 var(--font-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 
 /* Panel, key-value, list rows */
 .av-panel { min-width: 0; background: var(--bg-surface); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); box-shadow: var(--shadow-glass); }
@@ -156,9 +156,11 @@
 .av-sb__icon:hover { background: var(--bg-raised); color: var(--text-primary); }
 .av-sb__ws { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px; margin-bottom: 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); font: 500 13px/18px var(--font-sans); text-decoration: none; box-shadow: var(--shadow-glass); }
 .av-sb__ws:hover { border-color: var(--line-strong); }
-.av-sb__ws .av-sb__label { display: flex; flex-direction: column; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.av-sb__ws small { display: inline-flex; align-items: center; gap: 5px; color: var(--text-tertiary); font: 400 11px/16px var(--font-sans); }
+.av-sb__ws .av-sb__label { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.av-sb__ws small { display: flex; align-items: center; gap: 5px; color: var(--text-tertiary); font: 400 11px/16px var(--font-sans); }
 .av-sb.is-collapsed .av-sb__ws { justify-content: center; padding: 6px 0; }
+.av-sb.is-collapsed .av-sb__ws { overflow: hidden; }
+.av-sb.is-collapsed .av-sb__ws .av-plat { max-width: 100%; padding: 0 3px; font-size: 10px; }
 .av-sb__new { display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; margin-bottom: 16px; border: none; border-radius: var(--radius-md); background: var(--brand-gradient); color: var(--text-on-primary); font: 500 14px/1 var(--font-sans); box-shadow: var(--shadow-brand); cursor: pointer; }
 .av-sb__new:hover { background: color-mix(in srgb, var(--brand-gradient) 86%, var(--bg-base)); }
 .av-sb__nv { position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--radius-sm); color: var(--text-secondary); font: 400 14px/20px var(--font-sans); text-decoration: none; white-space: nowrap; }

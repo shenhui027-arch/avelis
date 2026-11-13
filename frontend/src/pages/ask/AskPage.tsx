@@ -281,7 +281,7 @@ export function Evidence({ a }: { a: Answer }) {
   const [tab, setTab] = useState<"source" | "sql" | "steps">("source");
   const ev = a.evidence ?? {};
   const mv = ev.metric_version as { metric_name?: string; version_no?: number; owner?: string; reviewed_by?: string; expression?: string; published_at?: string; status?: string } | undefined;
-  const sources = (ev.sources as { qualified: string; kind: string; datasource: string; version_no?: number; is_test_adapter?: boolean }[] | undefined) ?? [];
+  const sources = (ev.sources as { asset_id?: string; qualified: string; kind: string; datasource: string; version_no?: number; is_test_adapter?: boolean }[] | undefined) ?? [];
   const lineage = (ev.lineage as { column: string; role: string; sources: { source: string; relation: string }[] }[] | undefined) ?? [];
   const limits = ev.limits as { query_timeout_seconds?: number; max_rows?: number } | undefined;
   const fresh = a.freshness as { tables?: Record<string, string | null>; last_collected_at?: string; note?: string };
@@ -333,10 +333,10 @@ export function Evidence({ a }: { a: Answer }) {
                 <span className="av-section-label">{t("字段来源")}</span>
                 {lineage.filter((l) => l.role === "measure").map((l) => (
                   <div key={l.column} className="av-chain">
-                    <div className="av-chain__item"><span className="av-plat">SR</span><span>{l.column.split(".").slice(-2).join(".")}</span></div>
+                    <div className="av-chain__item"><span>{l.column.split(".").slice(-2).join(".")}</span></div>
                     {l.sources.filter((s) => s.relation.startsWith("value")).map((s) => (
                       <div key={s.source} style={{ display: "contents" }}><div className="av-chain__link" />
-                        <div className="av-chain__item"><span className="av-plat">SR</span><span>{s.source.split(".").slice(-2).join(".")}</span></div></div>
+                        <div className="av-chain__item"><span>{s.source.split(".").slice(-2).join(".")}</span></div></div>
                     ))}
                   </div>
                 ))}
@@ -346,7 +346,7 @@ export function Evidence({ a }: { a: Answer }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <span className="av-section-label">{t("读取的来源")} <Hint text={t("沿血缘与“同一张表”找到的全部来源；每个都需要业务域权限")} /></span>
                 {sources.map((s) => (
-                  <span key={s.qualified} className="av-chain__item"><span className="av-plat">{s.datasource.includes("MySQL") ? "MY" : "SR"}</span><span>{s.qualified}</span>
+                  <span key={s.qualified} className="av-chain__item"><span className="av-plat">{s.datasource}</span><span>{s.asset_id ? <Link to={`/catalog/assets/${s.asset_id}`}>{s.qualified}</Link> : s.qualified}</span>
                     {s.version_no ? <span className="av-tag" style={{ marginLeft: "auto" }}>v{s.version_no}</span> : null}</span>
                 ))}
               </div>

@@ -263,5 +263,5 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 |---|---|---|
 | `AVELIS_HTTP_PORT` | `8080` | 對外埠 |
 | `AVELIS_BIND_ADDRESS` | `127.0.0.1` | 預設只監聽本機；從其他機器存取時設為 `0.0.0.0` 或具體網卡地址，並先修改預設管理員密碼；生產環境建議放在 HTTPS 反向代理之後 |
-| `AVELIS_IMAGE` | `avelis:1.0.7` | 映像名 |
+| `AVELIS_IMAGE` | `avelis:1.0.8` | 映像名 |
 | `COMPOSE_FILE` | — | 使用外部 PostgreSQL / Redis 時設為 `compose.yaml:compose.external.yaml` |

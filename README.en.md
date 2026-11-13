@@ -50,7 +50,7 @@ AI has let developers like us be among the first to taste the rewards of this wa
 
 | Version | Added |
 |---|---|
-| **Unreleased** | Richer answers: deterministic highlight cards, the model's conclusion and observations (follow-ups sent in one click), with one Ask entry in the sidebar; six new charts (area, bar + line, Pareto, waterfall, heatmap, scatter), exports included; design system v5 (Twitter blue, module colors throughout) and a product-collage sign-in page |
+| **v1.0.8** | Asset dossier: one page per table — where it comes from → the table → who uses it, then the metrics on it, who asked recently, schema changes, how each column is derived (a plain sentence drafted by the model and confirmed by the owner, expression collapsed) and how it is produced; “fingerprint” is now “checksum” and engines show their full names; Richer answers: deterministic highlight cards, the model's conclusion and observations (follow-ups sent in one click), with one Ask entry in the sidebar; six new charts (area, bar + line, Pareto, waterfall, heatmap, scatter), exports included; design system v5 (Twitter blue, module colors throughout) and a product-collage sign-in page |
 | **v1.0.7** | Login page fix: the header and content now share one centered width, so on wide screens the headline, product preview and sign-in card stay together instead of drifting to opposite edges |
 | **v1.0.6** | Interface redesign: a soft workbench look (light first, dark just as finished) without gradients, glows or redundant helper text, with extra context behind ⓘ tooltips; Motion animations for sliding selections, page changes and popovers opening and closing; reworked Ask home and workbench; fonts bundled with the image instead of downloaded at runtime |
 | **v1.0.5** | Filter value alignment: values such as “East Region” are matched deterministically to dimension members or to the business's own dimension tables (aliases are kept in those tables and registered through join paths); when nothing matches, Avelis asks with clickable candidates. Asset search supports combined keywords and “Load more”; concurrent webhook delivery no longer miscounts retries at the end of a round |
@@ -71,6 +71,8 @@ See the [changelog](CHANGELOG.md) for every change and [Releases](https://github
 | ![Lineage graph with a selected table and the inspector](docs/images/en/lineage.png) | ![Metric detail: versions, expression, dimensions and pre-publish checks](docs/images/en/catalog.png) |
 | **Ask answer** | **Dark theme** |
 | ![Ask answer: deterministic highlights, the model’s reading and a heatmap](docs/images/en/ask-answer.png) | ![Analysis session in the dark theme](docs/images/en/analysis-dark.png) |
+| **Asset dossier** | **How each column is derived** |
+| ![Asset dossier: where it comes from, the table, who uses it, plus metrics in use, recent askers and schema changes](docs/images/en/asset-dossier.png) | ![Source columns, derivation type and a plain sentence per column, drafted by the model and confirmed by the owner, expression collapsed](docs/images/en/asset-dossier-fields.png) |
 
 More pages (Q&A home, report follow-ups, export, personal experience, settings, sign-in page) are in the [product tour](docs/product-tour.en.md).
 

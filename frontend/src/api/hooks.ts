@@ -86,6 +86,17 @@ export const useAsset = (id?: string) => useQuery({
   queryKey: ["asset", id], enabled: !!id,
   queryFn: () => unwrap(api.GET("/api/assets/{asset_id}", { params: { path: { asset_id: id! } } })),
 });
+/** 资产档案（ADR 0022）：按表聚合上下游、口径、提问、产出与字段说明，已按当前用户权限裁剪。 */
+export type AssetDossier = Schemas["AssetDossierOut"];
+export const useDossier = (id?: string) => useQuery({
+  queryKey: ["dossier", id], enabled: !!id,
+  queryFn: () => unwrap(api.GET("/api/assets/{asset_id}/dossier", { params: { path: { asset_id: id! } } })),
+});
+/** 一张表最近的结构变化（档案页卡片用，沿用变更记录接口）。 */
+export const useAssetChangeEvents = (assetId?: string, limit = 5) => useQuery({
+  queryKey: ["change-events", "asset", assetId, limit], enabled: !!assetId,
+  queryFn: () => unwrap(api.GET("/api/change-events", { params: { query: { asset_id: assetId!, limit, offset: 0 } } })),
+});
 export const useMetrics = () => useQuery({ queryKey: ["metrics"], queryFn: () => unwrap(api.GET("/api/metrics")) });
 export const useMetricVersion = (id?: string) => useQuery({
   queryKey: ["metric-version", id], enabled: !!id,

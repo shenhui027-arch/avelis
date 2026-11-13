@@ -714,6 +714,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/assets/{asset_id}/dossier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Asset Dossier */
+        get: operations["asset_dossier_api_assets__asset_id__dossier_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/lineage-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save Lineage Note
+         * @description 确认或改写一句说明（保存即确认）。需要这张表所在业务域的负责人或维护者；未归属业务域的表需要维护者角色。
+         */
+        put: operations["save_lineage_note_api_assets__asset_id__lineage_notes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/lineage-notes/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Lineage Notes
+         * @description 让模型起草说明（草稿，待确认）。权限同保存；没有可用模型或已关闭向模型发送代码片段时不生成，返回原因。
+         */
+        post: operations["generate_lineage_notes_api_assets__asset_id__lineage_notes_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metrics": {
         parameters: {
             query?: never;
@@ -2839,6 +2896,45 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AssetDossierOut */
+        AssetDossierOut: {
+            asset: components["schemas"]["AssetOut"];
+            /** Comment */
+            comment?: string | null;
+            /** Domain */
+            domain?: {
+                [key: string]: unknown;
+            } | null;
+            owner?: components["schemas"]["DossierPersonOut"] | null;
+            summary: components["schemas"]["DossierSummaryOut"];
+            /**
+             * Column Count
+             * @default 0
+             */
+            column_count?: number;
+            /** Upstream */
+            upstream?: components["schemas"]["DossierTableRefOut"][];
+            /** Downstream */
+            downstream?: components["schemas"]["DossierTableRefOut"][];
+            /** Metrics */
+            metrics?: components["schemas"]["DossierMetricOut"][];
+            asked: components["schemas"]["DossierAskedOut"];
+            produced?: components["schemas"]["DossierProducedOut"] | null;
+            /** Fields */
+            fields?: components["schemas"]["DossierFieldOut"][];
+            /**
+             * Can Edit Notes
+             * @default false
+             */
+            can_edit_notes?: boolean;
+            /**
+             * Model Available
+             * @default false
+             */
+            model_available?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /** AssetOut */
         AssetOut: {
             /** Id */
@@ -3247,6 +3343,33 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChartHeatmap */
+        ChartHeatmap: {
+            y: components["schemas"]["ChartHeatmapY"];
+            /** Y Categories */
+            y_categories: unknown[];
+            /** Cells */
+            cells: [
+                number,
+                number,
+                number | null
+            ][];
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartHeatmapY */
+        ChartHeatmapY: {
+            /** Column */
+            column: string;
+            /** Label */
+            label: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** ChartKpi */
         ChartKpi: {
             /** Label */
@@ -3324,6 +3447,19 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ChartPoint */
+        ChartPoint: {
+            /** Name */
+            name: string;
+            /** X */
+            x: number | null;
+            /** Y */
+            y: number | null;
+            /** Size */
+            size: number | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ChartSeries */
         ChartSeries: {
             /** Name */
@@ -3361,7 +3497,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples";
+            kind: "kpi" | "line" | "bar" | "grouped_bar" | "stacked_bar" | "diverging_bar" | "donut" | "multiples" | "area" | "combo" | "pareto" | "waterfall" | "heatmap" | "scatter";
             /** Title */
             title?: string | null;
             /**
@@ -3396,6 +3532,28 @@ export interface components {
              * @description 要突出的显示类目名，其余类目应弱化
              */
             highlight?: string[] | null;
+            /** Cumulative */
+            cumulative?: number[] | null;
+            waterfall?: components["schemas"]["ChartWaterfall"] | null;
+            heatmap?: components["schemas"]["ChartHeatmap"] | null;
+            /** Points */
+            points?: components["schemas"]["ChartPoint"][] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartWaterfall */
+        ChartWaterfall: {
+            start: components["schemas"]["ChartWaterfallEndpoint"];
+            end: components["schemas"]["ChartWaterfallEndpoint"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** ChartWaterfallEndpoint */
+        ChartWaterfallEndpoint: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: number | null;
         } & {
             [key: string]: unknown;
         };
@@ -3907,6 +4065,175 @@ export interface components {
             name: string;
             /** Code */
             code: string;
+        };
+        /** DossierAskedOut */
+        DossierAskedOut: {
+            /**
+             * Days
+             * @default 30
+             */
+            days?: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total?: number;
+            /** People */
+            people?: components["schemas"]["DossierAskerOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /** DossierAskerOut */
+        DossierAskerOut: {
+            user: components["schemas"]["DossierPersonOut"];
+            /** Count */
+            count: number;
+            /** Last Asked At */
+            last_asked_at: string;
+            /** Last Question */
+            last_question?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DossierFieldOut
+         * @description 本表一个字段的来历：来源字段、加工类型、表达式，以及（可能有的）人话说明。
+         */
+        DossierFieldOut: {
+            /** Column */
+            column: string;
+            /** Comment */
+            comment?: string | null;
+            /** Relation */
+            relation?: ("value_direct" | "value_computed" | "value_aggregated") | null;
+            /** Sources */
+            sources?: components["schemas"]["DossierSourceColumnOut"][];
+            /** Expression */
+            expression?: string | null;
+            /** Origin */
+            origin?: string | null;
+            note?: components["schemas"]["LineageNoteOut"] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DossierMetricOut */
+        DossierMetricOut: {
+            /** Id */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Version Id */
+            version_id: string;
+            /** Version No */
+            version_no: number;
+            /** Status */
+            status: string;
+            /** Description */
+            description?: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "base" | "dependency" | "join";
+        } & {
+            [key: string]: unknown;
+        };
+        /** DossierPersonOut */
+        DossierPersonOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DossierProducedOut
+         * @description 这张表是怎么产出的。kind=view 时定义在资产详情的 definition 里；write_mode 推断不出来就是空。
+         */
+        DossierProducedOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "view" | "script";
+            /** Write Mode */
+            write_mode?: ("overwrite" | "append" | "create") | null;
+            /** Scripts */
+            scripts?: components["schemas"]["DossierScriptOut"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DossierScriptOut
+         * @description 写入这张表的一段导入脚本。sql 只给能维护这张表的人（见 can_edit_notes），其他人为空。
+         */
+        DossierScriptOut: {
+            /** Job Id */
+            job_id: string;
+            /** Batch Id */
+            batch_id?: string | null;
+            /** Filename */
+            filename: string;
+            /** Statement Type */
+            statement_type?: string | null;
+            /** Line Start */
+            line_start: number;
+            /** Line End */
+            line_end: number;
+            /** Sql */
+            sql?: string | null;
+            /** Imported At */
+            imported_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** DossierSourceColumnOut */
+        DossierSourceColumnOut: {
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Ref */
+            ref: string;
+            /** Column */
+            column?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DossierSummaryOut
+         * @description 一句话说明：数据库表注释优先（source=comment）；没有注释时用说明（source=note，可能是待确认的草稿）。
+         */
+        DossierSummaryOut: {
+            /** Text */
+            text?: string | null;
+            /** Source */
+            source?: ("comment" | "note") | null;
+            note?: components["schemas"]["LineageNoteOut"] | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * DossierTableRefOut
+         * @description 上游或下游的一张表。asset_id 为空：未采集，或当前用户无权查看（此时只给写法，不给注释）。
+         */
+        DossierTableRefOut: {
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Ref */
+            ref: string;
+            /** Comment */
+            comment?: string | null;
+            /** Datasource Kind */
+            datasource_kind?: string | null;
+            /**
+             * Columns
+             * @default 0
+             */
+            columns?: number;
+        } & {
+            [key: string]: unknown;
         };
         /** EffortOut */
         EffortOut: {
@@ -4652,6 +4979,61 @@ export interface components {
              * @default false
              */
             pre_aggregate?: boolean;
+        };
+        /** LineageNoteGenerateIn */
+        LineageNoteGenerateIn: {
+            /** Columns */
+            columns?: string[] | null;
+            /**
+             * Summary
+             * @default true
+             */
+            summary?: boolean;
+        };
+        /** LineageNoteGenerateOut */
+        LineageNoteGenerateOut: {
+            /** Notes */
+            notes?: components["schemas"]["LineageNoteOut"][];
+            /** Skipped */
+            skipped?: ("no_model" | "policy" | "nothing") | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LineageNoteIn */
+        LineageNoteIn: {
+            /** Column */
+            column?: string | null;
+            /** Text */
+            text: string;
+        };
+        /**
+         * LineageNoteOut
+         * @description 一句人话说明。column 为空是整张表的说明；stale 表示写说明之后字段的来源或表达式变了。
+         */
+        LineageNoteOut: {
+            /** Id */
+            id: string;
+            /** Column */
+            column?: string | null;
+            /** Text */
+            text: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "confirmed" | "stale";
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "model" | "human";
+            confirmed_by?: components["schemas"]["DossierPersonOut"] | null;
+            /** Confirmed At */
+            confirmed_at?: string | null;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
         };
         /** LinkOut */
         LinkOut: {
@@ -7198,6 +7580,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GraphOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    asset_dossier_api_assets__asset_id__dossier_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetDossierOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_lineage_note_api_assets__asset_id__lineage_notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineageNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageNoteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_lineage_notes_api_assets__asset_id__lineage_notes_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineageNoteGenerateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageNoteGenerateOut"];
                 };
             };
             /** @description Validation Error */

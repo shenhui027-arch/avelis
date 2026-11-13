@@ -1,0 +1,120 @@
+/* 资产档案页（ADR 0022）：流向带、等高卡片、字段血缘表、产出方式。只用令牌与 kit.css 的语气类，浅色深色主题共用。
+   宽度断点按页面自身宽度（容器查询）：目录二级导航占去一栏后，视口宽度不能代表页面可用宽度。 */
+
+.av-dossier-page { container: av-dossier / inline-size; }
+.av-dossier { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.av-dossier-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* --- 流向带：上游 → 这张表 → 被谁用 -------------------------------------------------------------- */
+.av-dossier-flow { display: grid; grid-template-columns: minmax(0, 1fr) var(--space-8) minmax(0, 1.5fr) var(--space-8) minmax(0, 1fr); align-items: stretch; }
+.av-dossier-flow__col { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); min-width: 0; }
+.av-dossier-flow__cap { color: var(--text-tertiary); font: var(--type-caption); }
+.av-dossier-flow__none { padding: 10px 12px; border: 1px dashed var(--line-default); border-radius: var(--radius-md); color: var(--text-tertiary); font: var(--type-caption); }
+.av-dossier-flow__more { align-self: flex-start; }
+.av-dossier-flow__wire { display: grid; place-items: center; color: var(--mod-lineage); }
+.av-dossier-flow__wire .av-icon { width: 20px; height: 20px; }
+
+.av-dossier-node { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md);
+  background: var(--bg-surface); box-shadow: var(--shadow-glass); color: inherit; text-decoration: none; }
+.av-dossier-node--link { transition: border-color .15s cubic-bezier(.22, 1, .36, 1); }
+.av-dossier-node--link:hover { border-color: var(--line-strong); }
+.av-dossier-node--link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* 主卡：沿用 .av-hero-card 的渐变，去掉它在工作台里的外边距 */
+.av-dossier-hero.av-hero-card { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); min-width: 0; margin: 0; padding: var(--space-4) var(--space-5); }
+.av-dossier-hero__tags { flex-wrap: wrap; justify-content: flex-start; gap: var(--space-2); }
+.av-dossier-hero__tags .av-tag { display: inline-flex; align-items: center; gap: 4px; }
+.av-dossier-hero .av-plat { height: auto; min-width: 0; padding: 0; background: transparent; color: inherit; font: inherit; }
+.av-dossier-hero .av-hint, .av-dossier-hero .av-hint:hover { color: inherit; }
+.av-dossier-hero__name { margin: 0; color: inherit; font: 500 20px/28px var(--font-mono); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.av-dossier-hero__say { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-dossier-hero__say p { margin: 0; max-width: 70ch; color: inherit; font: var(--type-body); }
+.av-dossier-hero__say p.is-stale { opacity: .72; }
+.av-dossier-hero__note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.av-dossier-hero__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); font: var(--type-body-compact); opacity: .92; }
+.av-dossier-hero__meta .av-avatar { width: 28px; height: 28px; background: color-mix(in srgb, var(--text-on-accent) 22%, transparent); color: var(--text-on-accent); font-size: 12px; }
+
+/* --- 一排等高卡片与通用列表行 ---------------------------------------------------------------------- */
+.av-dossier-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); align-items: stretch; }
+.av-dossier-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-4); }
+.av-dossier-card__hd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.av-dossier-card__hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--text-primary); font: var(--type-body-strong); }
+.av-dossier-card__aside { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font: var(--type-caption); }
+.av-dossier-list { display: flex; flex-direction: column; min-width: 0; }
+.av-dossier-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 9px 0; border-top: 1px solid var(--line-subtle); color: inherit; text-decoration: none; }
+.av-dossier-list > .av-dossier-row:first-child { border-top: none; }
+.av-dossier-row--link:hover .av-dossier-row__main > :first-child { color: var(--accent-text); }
+.av-dossier-row--link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.av-dossier-row__main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.av-dossier-row__main > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-dossier-row__main > :first-child { color: var(--text-primary); font-size: 13px; font-weight: 500; line-height: 18px; }
+.av-dossier-row__main > :nth-child(2) { color: var(--text-tertiary); font-size: 12px; line-height: 16px; }
+.av-dossier-row__title, .av-dossier-row__sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.av-dossier-row__main > .av-dossier-row__sub { margin-top: 4px; white-space: normal; }
+.av-dossier-row__time { color: var(--text-tertiary); font: 400 12px/1 var(--font-mono); white-space: nowrap; }
+.av-dossier-avatar.av-avatar { width: 28px; height: 28px; background: var(--tone-bg); color: var(--tone); font-size: 12px; font-weight: 600; }
+
+/* --- 每个字段怎么来的 --------------------------------------------------------------------------- */
+.av-dossier-lineage.av-dossier-card { padding: var(--space-4) var(--space-1) var(--space-2); }
+.av-dossier-lineage > .av-dossier-card__hd, .av-dossier-lineage > .av-banner, .av-dossier-lineage__more { margin: 0 var(--space-3); }
+.av-dossier-lineage__table { table-layout: fixed; }
+.av-dossier-lineage__table th.av-dossier-lineage__src { width: 30%; }
+.av-dossier-lineage__table th.av-dossier-lineage__arrow { width: var(--space-8); }
+.av-dossier-lineage__table th.av-dossier-lineage__col { width: 22%; }
+.av-dossier-lineage__table td { height: auto; padding: var(--space-3); vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.av-dossier-lineage__table td.av-dossier-lineage__arrow { color: var(--mod-lineage); }
+.av-dossier-lineage__table .av-dossier-row__main > * { white-space: normal; overflow-wrap: anywhere; }
+.av-dossier-src { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.av-dossier-src__item { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.av-dossier-src__item > i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--mod-lineage); }
+.av-dossier-src__item > :last-child { min-width: 0; overflow-wrap: anywhere; }
+.av-dossier-lineage__how p { margin: 0 0 4px; color: var(--text-primary); font: var(--type-body-compact); }
+.av-dossier-lineage__how p.is-stale { color: var(--text-tertiary); }
+.av-dossier-lineage__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font: var(--type-caption); }
+.av-dossier-lineage__more { padding: var(--space-2) 0; }
+
+/* 收起的表达式与脚本 */
+.av-dossier-details > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font: 500 12px/20px var(--font-sans); list-style: none; cursor: pointer; }
+.av-dossier-details > summary::-webkit-details-marker { display: none; }
+.av-dossier-details > summary::before { content: ""; width: 0; height: 0; border-left: 4px solid currentColor; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+  transition: transform .15s cubic-bezier(.22, 1, .36, 1); }
+.av-dossier-details[open] > summary::before { transform: rotate(90deg); }
+.av-dossier-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.av-dossier-lineage__meta .av-dossier-details[open] { flex-basis: 100%; }
+.av-dossier-expr { display: block; margin-top: 4px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-canvas); color: var(--text-secondary);
+  font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-dossier-details > .av-code { margin-top: var(--space-2); }
+
+/* 行内编辑 */
+.av-dossier-editor { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.av-dossier-editor .av-input { flex: 1 1 220px; min-width: 0; }
+
+/* --- 它是怎么产出的 --------------------------------------------------------------------------- */
+.av-dossier-produced__item { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.av-dossier-produced__item + .av-dossier-produced__item { padding-top: var(--space-3); border-top: 1px solid var(--line-subtle); }
+.av-dossier-produced__item > p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0; color: var(--text-secondary); font: var(--type-body-compact); overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .av-dossier-node--link, .av-dossier-details > summary::before { transition: none; }
+}
+
+/* --- 窄页面：流向带纵向堆叠（箭头朝下）；字段血缘表每行改成纵向块 ------------------------------------ */
+@container av-dossier (max-width: 760px) {
+  .av-dossier-flow { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .av-dossier-flow__wire { padding: var(--space-1) 0; }
+  .av-dossier-flow__wire .av-icon { transform: rotate(90deg); }
+}
+@container av-dossier (max-width: 640px) {
+  .av-dossier-lineage__table, .av-dossier-lineage__table tbody, .av-dossier-lineage__table tr, .av-dossier-lineage__table td { display: block; width: auto; }
+  .av-dossier-lineage__table thead { display: none; }
+  .av-dossier-lineage__table tr { padding: var(--space-3); border-top: 1px solid var(--line-subtle); }
+  .av-dossier-lineage__table tbody tr:first-child { border-top: none; }
+  .av-dossier-lineage__table td { padding: 0; border-bottom: none; }
+  .av-dossier-lineage__table td + td { margin-top: var(--space-1); }
+  .av-dossier-lineage__table td.av-dossier-lineage__arrow .av-icon { transform: rotate(90deg); }
+  .av-dossier-lineage__table tbody tr:hover td { background: transparent; }
+}
+
+.av-dossier-card__more { align-self: flex-start; margin-top: var(--space-1); }
+.av-dossier-src a { color: inherit; text-decoration: none; }
+.av-dossier-src a:hover { color: var(--accent-text); text-decoration: underline; }

@@ -21,6 +21,7 @@ from avelis.api import (
     auth,
     catalog,
     datasources,
+    dossier,
     events,
     governance,
     history,
@@ -82,7 +83,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             raise ValueError(f"前端目录必须存在且包含目录内的 index.html：{frontend_dir}")
     app = FastAPI(
         title="Avelis API",
-        version="1.0.7",
+        version="1.0.8",
         openapi_url="/api/openapi.json",
         docs_url="/api/docs",
         redoc_url=None,
@@ -158,6 +159,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         datasources,
         events,
         catalog,
+        dossier,
         governance,
         history,
         ask,

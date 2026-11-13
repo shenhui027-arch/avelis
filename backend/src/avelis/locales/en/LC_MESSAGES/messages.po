@@ -2387,3 +2387,21 @@ msgstr "Cumulative share"
 
 msgid "图表偏好无效：{reason}；可选 kind：{available}"
 msgstr "Invalid chart preference: {reason}; available kinds: {available}"
+
+msgid "需要这张表所在业务域的负责人或维护者身份"
+msgstr "You must be an owner or maintainer of this table's domain"
+
+msgid "说明不能为空"
+msgstr "The description cannot be empty"
+
+msgid "说明不能超过 {limit} 个字"
+msgstr "The description cannot exceed {limit} characters"
+
+msgid "字段“{column}”不存在，或没有来源信息"
+msgstr "Column “{column}” does not exist or has no source information"
+
+msgid "模型没有返回可用的说明，请稍后再试"
+msgstr "The model returned no usable description. Please try again later"
+
+msgid "这条说明刚被其他人更新，请刷新后再试"
+msgstr "This description was just updated by someone else. Refresh and try again"

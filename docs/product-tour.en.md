@@ -2,7 +2,7 @@
 
 English | [简体中文](product-tour.md) | [繁體中文](product-tour.zh-TW.md)
 
-This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-05 from main after v1.0.7 (4a30eee, plus four interface fixes made while taking them), at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved from this analysis's conclusions before the screenshots were taken.
+This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-13 from the v1.0.8 release branch, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The personal experience page keeps its v1.0.7 screenshot (engine tags there still show the old two-letter abbreviations); its entries were saved from this analysis's conclusions at that time.
 
 ## Sign-in
 
@@ -76,6 +76,16 @@ Table-level and column-level lineage graph: filter by business domain, search fo
 Metrics, assets, business domains and join paths. The metric detail page shows the metric definition's versions, description, base asset, expression, time column, allowed dimensions, grain and unit, and the pre-publish check (for example, columns without database comments and upstream comments that can be reused).
 
 ![Catalog: metric detail](images/en/catalog.png)
+
+### Asset dossier
+
+Open a table in the catalog and you land on its dossier. The top is a flow band: where the table comes from → the table → what uses it (metric definitions, questions and downstream tables). The row of cards below shows the metric definitions in use, who asked about it recently, and recent structure changes.
+
+![Asset dossier: flow band and cards](images/en/asset-dossier.png)
+
+Further down is “How each column is derived”: each column lists its source columns, the kind of processing (direct, aggregate and so on) and a one-sentence description. The model drafts the description and the owner confirms it, so each line is marked either confirmed or “Model draft · needs confirmation”; expressions are collapsed by default and open with “View expression”. A view shows its definition, and a table that scripts were imported for shows the script that writes it and how it writes.
+
+![Asset dossier: how each column is derived](images/en/asset-dossier-fields.png)
 
 ## Settings
 

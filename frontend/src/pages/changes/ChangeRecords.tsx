@@ -1,7 +1,7 @@
 // 变更记录（留底，ADR 0008）：按数据源、对象、类型、时间、数据库用户筛选；导出 CSV / JSON（带哈希）；管理员核验哈希链。
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
@@ -53,7 +53,9 @@ export function ChangeRecords() {
   const tz = useTimeZone();
   const me = useMe();
   const sources = useDatasources();
-  const [filters, setFilters] = useState<RecordFilters>({ datasource_id: "", asset_id: "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
+  // 从资产档案页的“全部变更”进来时，地址里的 asset_id 作为初始筛选
+  const [params] = useSearchParams();
+  const [filters, setFilters] = useState<RecordFilters>({ datasource_id: "", asset_id: params.get("asset_id") ?? "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
   const set = (k: keyof typeof filters) => (v: string) => { setFilters((f) => ({ ...f, [k]: v, ...(k === "datasource_id" ? { asset_id: "" } : {}) })); setOffset(0); };
@@ -156,8 +158,8 @@ export function ChangeRecords() {
                   <li key={e.id}>
                     <Tile icon={icon} tone={tone} />
                     <div className="av-audit__body">
-                      <span className="av-audit__title av-mono" data-tip={`${e.datasource} · ${e.asset ?? ""}`}>{shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</span>
-                      {recordDetail(e) ? <span className="av-audit__desc">{recordDetail(e)}</span> : null}
+                      <span className="av-audit__title av-mono" data-tip={`${e.datasource} · ${e.asset ?? ""}`}>{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset) || "—"}</Link> : shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</span>
+                      {recordDetail(e) ? <span className="av-audit__desc" data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String((e.before as { [k: string]: unknown }).hash ?? "").slice(0, 8), v2: String((e.after as { [k: string]: unknown }).hash ?? "").slice(0, 8) }) : undefined}>{recordDetail(e)}</span> : null}
                       <span className="av-audit__tags"><Pill>{EVENT_LABEL[e.kind] ?? e.kind}</Pill><Actor e={e} />
                         <Link className="av-tag" to={`/changes/${e.change_set_id}`} data-tip={t("链序号 {{v1}} · {{v2}}", { v1: e.chain_seq ?? "—", v2: e.row_hash ?? "" })}>{e.change_set_id.slice(0, 8)}</Link></span>
                     </div>
@@ -173,7 +175,7 @@ export function ChangeRecords() {
 }
 
 /** 审计流里每类变化的图标与语气：新增偏正向、删除偏警示、定义变化用数据流的赭石。 */
-function recordLook(kind: string): [string, KitTone] {
+export function recordLook(kind: string): [string, KitTone] {
   if (kind === "added" || kind.endsWith("_added")) return ["plus", "ok"];
   if (kind === "deleted" || kind.endsWith("_removed") || kind === "upstream_broken") return ["trash", "danger"];
   if (kind.includes("comment")) return ["edit", "neutral"];
@@ -183,7 +185,7 @@ function recordLook(kind: string): [string, KitTone] {
   return ["audit", "neutral"];
 }
 
-function recordDetail(e: Record): string {
+export function recordDetail(e: Record): string {
   const b = e.before as { [k: string]: unknown };
   const a = e.after as { [k: string]: unknown };
   switch (e.kind) {
@@ -192,7 +194,7 @@ function recordDetail(e: Record): string {
     case "column_added": return String(a.data_type ?? "");
     case "column_removed": return String(b.data_type ?? "");
     case "renamed": case "rename_candidate": return `${String(b.name)} → ${String(a.name)}`;
-    case "definition_changed": return t("规范化指纹 {{v1}} → {{v2}}", { v1: String(b.hash ?? "").slice(0, 8), v2: String(a.hash ?? "").slice(0, 8) });
+    case "definition_changed": return t("定义校验码已变化");
     default: return String(a.reason ?? "");
   }
 }

@@ -383,6 +383,28 @@ class Confirmation(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
 
+class LineageNote(Base):
+    """资产档案页的人话说明（ADR 0022）：column_name 为空串时是整张表的一句话说明，否则是该字段“怎么加工”。
+    模型生成的是 draft，负责人确认或自己写的是 confirmed；basis_hash 记录写说明时字段的来源与表达式，
+    读取时与当前血缘不一致即视为 stale（需要重新确认）。每个（资产，字段）只保留当前一条，改动记入审计。"""
+
+    __tablename__ = "lineage_note"
+    __table_args__ = (UniqueConstraint("asset_id", "column_name"),)
+    id: Mapped[str] = pk()
+    asset_id: Mapped[str] = fk("asset.id", index=False)
+    column_name: Mapped[str] = mapped_column(String(255), default="", server_default="", nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # draft | confirmed
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)  # model | human
+    basis_hash: Mapped[str | None] = mapped_column(String(64))
+    model_adapter: Mapped[str | None] = mapped_column(String(64))
+    created_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    confirmed_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
 class Metric(Base):
     __tablename__ = "metric"
     id: Mapped[str] = pk()

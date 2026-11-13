@@ -60,7 +60,8 @@ const KIND_LABEL: Record<string, [string, "ok" | "warn" | "info"]> = { governed:
 const useTasks = useAnalysisTasks;
 const useRun = (id?: string) => useQuery({
   queryKey: ["analysis-run", id], enabled: !!id,
-  queryFn: () => unwrap(api.GET("/api/analysis/runs/{run_id}", { params: { path: { run_id: id! } } })),
+  // 接口类型里的元组（热力图单元格）经请求库的类型推导会被放宽成普通数组，这里按响应模型标回去
+  queryFn: async () => (await unwrap(api.GET("/api/analysis/runs/{run_id}", { params: { path: { run_id: id! } } }))) as Run,
   refetchInterval: (q) => (q.state.data && ["queued", "running"].includes(q.state.data.status) ? 2000 : false),
 });
 
