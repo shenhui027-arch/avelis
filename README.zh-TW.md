@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.0.7-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.7)
+[![version](https://img.shields.io/badge/version-v1.0.8-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.8)
 
 [功能亮點](#功能亮點) · [最近更新](#最近更新) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.7 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.0.8 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
