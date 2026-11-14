@@ -1,14 +1,34 @@
 // 字段说明的保存（保存即确认）与行内编辑框；顶部一句话说明与字段血缘表共用。
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { api, unwrap } from "../../../api/client";
+import { api, ApiError, unwrap } from "../../../api/client";
 import { useAction } from "../../../api/hooks";
 import { t } from "../../../i18n";
 
-/** 保存一句说明：column 为空表示整张表的说明。保存后档案查询失效刷新。 */
+/** 用户确认时页面上显示的版本：字段的来历版本（整张表的说明没有）与说明的修订时间（没有说明时为 null）。 */
+export type NoteSeen = { basisHash?: string | null; updatedAt: string | null };
+
+/** 一条说明的修订标识（它的 updated_at）；没有说明时为 null。整表说明在 summary.note 上，字段说明在 field.note 上。 */
+export function noteRevision(note: { updated_at: string } | null | undefined): string | null {
+  return note?.updated_at ?? null;
+}
+
+/** 保存被拒绝是因为来源或说明在此期间变了（409）。此时要关掉编辑框：框里还是旧文字，
+ *  留着再点一次保存，就会带着刷新后的修订号覆盖别人的说明。 */
+export function isConflict(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409;
+}
+
+/** 保存一句说明：column 为空表示整张表的说明。带上用户看到的来历版本与说明修订，后端发现已变化会拒绝（409）。
+ *  保存后档案查询失效刷新；被拒绝时也刷新，让用户看到最新的来源再决定。 */
 export function useSaveNote(assetId: string) {
-  return useAction((v: { column: string | null; text: string }) => unwrap(api.PUT("/api/assets/{asset_id}/lineage-notes", {
-    params: { path: { asset_id: assetId } }, body: { column: v.column, text: v.text } })), ["dossier"]);
+  const qc = useQueryClient();
+  const action = useAction((v: { column: string | null; text: string; seen: NoteSeen }) => unwrap(api.PUT("/api/assets/{asset_id}/lineage-notes", {
+    params: { path: { asset_id: assetId } },
+    body: { column: v.column, text: v.text, expected_basis_hash: v.seen.basisHash ?? null, expected_updated_at: v.seen.updatedAt } }))
+    .catch((e) => { void qc.invalidateQueries({ queryKey: ["dossier"] }); throw e; }), ["dossier"]);
+  return action;
 }
 
 /** 行内编辑：输入框 + 取消 / 保存；保留可访问名称。 */

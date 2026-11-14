@@ -4112,6 +4112,8 @@ export interface components {
             expression?: string | null;
             /** Origin */
             origin?: string | null;
+            /** Basis Hash */
+            basis_hash?: string | null;
             note?: components["schemas"]["LineageNoteOut"] | null;
         } & {
             [key: string]: unknown;
@@ -5005,6 +5007,10 @@ export interface components {
             column?: string | null;
             /** Text */
             text: string;
+            /** Expected Basis Hash */
+            expected_basis_hash?: string | null;
+            /** Expected Updated At */
+            expected_updated_at?: string | null;
         };
         /**
          * LineageNoteOut

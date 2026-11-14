@@ -7,7 +7,7 @@ import { errorText, useAction, type AssetDossier } from "../../../api/hooks";
 import { Banner, Icon, Pill, RELATION_LABEL, Tile, useMessage } from "../../../components/ui";
 import { t } from "../../../i18n";
 import { needsConfirm, noteCounts, noteState, sourceLabel, visible } from "./dossier";
-import { NoteEditor, useSaveNote } from "./notes";
+import { isConflict, NoteEditor, noteRevision, useSaveNote, type NoteSeen } from "./notes";
 
 type Field = NonNullable<AssetDossier["fields"]>[number];
 
@@ -32,12 +32,13 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
   const { shown, hidden } = visible(fields, FIELD_LIMIT, expanded);
   const canEdit = !!d.can_edit_notes;
 
-  const saveNote = (column: string, text: string, confirm: boolean) => save.mutate({ column, text }, {
+  // 确认的是页面上这一版：带上字段当前显示的来历版本与说明修订，来源在此期间变了后端会拒绝
+  const saveNote = (column: string, text: string, confirm: boolean) => save.mutate({ column, text, seen: seenOf(fields, column) }, {
     onSuccess: () => {
       setEditing(null);
       setMessage({ ok: true, text: confirm ? t("已确认 {{name}} 的说明", { name: column }) : t("已保存 {{name}} 的说明", { name: column }) });
     },
-    onError: (e) => setMessage({ ok: false, text: errorText(e) }),
+    onError: (e) => { if (isConflict(e)) setEditing(null); setMessage({ ok: false, text: errorText(e) }); },
   });
   const runGenerate = () => generate.mutate(undefined, {
     onSuccess: (r) => {
@@ -147,4 +148,10 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
       </td>
     </tr>
   );
+}
+
+/** 这一行此刻显示的版本（来历与说明修订），随确认请求带回。 */
+function seenOf(fields: NonNullable<AssetDossier["fields"]>, column: string): NoteSeen {
+  const f = fields.find((item) => item.column === column);
+  return { basisHash: f?.basis_hash ?? null, updatedAt: noteRevision(f?.note) };
 }

@@ -31,7 +31,17 @@ def save_lineage_note(
 ) -> dict:
     """确认或改写一句说明（保存即确认）。需要这张表所在业务域的负责人或维护者；未归属业务域的表需要维护者角色。"""
     asset = readable_asset(session, user, asset_id)
-    return lineage_notes.save(session, user, asset, body.column or "", body.text)
+    # 显式传 null 表示用户当时没看到说明；键不存在（旧客户端）则不校验修订
+    seen = body.expected_updated_at if "expected_updated_at" in body.model_fields_set else lineage_notes.UNCHECKED
+    return lineage_notes.save(
+        session,
+        user,
+        asset,
+        body.column or "",
+        body.text,
+        expected_basis_hash=body.expected_basis_hash,
+        expected_updated_at=seen,
+    )
 
 
 @router.post("/assets/{asset_id}/lineage-notes/generate", response_model=S.LineageNoteGenerateOut)

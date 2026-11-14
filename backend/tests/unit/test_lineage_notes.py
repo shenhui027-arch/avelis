@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from avelis import modelcfg
 from avelis.governance import dossier, lineage_notes
-from avelis.governance.errors import Forbidden, Invalid, NotFound
+from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.models import (
     Asset,
     AssetVersion,
@@ -207,6 +207,57 @@ def test_save_confirms_draft_keeps_model_origin_and_rewrite_is_human(env):
     rewritten = lineage_notes.save(env.session, env.users["maint"], env.asset, "col_x", "改过的说明")
     assert rewritten["origin"] == "human"
     assert env.session.scalars(select(LineageNote).where(LineageNote.column_name == "col_x")).all().__len__() == 1
+
+
+def test_save_rejects_confirmation_of_a_basis_the_user_did_not_see(env):
+    """issue 136：页面上看到的是来历 h-x1，确认前来源变成 h-x2 -> 冲突，旧说明不被绑定到新来源。"""
+    lineage_notes.generate(env.session, env.users["owner"], env.asset, None, summary=False)
+    seen = lineage_notes.notes_for(env.session, env.asset, {"col_x": "h-x1", "col_y": "h-y1"})["col_x"]
+    env.lineage["col_x"]["basis_hash"] = "h-x2"
+    with pytest.raises(Conflict):
+        lineage_notes.save(
+            env.session,
+            env.users["owner"],
+            env.asset,
+            "col_x",
+            seen["text"],
+            expected_basis_hash="h-x1",
+            expected_updated_at=seen["updated_at"],
+        )
+    note = env.session.scalar(select(LineageNote).where(LineageNote.column_name == "col_x"))
+    assert (note.status, note.basis_hash) == ("draft", "h-x1")
+    assert lineage_notes.notes_for(env.session, env.asset, {"col_x": "h-x2"})["col_x"]["status"] == "stale"
+    # 刷新后看到新来历，主动重新确认同一句话是允许的
+    fresh = lineage_notes.notes_for(env.session, env.asset, {"col_x": "h-x2"})["col_x"]
+    out = lineage_notes.save(
+        env.session,
+        env.users["owner"],
+        env.asset,
+        "col_x",
+        seen["text"],
+        expected_basis_hash="h-x2",
+        expected_updated_at=fresh["updated_at"],
+    )
+    assert out["status"] == "confirmed"
+    assert env.session.scalar(select(LineageNote).where(LineageNote.column_name == "col_x")).basis_hash == "h-x2"
+
+
+def test_save_rejects_overwriting_a_note_changed_since_the_page_loaded(env):
+    first = lineage_notes.save(env.session, env.users["owner"], env.asset, "col_x", "第一版")
+    # 旧页面当时还没有说明（None），或拿着更早的修订时间：都不能覆盖别人刚保存的说明
+    for stale in (None, "2000-01-01T00:00:00"):
+        with pytest.raises(Conflict):
+            lineage_notes.save(env.session, env.users["maint"], env.asset, "col_x", "旧改写", expected_updated_at=stale)
+    assert env.session.scalar(select(LineageNote)).text == "第一版"
+    out = lineage_notes.save(
+        env.session, env.users["maint"], env.asset, "col_x", "第二版", expected_updated_at=first["updated_at"]
+    )
+    assert out["text"] == "第二版"
+    # 整张表的说明同样校验修订；不传期望值的旧客户端不校验
+    lineage_notes.save(env.session, env.users["admin"], env.asset, "", "整表", expected_updated_at=None)
+    with pytest.raises(Conflict):
+        lineage_notes.save(env.session, env.users["admin"], env.asset, "", "整表二", expected_updated_at=None)
+    assert lineage_notes.save(env.session, env.users["admin"], env.asset, "", "整表三")["text"] == "整表三"
 
 
 def test_save_rejects_bad_input_and_permissions(env):

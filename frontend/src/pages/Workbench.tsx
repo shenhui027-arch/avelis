@@ -6,6 +6,7 @@ import { CountUp, MotionLink, RevealGroup, revealItem } from "../components/Moti
 
 import { useTimeZone, useWorkbench } from "../api/hooks";
 import { Empty, Parts, Plat, QueryState, Seg, Status, statusOf, Tile, type KitTone } from "../components/ui";
+import { statusParts } from "./statusParts";
 import { RunStrip } from "../components/RunStrip";
 import { formatClock } from "../format";
 import { t } from "../i18n";
@@ -14,7 +15,6 @@ import { useState } from "react";
 
 const STAGE_ICON: Record<string, string> = { collect: "db", lineage: "lineage", change: "change", metric: "chart", ask: "ask" };
 const STAGE_MOD: Record<string, KitTone> = { collect: "collect", lineage: "lineage", change: "change", metric: "catalog", ask: "ask" };
-const STATUS_PARTS: [string, KitTone][] = [["published", "ok"], ["pending_review", "accent"], ["affected", "warn"], ["draft", "neutral"], ["retired", "danger"]];
 const STAGE_LINK: Record<string, string> = { collect: "/settings/datasources", lineage: "/lineage", change: "/changes", metric: "/catalog/metrics", ask: "/analysis" };
 const TODO_STATUS: Record<string, string> = { review: t("已阻止"), approve: t("待批准"), join_path: t("待批准"), import: t("待确认") };
 
@@ -92,7 +92,7 @@ export function Workbench() {
               <div className="av-pane-hd"><h2>{t("我负责的指标")} <span className="av-count">{d.my_metrics.length}</span></h2>
                 <Link to="/catalog/metrics" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
               {d.my_metrics.length ? <div className="av-workbench__parts"><Parts label={t("口径状态构成")}
-                parts={STATUS_PARTS.map(([status, tone]) => ({ label: statusOf(status)[1], tone, value: d.my_metrics.filter((m) => String(m.status) === status).length }))} /></div> : null}
+                parts={statusParts(d.my_metrics.map((m) => String(m.status)), (status) => statusOf(status)[1], t("其他"))} /></div> : null}
               <div className="av-pane__body">
                 <table className="av-table av-workbench__metrics">
                   <thead><tr><th>{t("指标")}</th><th>{t("版本")}</th><th>{t("状态")}</th><th>{t("粒度")}</th><th className="num">{t("本周问数")}</th></tr></thead>

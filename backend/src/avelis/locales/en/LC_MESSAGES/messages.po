@@ -2405,3 +2405,9 @@ msgstr "The model returned no usable description. Please try again later"
 
 msgid "这条说明刚被其他人更新，请刷新后再试"
 msgstr "This description was just updated by someone else. Refresh and try again"
+
+msgid "字段“{column}”的来源或加工方式已经变了，请刷新后核对再确认"
+msgstr "The sources or derivation of column “{column}” have changed. Refresh, review, then confirm again"
+
+msgid "这条说明已被其他人修改，请刷新后再确认"
+msgstr "This description was changed by someone else. Refresh, then confirm again"
