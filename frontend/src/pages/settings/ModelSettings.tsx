@@ -87,7 +87,7 @@ export function ModelSettings() {
         <section className="av-pane av-models__providers" aria-label={t("提供方")}>
           <div className="av-pane-hd"><h2>{t("提供方")} {providers.isSuccess ? <span className="av-count">{list.length}</span> : null}</h2></div>
           <div className="av-scroll">
-            <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText={t("还没有模型提供方")} compact>
+            <QueryState query={providers} isEmpty={(items) => items.length === 0} emptyText={t("暂无模型提供方")} compact>
               {(items) => items.map((p) => {
                 const status = providerStatus(p);
                 return (
@@ -263,7 +263,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
               </button>
             </div>
           </div>
-          {models.length === 0 && addable.length === 0 ? <Empty text={t("还没有模型，请获取列表或手动添加")} compact /> : (
+          {models.length === 0 && addable.length === 0 ? <Empty text={t("暂无模型，请获取列表或手动添加")} compact /> : (
             <div className="av-table-wrap">
               <table className="av-table av-models__table">
                 <thead><tr><th>{t("模型")}</th><th>{t("工具调用")}</th><th>{t("上下文窗口")} <Hint text={t("模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，不填只显示用量")} /></th><th>{t("启用")}</th><th className="end">{t("操作")}</th></tr></thead>

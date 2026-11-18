@@ -112,7 +112,7 @@ function MetricContent({ metric }: { metric: Metric }) {
     </div>
     <div className="av-metric-detail__body" role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${tab}`} tabIndex={0}>
       {tab === "ai" ? <AiContextPanel key={metric.id} metric={metric} canEdit={canEditHints} />
-        : !current ? <Empty text={t("还没有版本")} compact action={canEdit
+        : !current ? <Empty text={t("暂无版本")} compact action={canEdit
         ? <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("新建版本")}</button> : undefined} />
         : version.isError && version.error instanceof ApiError && version.error.status === 404
           ? <Empty text={t("版本不存在")} compact action={<button type="button" className="av-btn av-btn--secondary" onClick={() => setVersionId(undefined)}>{t("返回当前版本")}</button>} />
@@ -143,7 +143,7 @@ function AiContextPanel({ metric, canEdit }: { metric: Metric; canEdit: boolean 
       <Banner message={message} />
       {editing ? <AiContextForm metricId={metric.id} value={ctx} onCancel={() => setEditing(false)}
         onSaved={() => { setEditing(false); setMessage({ ok: true, text: t("已保存") }); }} />
-        : empty ? <Empty compact text={t("还没有提示。写下适用范围、常见叫法和典型问法，问数更容易选对口径")} />
+        : empty ? <Empty compact text={t("暂无提示。写下适用范围、常见叫法和典型问法，问数更容易选对口径")} />
         : <dl className="av-kv av-metric-detail__kv">
           <dt>{t("适用说明")}</dt><dd className="av-aictx__text">{ctx.instructions || "—"}</dd>
           <dt>{t("同义词")}</dt><dd className="av-metric-detail__tags">{ctx.synonyms.length ? ctx.synonyms.map((x) => <span key={x} className="av-tag">{x}</span>) : "—"}</dd>

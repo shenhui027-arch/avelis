@@ -120,7 +120,7 @@ def test_html_matches_pdf_saved_values_and_content_rules(monkeypatch):
         "结论",
         "关键发现",
         "判断与建议",
-        "还没查清",
+        "待查明",
         "关键数据",
         "附录",
         "口径版本：version-1",

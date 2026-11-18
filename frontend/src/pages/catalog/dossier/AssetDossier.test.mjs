@@ -79,76 +79,76 @@ client.setQueryData(["change-events", "asset", "a1", 5], { total: 1, items: [{ i
 
 // 流向带：上游最多 4 个、其余收起；无权查看的表不可点；写入方式与草稿说明；右栏三项
 const band = render(FlowBand, { a: asset, d: full, onMessage() {} });
-assert.match(band, /从这 6 张表来/);
+assert.match(band, /上游表 6/);
 assert.equal((band.match(/href="\/catalog\/assets\/up\d"/g) ?? []).length, 4);
-assert.match(band, /另有 2 张/);
+assert.match(band, /其余 2 张/);
 assert.match(band, /StarRocks/);
 assert.match(band, /库 ads/);
 assert.match(band, /每次整表覆盖<i data-hint="从导入的脚本推断"/);
 assert.match(band, /t_daily/);
 assert.match(band, /一句话草稿/);
-assert.match(band, /模型草稿 · 待确认/);
+assert.match(band, /AI 草稿 · 待确认/);
 assert.match(band, />确认</);
-assert.match(band, />改一下</);
-assert.match(band, /乙 负责/);
+assert.match(band, />修改</);
+assert.match(band, /负责人 乙/);
 assert.match(band, /14 个字段/);
 assert.match(band, /1 个口径/);
-assert.match(band, /近 30 天被问 42 次/);
+assert.match(band, /近 30 天提问 42 次/);
 assert.match(band, /最近：丙 · T\(2026-11-12T00:00:00Z\)/);
 assert.match(band, /下游 2 张表/);
-assert.doesNotMatch(band, /没有采集到上游表|还没有被口径/);
+assert.doesNotMatch(band, /没有采集到上游表|暂无口径/);
 
 // 档案页签：三张卡、字段血缘（前 12 个 + 展开）、说明各状态、生成按钮、脚本原文不可见时的提示
 const tab = render(AssetDossier, { a: asset, dossier: ok(full) });
-assert.match(tab, /在用的口径/);
+assert.match(tab, /活跃口径/);
 assert.match(tab, /href="\/catalog\/metrics\/m1"/);
-assert.match(tab, /最近谁问过/);
+assert.match(tab, /近期提问/);
 assert.match(tab, /近 30 天 42 次/);
 assert.match(tab, /最近的问题/, "本人可见的最近问题替代次数");
-assert.match(tab, /问过 9 次/);
-assert.match(tab, /最近结构变化/);
+assert.match(tab, /提问 9 次/);
+assert.match(tab, /结构变更/);
 assert.match(tab, /href="\/changes\?view=records"/);
-assert.match(tab, /每个字段怎么来的/);
+assert.match(tab, /字段来源/);
 assert.match(tab, /1 已确认/);
 assert.match(tab, /2 待确认/);
-assert.match(tab, /让模型补写说明/);
+assert.match(tab, /AI 补写说明/);
 assert.match(tab, /甲 已确认/);
-assert.match(tab, /来源变了 · 需重新确认/);
-assert.match(tab, /还没有说明/);
-assert.match(tab, />写说明</);
+assert.match(tab, /来源已变更 · 需重新确认/);
+assert.match(tab, /暂无说明/);
+assert.match(tab, />添加说明</);
 assert.match(tab, /汇总|聚合/);
 assert.match(tab, /hidden_t\.x/);
 assert.doesNotMatch(tab, /href="\/catalog\/assets\/null"/);
 assert.equal((tab.match(/<tr>/g) ?? []).length, 13, "表头 1 行 + 前 12 个字段");
 assert.match(tab, /显示全部 14 个字段/);
-assert.match(tab, /看表达式/);
+assert.match(tab, />表达式</);
 assert.match(tab, /由脚本 load_t\.sql（第 3–20 行）写入/);
 assert.match(tab, /每次整表覆盖写入。/);
 assert.match(tab, /脚本原文只对这张表的负责人和维护者显示/);
-assert.doesNotMatch(tab, /看脚本|undefined/);
+assert.doesNotMatch(tab, />脚本<|undefined/);
 
-// 无编辑权限：不出现确认、改一下、写说明与生成按钮
+// 无编辑权限：不出现确认、修改、添加说明与生成按钮
 const readonly = render(AssetDossier, { a: asset, dossier: ok({ ...full, can_edit_notes: false }) });
-assert.doesNotMatch(readonly, /让模型补写说明|>确认<|>改一下<|>写说明</);
-assert.doesNotMatch(render(FlowBand, { a: asset, d: { ...full, can_edit_notes: false }, onMessage() {} }), />确认<|>改一下</);
+assert.doesNotMatch(readonly, /AI 补写说明|>确认<|>修改<|>添加说明</);
+assert.doesNotMatch(render(FlowBand, { a: asset, d: { ...full, can_edit_notes: false }, onMessage() {} }), />确认<|>修改</);
 
 // 全空：流向带两侧给一句话；档案页签不渲染卡片、字段表与产出
 client.setQueryData(["change-events", "asset", "a2", 5], { total: 0, items: [] });
 const bare = { asset, summary: { text: null, source: null }, asked: { days: 30, total: 0, people: [] }, can_edit_notes: false };
 const emptyBand = render(FlowBand, { a: { ...asset, id: "a2" }, d: bare, onMessage() {} });
 assert.match(emptyBand, /没有采集到上游表/);
-assert.match(emptyBand, /还没有被口径、提问或下游表用到/);
-assert.doesNotMatch(emptyBand, /写一句说明|每次|负责/);
-assert.match(render(FlowBand, { a: { ...asset, id: "a2" }, d: { ...bare, can_edit_notes: true }, onMessage() {} }), /写一句说明/);
+assert.match(emptyBand, /暂无口径、提问或下游表引用/);
+assert.doesNotMatch(emptyBand, /添加说明|每次|负责/);
+assert.match(render(FlowBand, { a: { ...asset, id: "a2" }, d: { ...bare, can_edit_notes: true }, onMessage() {} }), /添加说明/);
 const emptyTab = render(AssetDossier, { a: { ...asset, id: "a2" }, dossier: ok(bare) });
-assert.doesNotMatch(emptyTab, /av-dossier-cards|每个字段怎么来的|它是怎么产出的/);
-assert.match(emptyTab, /还没有采集到这张表的字段来源、口径或提问记录/);
+assert.doesNotMatch(emptyTab, /av-dossier-cards|av-dossier-lineage|产出方式/);
+assert.match(emptyTab, /暂未采集到这张表的字段来源、口径或提问记录/);
 
 // 视图：显示“由定义实时算出”和收起的视图 SQL；注释来源的说明不标状态
 const view = { ...bare, summary: { text: "注释原文", source: "comment" }, produced: { kind: "view", write_mode: null, scripts: [] } };
 const viewTab = render(AssetDossier, { a: { ...asset, id: "a2", kind: "view", definition: { raw_sql: "SELECT 1", canonical_hash: "h" } }, dossier: ok(view) });
 assert.match(viewTab, /这是一个视图，内容由定义实时算出/);
-assert.match(viewTab, /看视图 SQL/);
+assert.match(viewTab, /视图 SQL/);
 const viewBand = render(FlowBand, { a: { ...asset, id: "a2", kind: "view" }, d: view, onMessage() {} });
 assert.match(viewBand, /注释原文/);
 assert.match(viewBand, /视图/);

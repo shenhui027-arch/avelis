@@ -1275,8 +1275,8 @@ msgstr "過濾條件"
 msgid "运行尚未开始（已由后台 worker 领取），请稍后在任务页查看"
 msgstr "執行尚未開始（已由背景 worker 領取），請稍後在任務頁檢視"
 
-msgid "还没查清"
-msgstr "還沒查清"
+msgid "待查明"
+msgstr "待查明"
 
 msgid "这次确认已提交"
 msgstr "這次確認已送出"

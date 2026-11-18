@@ -1,4 +1,4 @@
-// 档案页的一排等高卡片：在用的口径、最近谁问过、最近结构变化。没有数据的卡片整张不渲染。
+// 档案页的一排等高卡片：活跃口径、最近谁问过、最近结构变化。没有数据的卡片整张不渲染。
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -52,7 +52,7 @@ function Card({ tone, icon, title, aside, children }: { tone: KitTone; icon: str
 function MetricsCard({ d }: { d: AssetDossier }) {
   const metrics = d.metrics ?? [];
   return (
-    <Card tone="catalog" icon="chart" title={t("在用的口径")} aside={t("{{count}} 个", { count: metrics.length })}>
+    <Card tone="catalog" icon="chart" title={t("活跃口径")} aside={t("{{count}} 个", { count: metrics.length })}>
       {metrics.map((m) => (
         <Link key={m.version_id} className="av-dossier-row av-dossier-row--link" to={`/catalog/metrics/${m.id}`}>
           <span className="av-dossier-row__main"><span>{m.name}</span><span>{m.description || m.code}</span></span>
@@ -67,13 +67,13 @@ function AskedCard({ d }: { d: AssetDossier }) {
   const tz = useTimeZone();
   const people = d.asked.people ?? [];
   return (
-    <Card tone="ask" icon="ask" title={t("最近谁问过")} aside={t("近 {{days}} 天 {{count}} 次", { days: d.asked.days ?? 30, count: d.asked.total ?? 0 })}>
+    <Card tone="ask" icon="ask" title={t("近期提问")} aside={t("近 {{days}} 天 {{count}} 次", { days: d.asked.days ?? 30, count: d.asked.total ?? 0 })}>
       {people.map((p) => (
         <div key={p.user.id} className="av-dossier-row">
           <span className="av-avatar tone-ask av-dossier-avatar" aria-hidden>{initialOf(p.user.display_name)}</span>
           <span className="av-dossier-row__main"><span>{p.user.display_name}</span>
-            {p.last_question ? <span title={t("问过 {{count}} 次", { count: p.count })}>{p.last_question}</span>
-              : <span>{t("问过 {{count}} 次", { count: p.count })}</span>}</span>
+            {p.last_question ? <span title={t("提问 {{count}} 次", { count: p.count })}>{p.last_question}</span>
+              : <span>{t("提问 {{count}} 次", { count: p.count })}</span>}</span>
           <span className="av-dossier-row__time">{formatShortTime(p.last_asked_at, tz)}</span>
         </div>
       ))}
@@ -84,7 +84,7 @@ function AskedCard({ d }: { d: AssetDossier }) {
 function ChangesCard({ items }: { items: ChangeRecord[] }) {
   const tz = useTimeZone();
   return (
-    <Card tone="change" icon="change" title={t("最近结构变化")}
+    <Card tone="change" icon="change" title={t("结构变更")}
       aside={<Link className="av-btn av-btn--ghost av-btn--sm"
         to={items[0]?.asset_id ? `${CHANGE_RECORDS}&asset_id=${items[0].asset_id}` : CHANGE_RECORDS}>{t("全部变更")}</Link>}>
       {items.map((e) => {

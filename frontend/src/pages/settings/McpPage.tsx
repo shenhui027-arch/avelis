@@ -70,7 +70,7 @@ ${t("外部工具只能读取口径与血缘，或按已发布口径查询数据
         <section className="av-pane">
           <PaneHeader title={t("我授权的应用")} count={mine.data?.length} />
           <div className="av-pane__body">
-            {disabled ? <Empty compact text={t("服务已关闭")} /> : <QueryState query={mine} isEmpty={(d) => !d.length} emptyText={t("还没有授权过任何应用")}>
+            {disabled ? <Empty compact text={t("服务已关闭")} /> : <QueryState query={mine} isEmpty={(d) => !d.length} emptyText={t("暂无已授权的应用")}>
               {(items) => <table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>{t("应用")}</th><th>{t("权限")}</th><th>{t("授权时间")}</th><th>{t("最近使用")}</th><th className="end" /></tr></thead>
                 <tbody>{items.map((a) => <tr key={a.id}>
@@ -90,7 +90,7 @@ ${t("外部工具只能读取口径与血缘，或按已发布口径查询数据
           <PaneHeader title={<>{t("全部客户端")} <Hint text={t("禁用后，该客户端的所有令牌立即失效，用户需要重新授权也无法再连接")} /></>}
             count={offset === 0 && !hasNext ? clients.data?.length : undefined} />
           <div className="av-pane__body">
-            <QueryState query={clients} isEmpty={(d) => !d.length} emptyText={t("还没有客户端连接过")}>
+            <QueryState query={clients} isEmpty={(d) => !d.length} emptyText={t("暂无客户端连接")}>
               {(page) => { const items = page.slice(0, CLIENT_PAGE); return <><table className="av-table">
                 <thead><tr><th style={{ paddingLeft: 16 }}>{t("客户端")}</th><th>{t("注册方式")}</th><th>{t("授权人数")}</th><th>{t("最近使用")}</th><th>{t("状态")}</th><th className="end" /></tr></thead>
                 <tbody>{items.map((c) => <tr key={c.id}>

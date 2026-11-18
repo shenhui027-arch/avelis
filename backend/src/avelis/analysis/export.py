@@ -944,7 +944,7 @@ def to_markdown(
         for c, check in claims:
             lines += _markdown_claim(c, check, brief=brief)
     if unexplained := _field(report, "unexplained"):
-        lines += ["", "## " + gettext("还没查清"), ""]
+        lines += ["", "## " + gettext("待查明"), ""]
         lines += ["> - " + item.strip() for item in unexplained.split("；") if item.strip()]
     selected = _figure_datasets(view, figures)
     if selected:
@@ -2006,7 +2006,7 @@ def to_pdf(
         for c, check in claims:
             story += claim_block(c, check)
     if unexplained := _field(report, "unexplained"):
-        story.append(heading("还没查清"))
+        story.append(heading("待查明"))
         unresolved = Table(
             [[p("• " + item.strip())] for item in unexplained.split("；") if item.strip()],
             colWidths=[width],

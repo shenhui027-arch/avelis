@@ -83,7 +83,7 @@ Open a table in the catalog and you land on its dossier. The top is a flow band:
 
 ![Asset dossier: flow band and cards](images/en/asset-dossier.png)
 
-Further down is “How each column is derived”: each column lists its source columns, the kind of processing (direct, aggregate and so on) and a one-sentence description. The model drafts the description and the owner confirms it, so each line is marked either confirmed or “Model draft · needs confirmation”; expressions are collapsed by default and open with “View expression”. A view shows its definition, and a table that scripts were imported for shows the script that writes it and how it writes.
+Further down is “Column sources”: each column lists its source columns, the kind of processing (direct, aggregate and so on) and a one-sentence description. The model drafts the description and the owner confirms it, so each line is marked either confirmed or “Model draft · needs confirmation”; expressions are collapsed by default and open with “View expression”. A view shows its definition, and a table that scripts were imported for shows the script that writes it and how it writes.
 
 ![Asset dossier: how each column is derived](images/en/asset-dossier-fields.png)
 

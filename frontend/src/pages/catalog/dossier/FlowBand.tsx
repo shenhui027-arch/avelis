@@ -6,6 +6,7 @@ import { errorText, useTimeZone, type AssetDetail, type AssetDossier } from "../
 import { Hint, Icon, KIND_LABEL, Pill, Plat, Status, Tile } from "../../../components/ui";
 import { formatShortTime } from "../../../format";
 import { t } from "../../../i18n";
+import { CopyName } from "./CopyName";
 import { initialOf, latestAsker, schemaOf, summaryState, tableName, usage, visible } from "./dossier";
 import { isConflict, NoteEditor, noteRevision, useSaveNote } from "./notes";
 
@@ -35,10 +36,10 @@ function Upstream({ items }: { items: TableRef[] }) {
   const { shown, hidden } = visible(items, UPSTREAM_LIMIT, expanded);
   return (
     <div className="av-dossier-flow__col" aria-label={t("上游表")} role="group">
-      <span className="av-dossier-flow__cap">{items.length ? t("从这 {{count}} 张表来", { count: items.length }) : t("上游表")}</span>
+      <span className="av-dossier-flow__cap">{items.length ? t("上游表 {{count}}", { count: items.length }) : t("上游表")}</span>
       {shown.map((u, i) => <TableNode key={`${u.ref}-${i}`} item={u} />)}
       {hidden ? <button type="button" className="av-btn av-btn--ghost av-btn--sm av-dossier-flow__more" onClick={() => setExpanded(true)}>
-        {t("另有 {{count}} 张", { count: hidden })}</button> : null}
+        {t("其余 {{count}} 张", { count: hidden })}</button> : null}
       {!items.length ? <span className="av-dossier-flow__none">{t("没有采集到上游表")}</span> : null}
     </div>
   );
@@ -80,7 +81,10 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
         {a.status !== "active" ? <Status value={a.status} /> : null}
         {a.datasource.is_test_adapter ? <Pill tone="warn">{t("测试适配器")}</Pill> : null}
       </div>
-      <h1 className="av-mono av-dossier-hero__name">{tableName(a.qualified)}</h1>
+      <div className="av-dossier-hero__title">
+        <h1 className="av-mono av-dossier-hero__name">{tableName(a.qualified)}</h1>
+        <CopyName qualified={a.qualified} onMessage={onMessage} />
+      </div>
       {editing ? (
         <NoteEditor label={t("这张表的一句话说明")} initial={summary.source === "note" ? summary.text ?? "" : ""} busy={save.isPending}
           onCancel={() => setEditing(false)} onSave={(text) => submit(text, false)} />
@@ -89,27 +93,27 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
           <p className={state === "stale" ? "is-stale" : undefined}>{summary.text}</p>
           {state === "draft" || state === "stale" ? (
             <div className="av-dossier-hero__note">
-              <Pill tone="warn">{state === "draft" ? t("模型草稿 · 待确认") : t("来源变了 · 需重新确认")}</Pill>
+              <Pill tone="warn">{state === "draft" ? t("AI 草稿 · 待确认") : t("来源已变更 · 需重新确认")}</Pill>
               {d.can_edit_notes ? <>
                 <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={save.isPending} onClick={() => submit(summary.text!, true)}>{t("确认")}</button>
-                <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("改一下")}</button>
+                <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("修改")}</button>
               </> : null}
             </div>
           ) : null}
           {state === "confirmed" && summary.source === "note" && d.can_edit_notes ? (
             <div className="av-dossier-hero__note">
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("改一下")}</button>
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("修改")}</button>
             </div>
           ) : null}
         </div>
       ) : d.can_edit_notes ? (
         <div className="av-dossier-hero__note">
-          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}><Icon name="edit" small />{t("写一句说明")}</button>
+          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}><Icon name="edit" small />{t("添加说明")}</button>
         </div>
       ) : null}
       <div className="av-dossier-hero__meta">
         {d.owner ? <><span className="av-avatar" aria-hidden>{initialOf(d.owner.display_name)}</span>
-          <span>{t("{{name}} 负责", { name: d.owner.display_name })}</span><span aria-hidden>·</span></> : null}
+          <span>{t("负责人 {{name}}", { name: d.owner.display_name })}</span><span aria-hidden>·</span></> : null}
         <span>{t("{{count}} 个字段", { count })}</span>
       </div>
     </div>
@@ -123,8 +127,8 @@ function Usage({ d }: { d: AssetDossier }) {
   const downstream = d.downstream ?? [];
   const last = latestAsker(d.asked.people ?? []);
   return (
-    <div className="av-dossier-flow__col" aria-label={t("被这些地方用")} role="group">
-      <span className="av-dossier-flow__cap">{t("被这些地方用")}</span>
+    <div className="av-dossier-flow__col" aria-label={t("下游使用")} role="group">
+      <span className="av-dossier-flow__cap">{t("下游使用")}</span>
       {u.metrics ? <div className="av-dossier-node">
         <Tile icon="chart" tone="catalog" size="sm" />
         <span className="av-dossier-row__main"><span>{t("{{count}} 个口径", { count: u.metrics })}</span>
@@ -132,7 +136,7 @@ function Usage({ d }: { d: AssetDossier }) {
       </div> : null}
       {u.asked ? <div className="av-dossier-node">
         <Tile icon="ask" tone="ask" size="sm" />
-        <span className="av-dossier-row__main"><span>{t("近 {{days}} 天被问 {{count}} 次", { days: d.asked.days ?? 30, count: u.asked })}</span>
+        <span className="av-dossier-row__main"><span>{t("近 {{days}} 天提问 {{count}} 次", { days: d.asked.days ?? 30, count: u.asked })}</span>
           {last ? <span>{t("最近：{{name}} · {{time}}", { name: last.user.display_name, time: formatShortTime(last.last_asked_at, tz) })}</span> : null}</span>
       </div> : null}
       {u.downstream ? <div className="av-dossier-node">
@@ -140,7 +144,7 @@ function Usage({ d }: { d: AssetDossier }) {
         <span className="av-dossier-row__main"><span>{t("下游 {{count}} 张表", { count: u.downstream })}</span>
           <span className="av-mono" title={downstream.map((x) => x.ref).join("\n")}>{tableName(downstream[0].ref)}{downstream.length > 1 ? t(" 等") : ""}</span></span>
       </div> : null}
-      {!u.any ? <span className="av-dossier-flow__none">{t("还没有被口径、提问或下游表用到")}</span> : null}
+      {!u.any ? <span className="av-dossier-flow__none">{t("暂无口径、提问或下游表引用")}</span> : null}
     </div>
   );
 }

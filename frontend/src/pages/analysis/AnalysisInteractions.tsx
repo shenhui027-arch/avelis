@@ -279,7 +279,7 @@ export function ExperienceList() {
       {proposed ? <div className="av-banner av-banner--info">
         {proposed.status === "approved" ? t("已有相同的关联路径") : t("已提议为关联路径，等待负责人审核")}：{proposed.name}
         <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{t("查看")}</Link></div> : null}
-      {list.isSuccess && !rows.length ? <Empty text={t("还没有个人经验：在分析中确认或补充后保存")} compact /> : null}
+      {list.isSuccess && !rows.length ? <Empty text={t("暂无个人经验：在分析中确认或补充后保存")} compact /> : null}
       <div className="av-analysis__list">
         {rows.map((e) => (
           <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
