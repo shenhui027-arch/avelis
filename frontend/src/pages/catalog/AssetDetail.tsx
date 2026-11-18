@@ -11,6 +11,7 @@ import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { AssetDossier } from "./dossier/AssetDossier";
+import { CopyName } from "./dossier/CopyName";
 import { FlowBand } from "./dossier/FlowBand";
 
 type Tab = "dossier" | "columns" | "definition" | "grain" | "link" | "versions";
@@ -27,13 +28,6 @@ function AssetContent({ a }: { a: AssetDetailT }) {
   const [tab, setTab] = useState<Tab>("dossier");
   const [message, setMessage] = useMessage();
   const dossier = useDossier(a.id);
-  const copyQualified = async () => {
-    try {
-      if (!navigator.clipboard) throw new Error(t("当前浏览器不支持复制，请选择表名后复制"));
-      await navigator.clipboard.writeText(a.qualified);
-      setMessage({ ok: true, text: t("已复制表名 {{name}}", { name: a.qualified }) });
-    } catch (e) { setMessage({ ok: false, text: errorText(e) }); }
-  };
   const external = a.kind === "external_table" || a.kind === "catalog_table" || a.linked_from.length > 0;
   return (
     <div className="av-pane__body">
@@ -44,14 +38,14 @@ function AssetContent({ a }: { a: AssetDetailT }) {
               items={[<><Plat kind={a.datasource.kind} /> {a.datasource.name}</>, <span className="av-mono">{a.qualified.split(".").slice(0, -1).join(".")}</span>]} />
             <div className="av-actions">
               <DomainSelect asset={a} />
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={copyQualified}>{t("复制表名")}</button>
-              <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${a.id}`}><Icon name="lineage" small />{t("看血缘图")}</Link>
+              <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${a.id}`}><Icon name="lineage" small />{t("血缘图")}</Link>
             </div>
           </div>
           {dossier.data ? <FlowBand a={a} d={dossier.data} onMessage={setMessage} /> : dossier.isPending ? <Skeleton rows={1} height={160} /> : (
             <>
               <div className="av-pagehd__title">
                 <h1 className="av-mono">{a.qualified.split(".").pop()}</h1>
+                <CopyName qualified={a.qualified} onMessage={setMessage} />
                 <span className="av-tag">{KIND_LABEL[a.kind] ?? a.kind}</span>
                 {a.version ? <span className="av-tag">v{a.version.version_no}</span> : null}
                 {a.status !== "active" ? <Status value={a.status} /> : null}

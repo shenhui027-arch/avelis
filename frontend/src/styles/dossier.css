@@ -118,3 +118,7 @@
 .av-dossier-card__more { align-self: flex-start; margin-top: var(--space-1); }
 .av-dossier-src a { color: inherit; text-decoration: none; }
 .av-dossier-src a:hover { color: var(--accent-text); text-decoration: underline; }
+.av-dossier-hero__title { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.av-dossier-copy { flex: none; }
+.av-dossier-hero .av-dossier-copy { color: inherit; opacity: .85; }
+.av-dossier-hero .av-dossier-copy:hover { background: color-mix(in srgb, var(--text-on-accent) 18%, transparent); color: inherit; opacity: 1; }

@@ -6,6 +6,7 @@ import { errorText, useTimeZone, type AssetDetail, type AssetDossier } from "../
 import { Hint, Icon, KIND_LABEL, Pill, Plat, Status, Tile } from "../../../components/ui";
 import { formatShortTime } from "../../../format";
 import { t } from "../../../i18n";
+import { CopyName } from "./CopyName";
 import { initialOf, latestAsker, schemaOf, summaryState, tableName, usage, visible } from "./dossier";
 import { isConflict, NoteEditor, noteRevision, useSaveNote } from "./notes";
 
@@ -80,7 +81,10 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
         {a.status !== "active" ? <Status value={a.status} /> : null}
         {a.datasource.is_test_adapter ? <Pill tone="warn">{t("测试适配器")}</Pill> : null}
       </div>
-      <h1 className="av-mono av-dossier-hero__name">{tableName(a.qualified)}</h1>
+      <div className="av-dossier-hero__title">
+        <h1 className="av-mono av-dossier-hero__name">{tableName(a.qualified)}</h1>
+        <CopyName qualified={a.qualified} onMessage={onMessage} />
+      </div>
       {editing ? (
         <NoteEditor label={t("这张表的一句话说明")} initial={summary.source === "note" ? summary.text ?? "" : ""} busy={save.isPending}
           onCancel={() => setEditing(false)} onSave={(text) => submit(text, false)} />

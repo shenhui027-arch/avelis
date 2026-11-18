@@ -1,4 +1,4 @@
-// 每个字段怎么来的：来源字段 → 本表字段 → 一句人话说明（表达式收起）。说明可由模型起草，负责人确认或改写（ADR 0022）。
+// 字段来源：来源字段 → 本表字段 → 一句人话说明（表达式收起）。说明可由模型起草，负责人确认或改写（ADR 0022）。
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -50,15 +50,15 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
   });
 
   return (
-    <section className="av-panel av-stage tone-lineage av-dossier-card av-dossier-lineage" aria-label={t("每个字段怎么来的")}>
+    <section className="av-panel av-stage tone-lineage av-dossier-card av-dossier-lineage" aria-label={t("字段来源")}>
       <div className="av-dossier-card__hd">
-        <h2><Tile icon="lineage" tone="lineage" size="sm" />{t("每个字段怎么来的")}</h2>
+        <h2><Tile icon="lineage" tone="lineage" size="sm" />{t("字段来源")}</h2>
         <span className="av-dossier-card__aside">
           {counts.confirmed ? <Pill tone="ok">{t("{{count}} 已确认", { count: counts.confirmed })}</Pill> : null}
           {counts.pending ? <Pill tone="warn">{t("{{count}} 待确认", { count: counts.pending })}</Pill> : null}
           {canEdit && d.model_available ? (
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={generate.isPending} onClick={runGenerate}>
-              <Icon name="edit" small />{generate.isPending ? t("正在补写…") : t("让模型补写说明")}</button>
+              <Icon name="edit" small />{generate.isPending ? t("正在补写…") : t("AI 补写说明")}</button>
           ) : null}
         </span>
       </div>

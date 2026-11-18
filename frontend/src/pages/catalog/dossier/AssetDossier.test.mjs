@@ -108,10 +108,10 @@ assert.match(tab, /最近的问题/, "本人可见的最近问题替代次数");
 assert.match(tab, /问过 9 次/);
 assert.match(tab, /最近结构变化/);
 assert.match(tab, /href="\/changes\?view=records"/);
-assert.match(tab, /每个字段怎么来的/);
+assert.match(tab, /字段来源/);
 assert.match(tab, /1 已确认/);
 assert.match(tab, /2 待确认/);
-assert.match(tab, /让模型补写说明/);
+assert.match(tab, /AI 补写说明/);
 assert.match(tab, /甲 已确认/);
 assert.match(tab, /来源变了 · 需重新确认/);
 assert.match(tab, /还没有说明/);
@@ -129,7 +129,7 @@ assert.doesNotMatch(tab, /看脚本|undefined/);
 
 // 无编辑权限：不出现确认、修改、写说明与生成按钮
 const readonly = render(AssetDossier, { a: asset, dossier: ok({ ...full, can_edit_notes: false }) });
-assert.doesNotMatch(readonly, /让模型补写说明|>确认<|>修改<|>写说明</);
+assert.doesNotMatch(readonly, /AI 补写说明|>确认<|>修改<|>写说明</);
 assert.doesNotMatch(render(FlowBand, { a: asset, d: { ...full, can_edit_notes: false }, onMessage() {} }), />确认<|>修改</);
 
 // 全空：流向带两侧给一句话；档案页签不渲染卡片、字段表与产出
@@ -141,7 +141,7 @@ assert.match(emptyBand, /还没有被口径、提问或下游表用到/);
 assert.doesNotMatch(emptyBand, /写一句说明|每次|负责/);
 assert.match(render(FlowBand, { a: { ...asset, id: "a2" }, d: { ...bare, can_edit_notes: true }, onMessage() {} }), /写一句说明/);
 const emptyTab = render(AssetDossier, { a: { ...asset, id: "a2" }, dossier: ok(bare) });
-assert.doesNotMatch(emptyTab, /av-dossier-cards|每个字段怎么来的|它是怎么产出的/);
+assert.doesNotMatch(emptyTab, /av-dossier-cards|av-dossier-lineage|它是怎么产出的/);
 assert.match(emptyTab, /还没有采集到这张表的字段来源、口径或提问记录/);
 
 // 视图：显示“由定义实时算出”和收起的视图 SQL；注释来源的说明不标状态

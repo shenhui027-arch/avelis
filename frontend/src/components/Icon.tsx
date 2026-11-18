@@ -11,6 +11,7 @@ const PATHS: Record<string, string> = {
   more: "M4 8.01V8M8 8.01V8M12 8.01V8",
   archive: "M2.5 3.5h11v3h-11zM3.5 6.5v6h9v-6M6.5 9h3",
   edit: "M10.5 3 13 5.5 6 12.5H3.5V10z",
+  copy: "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7",
   calendar: "M3 4.5h10v9H3zM3 7.5h10M5.5 3v3M10.5 3v3",
   clock: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM8 5v3.25l2.25 1.5",
   check: "M3.5 8.5 6.5 11.5 12.5 4.5",
