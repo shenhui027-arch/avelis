@@ -55,7 +55,8 @@ export function Workbench() {
       <motion.section aria-label={t("工作区")} className="av-workspace av-workbench__workspace"
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42, delay: 0.18 }}>
         <div className="av-workbench__col">
-          <div className="av-pane av-workbench__card">
+          <div className="av-workbench__row">
+          <div className="av-pane av-workbench__card av-workbench__card--todo">
               <div className="av-pane-hd">
                 <h2>{scope === "todo" ? t("待办") : t("被拦截的提问")} <span className="av-count">{scope === "todo" ? d.todos.length : d.blocked_answers.length}</span></h2>
                 <Seg value={scope} onChange={setScope} label={t("范围")} options={[{ value: "todo", label: t("待我处理") }, { value: "blocked", label: t("被拦截的提问") }]} />
@@ -87,6 +88,24 @@ export function Workbench() {
                 </div>
               )}
               </div>
+          </div>
+            <div className="av-pane av-workbench__card av-workbench__card--changes">
+                <div className="av-pane-hd"><h2>{t("最近变更")}</h2><Link to="/changes" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
+                <div className="av-pane__body">
+                <ol className="av-steps av-workbench__changes">
+                  {d.recent_changes.map((c) => (
+                    <li key={String(c.id)} className={`av-step${Number(c.impacts) ? " is-blocked" : c.status === "resolved" ? " is-ok" : ""}`}>
+                      <span className="av-step__dot" />
+                      <Link to={`/changes/${String(c.id)}`} className="av-step__body av-workbench__change-link">
+                        <span className="av-step__title">{String(c.asset)}</span>
+                        <span className="av-step__meta">{String(c.kind)} · {Number(c.impacts) ? t("{{count}} 项影响", { count: Number(c.impacts) }) : t("不影响口径")} · {formatClock(c.at as string, tz)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ol>
+                {!d.recent_changes.length ? <Empty compact text={t("暂无最近变更")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("查看变更")}</Link>} /> : null}
+                </div>
+            </div>
           </div>
           <div className="av-pane av-workbench__card av-workbench__card--metrics">
               <div className="av-pane-hd"><h2>{t("我负责的指标")} <span className="av-count">{d.my_metrics.length}</span></h2>
@@ -139,21 +158,6 @@ export function Workbench() {
                 </div>
                 <div className="av-cadence-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
               </div>
-            </div>
-            <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("最近变更")}</h2><Link to="/changes" className="av-btn av-btn--ghost av-btn--sm">{t("全部")}</Link></div>
-              <ol className="av-steps av-workbench__changes">
-                {d.recent_changes.map((c) => (
-                  <li key={String(c.id)} className={`av-step${Number(c.impacts) ? " is-blocked" : c.status === "resolved" ? " is-ok" : ""}`}>
-                    <span className="av-step__dot" />
-                    <Link to={`/changes/${String(c.id)}`} className="av-step__body av-workbench__change-link">
-                      <span className="av-step__title">{String(c.asset)}</span>
-                      <span className="av-step__meta">{String(c.kind)} · {Number(c.impacts) ? t("{{count}} 项影响", { count: Number(c.impacts) }) : t("不影响口径")} · {formatClock(c.at as string, tz)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ol>
-              {!d.recent_changes.length ? <Empty compact text={t("暂无最近变更")} action={<Link to="/changes" className="av-btn av-btn--secondary av-btn--sm">{t("查看变更")}</Link>} /> : null}
             </div>
           </div>
         </div>

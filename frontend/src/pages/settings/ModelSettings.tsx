@@ -8,6 +8,7 @@ import { Banner, ConfirmDialog, Drawer, Empty, QueryState, Select, Switch } from
 import { formatTime } from "../../format";
 import { SettingsTabs, useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
+import { formatContextWindow, parseContextWindow } from "./contextWindow";
 
 type Provider = Schemas["ProviderOut"];
 type Settings = Schemas["SettingsOut"];
@@ -266,7 +267,7 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
           {models.length === 0 && addable.length === 0 ? <Empty text={t("暂无模型，请获取列表或手动添加")} compact /> : (
             <div className="av-table-wrap">
               <table className="av-table av-models__table">
-                <thead><tr><th>{t("模型")}</th><th>{t("工具调用")}</th><th>{t("上下文窗口")} <Hint text={t("模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，不填只显示用量")} /></th><th>{t("启用")}</th><th className="end">{t("操作")}</th></tr></thead>
+                <thead><tr><th>{t("模型")}</th><th>{t("工具调用")}</th><th>{t("上下文窗口")} <Hint text={t("模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，可带单位 k（千）、M（百万），如 200k、1M；不填只显示用量")} /></th><th>{t("启用")}</th><th className="end">{t("操作")}</th></tr></thead>
                 <tbody>
                   {models.map((m) => (
                     <tr key={m.id} aria-busy={checking === m.id}>
@@ -274,11 +275,20 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
                       <td>{m.tool_calling === true ? <span className="av-status av-status--ok">{t("支持")}</span>
                         : m.tool_calling === false ? <span className="av-status av-status--danger">{t("不支持")}</span>
                           : <span className="av-status">{t("未检测")}</span>}</td>
-                      <td><input className="av-input av-mono av-models__ctx" type="number" min={1024} max={10000000} step={1024}
-                        aria-label={t("{{id}} 的上下文窗口（token）", { id: m.id })} placeholder={t("未填")} disabled={disabled}
-                        defaultValue={m.context_window ?? ""} key={`${m.id}-${m.context_window ?? ""}`}
+                      <td><input className="av-input av-mono av-models__ctx" type="text" inputMode="decimal" autoComplete="off"
+                        aria-label={t("{{id}} 的上下文窗口（token）", { id: m.id })} placeholder={t("如 200k、1M")} disabled={disabled}
+                        defaultValue={formatContextWindow(m.context_window)} key={`${m.id}-${m.context_window ?? ""}`}
                         onBlur={(e) => {
-                          const v = e.currentTarget.value.trim() ? Number(e.currentTarget.value) : null;
+                          const input = e.currentTarget;
+                          const v = parseContextWindow(input.value);
+                          if (v === undefined) {
+                            input.setAttribute("aria-invalid", "true");
+                            input.setAttribute("data-tip", t("写数字，或带单位 k、M，例如 200k、1M；范围 1024 到 10M"));
+                            return;
+                          }
+                          input.removeAttribute("aria-invalid");
+                          input.removeAttribute("data-tip");
+                          input.value = formatContextWindow(v);
                           if (v !== (m.context_window ?? null)) setModels(models.map((x) => x.id === m.id ? { ...x, context_window: v } : x));
                         }} /></td>
                       <td><Switch label={t("启用模型 {{id}}", { id: m.id })} checked={m.enabled} disabled={disabled}

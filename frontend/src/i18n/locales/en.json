@@ -1148,10 +1148,8 @@
   "暂无模型，请获取列表或手动添加": "No models yet; fetch the list or add one manually",
   "工具调用": "Tool calls",
   "上下文窗口": "Context window",
-  "模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，不填只显示用量": "The maximum tokens the model accepts at once; the Ask page uses it to show context usage. Providers don't expose it, so fill it in from their docs; if blank, only usage is shown",
   "支持": "Supported",
   "{{id}} 的上下文窗口（token）": "Context window of {{id}} (tokens)",
-  "未填": "Not set",
   "启用模型 {{id}}": "Enable model {{id}}",
   "检测中…": "Checking…",
   "检测": "Check",
@@ -1719,5 +1717,8 @@
   "显示全部 {{count}} 条_one": "Show all {{count}}",
   "显示全部 {{count}} 条_other": "Show all {{count}}",
   "血缘图": "Lineage graph",
-  "AI 补写说明": "Draft descriptions with AI"
+  "AI 补写说明": "Draft descriptions with AI",
+  "模型一次能接收的最多 token 数，问数页据此显示上下文用量；提供方接口不提供，需按文档填写，可带单位 k（千）、M（百万），如 200k、1M；不填只显示用量": "The most tokens the model accepts at once; Ask uses it to show context usage. Provider APIs do not report it, so enter it from the documentation. Units k (thousand) and M (million) work, e.g. 200k, 1M. Leave it empty to show usage only.",
+  "如 200k、1M": "e.g. 200k, 1M",
+  "写数字，或带单位 k、M，例如 200k、1M；范围 1024 到 10M": "Enter a number, optionally with k or M, e.g. 200k or 1M. Range: 1024 to 10M"
 }
