@@ -157,7 +157,7 @@ function Composer() {
         <div className="av-compose__bar">
           <ChipMenu down icon="calendar" title={t("时间范围")} value={kind} onChange={setKind} keepOpenFor="fixed"
             display={kind === "fixed" ? `${shortDate(fixed.start)}–${shortDate(fixed.end)}` : undefined}
-            options={[{ value: "none", label: t("按问题理解"), hint: t("从问题里识别时间，没写就问你") },
+            options={[{ value: "none", label: t("按问题理解"), hint: t("从问题中识别时间，未指定时询问") },
               { value: "last_month", label: t("上月对比前月"), hint: t("上一个自然月，对比它的前一个月") },
               { value: "fixed", label: t("指定日期"), hint: t("自己选本期与对比期") }]}>
             {kind === "fixed" ? <div className="av-chip__dates">
@@ -169,7 +169,7 @@ function Composer() {
           <ChipMenu down icon="shield" title={t("确认依据")} value={mode} onChange={setMode}
             display={mode === "auto" ? t("自动确认") : t("每次确认")}
             options={[{ value: "auto", label: t("自动"), hint: t("只有模型推断的依据才需要你确认") },
-              { value: "always", label: t("每次"), hint: t("预检后总是先给你确认再分析") }]} />
+              { value: "always", label: t("每次"), hint: t("预检后先确认再分析") }]} />
           <span className="av-compose__spacer" />
           <ModelPicker state={picker} />
           <button type="button" className="av-chip__btn" disabled={!text.trim()} onClick={() => setScheduling(true)}
@@ -267,15 +267,15 @@ function NextSteps({ text, unverified, onPick }: { text?: string; unverified: nu
   if (unverified) items.push(t("有 {{count}} 条事实或计算未通过来源校验，需要重新核对", { count: unverified }));
   if (!items.length) return null;
   return (
-    <section className="av-next" aria-label={t("还没查清")}>
-      <h2><Icon name="search" />{t("还没查清 · 可以让模型继续查")}</h2>
+    <section className="av-next" aria-label={t("待查明")}>
+      <h2><Icon name="search" />{t("待查明 · 可继续分析")}</h2>
       <ul>
         {items.map((item) => (
           <li key={item}>
             <span>{item}</span>
             <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={!onPick}
-              title={onPick ? t("在这个对话里接着分析这一条") : t("等当前这一轮完成后再继续")} onClick={() => onPick?.(t("继续查：{{item}}", { item }))}>
-              {t("继续查")}</button>
+              title={onPick ? t("在这个对话里接着分析这一条") : t("等当前这一轮完成后再继续")} onClick={() => onPick?.(t("继续分析：{{item}}", { item }))}>
+              {t("继续分析")}</button>
           </li>
         ))}
       </ul>
@@ -594,7 +594,7 @@ function TaskList() {
   return (
     <section className="av-analysis__table">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {tasks.isSuccess && !list.length ? <Empty text={t("还没有定时任务：新建分析时点“定时”保存")} compact /> : null}
+      {tasks.isSuccess && !list.length ? <Empty text={t("暂无定时任务：新建分析时点“定时”保存")} compact /> : null}
       {list.map((task: Task) => (
         <div key={task.id} className="av-row av-task">
           <span className="av-row__main"><span className="av-row__title">{task.title}</span>

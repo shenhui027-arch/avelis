@@ -19,7 +19,7 @@ export function AssetDossier({ a, dossier }: { a: AssetDetail; dossier: UseQuery
           <DossierCards d={d} changes={items} />
           <FieldLineage assetId={a.id} d={d} />
           <ProducedBy a={a} d={d} />
-          {empty && !changes.isPending ? <Empty compact text={t("还没有采集到这张表的字段来源、口径或提问记录")} /> : null}
+          {empty && !changes.isPending ? <Empty compact text={t("暂未采集到这张表的字段来源、口径或提问记录")} /> : null}
         </div>
       );
     }}</QueryState>

@@ -94,7 +94,7 @@ export function DatasourcesPage() {
         <section className="av-pane" aria-label={t("数据源列表")}>
           <PaneHeader title={t("数据源")} count={sources.isSuccess ? sources.data.length : undefined} />
           <div className="av-scroll">
-            <QueryState query={sources} isEmpty={(list) => !list.length} emptyText={t("还没有数据源")} emptyAction={addButton} compact>
+            <QueryState query={sources} isEmpty={(list) => !list.length} emptyText={t("暂无数据源")} emptyAction={addButton} compact>
               {(list) => list.map((d) => (
                 <button key={d.id} type="button" className="av-provider" aria-current={d.id === (id ?? list[0]?.id)}
                   onClick={() => navigate(`/settings/datasources/${d.id}`)}>
@@ -185,7 +185,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
             {ds.aliases.length ? <div className="av-table-wrap"><table className="av-table">
               <thead><tr><th>{t("地址")}</th><th>{t("说明")}</th></tr></thead>
               <tbody>{ds.aliases.map((a) => <tr key={a.id}><td className="av-mono">{a.host}:{a.port}</td><td>{a.note ?? "—"}</td></tr>)}</tbody>
-            </table></div> : <Empty compact text={t("还没有端点别名")} />}
+            </table></div> : <Empty compact text={t("暂无端点别名")} />}
             {canEdit ? <form className="av-alias-form" aria-busy={addAlias.isPending} onSubmit={(e) => {
               e.preventDefault();
               if (addAlias.isPending || !alias.host.trim() || !validPort(alias.port)) return;
@@ -211,7 +211,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
               <dt>{t("间隔")}</dt><dd>{t("每 {{count}} 分钟", { count: ds.collect_interval_minutes })} <Hint text={t("轮询采集；未发现变更不代表没有变更")} /></dd>
             </dl>
             <div id="datasource-runs" tabIndex={-1}><PaneHeader title={<>{t("采集批次")} <Hint text={t("展示最近 50 次采集记录")} /></>} count={runs.isSuccess ? runs.data.length : undefined} /></div>
-            <QueryState query={runs} isEmpty={(history) => !history.length} emptyText={t("还没有采集记录")} compact>
+            <QueryState query={runs} isEmpty={(history) => !history.length} emptyText={t("暂无采集记录")} compact>
               {(history) => <div className="av-table-wrap"><table className="av-table av-datasources__runs">
                 <thead><tr><th>{t("状态")}</th><th>{t("开始")}</th><th>{t("触发")}</th><th className="num">{t("观察")}</th><th className="num">{t("新版本")}</th><th className="num">{t("变更")}</th><th>{t("说明")}</th></tr></thead>
                 <tbody>{history.map((r) => {
@@ -289,7 +289,7 @@ function CommentCoverage({ ds }: { ds: Datasource }) {
       <QueryState query={gaps} compact>
         {(data) => {
           const summary = data.datasources.find((x) => x.datasource_id === ds.id);
-          if (!summary || !summary.total) return <Empty text={t("还没有采集到字段")} compact />;
+          if (!summary || !summary.total) return <Empty text={t("暂未采集到字段")} compact />;
           const rate = summary.completeness == null ? "—" : `${Math.round(summary.completeness * 1000) / 10}%`;
           return <>
             <dl className="av-kv">

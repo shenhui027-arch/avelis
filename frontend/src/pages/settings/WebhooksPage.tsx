@@ -56,7 +56,7 @@ export function WebhooksPage() {
         <section className="av-pane av-webhooks__list">
           <PaneHeader title={<>{t("订阅")} <Hint text={t("治理事件按订阅推送到外部地址（JSON，HMAC-SHA256 签名）；投递失败会退避重试，不影响 Avelis 里的操作")} /></>} count={subs.data?.length} />
           <div className="av-pane__body">
-            <QueryState query={subs} isEmpty={(d) => !d.length} emptyText={t("还没有订阅")}>
+            <QueryState query={subs} isEmpty={(d) => !d.length} emptyText={t("暂无订阅")}>
               {(items) => <div className="av-list">{items.map((s) => (
                 <button key={s.id} type="button" className={`av-row${s.id === current?.id ? " is-active" : ""}`} onClick={() => setSelected(s.id)}
                   style={{ "--row-cols": "minmax(0, 1fr) auto", minHeight: 58, width: "100%", border: "none", borderBottom: "1px solid var(--line-subtle)", background: s.id === current?.id ? "var(--bg-active)" : "transparent", textAlign: "left", cursor: "pointer" } as React.CSSProperties}>
@@ -134,7 +134,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select>
       </div>
-      <QueryState query={outbox} isEmpty={(d) => !d.items.length} emptyText={t("还没有投递记录")}>
+      <QueryState query={outbox} isEmpty={(d) => !d.items.length} emptyText={t("暂无投递记录")}>
         {(page) => <>
           <table className="av-table">
             <thead><tr><th style={{ paddingLeft: 16 }}>{t("事件")}</th><th>{t("状态")}</th><th>{t("尝试")}</th><th>{t("时间")}</th><th className="end" /></tr></thead>

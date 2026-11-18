@@ -652,7 +652,7 @@ def test_markdown_has_executive_sections_and_separate_appendix():
         "## 主要原因",
         "## 关键发现",
         "## 判断与建议",
-        "## 还没查清",
+        "## 待查明",
         "## 关键数据",
         "## 附录",
     ]
@@ -845,7 +845,7 @@ def test_pdf_generates_compact_body_and_appendix_starts_with_page_break(monkeypa
     story = captured[-1]
     break_at = next(i for i, item in enumerate(story) if isinstance(item, PageBreak))
     body, appendix = "\n".join(_story_text(story[:break_at])), "\n".join(_story_text(story[break_at + 1 :]))
-    assert all(title in body for title in ("指标变化分析", "核心指标", "结论", "主要原因", "还没查清"))
+    assert all(title in body for title in ("指标变化分析", "核心指标", "结论", "主要原因", "待查明"))
     assert "附录" in appendix and "用到的数据" in appendix and "查询明细" in appendix
     assert "数字来源" not in body + appendix and "数据集清单" not in body + appendix
     assert all(f"version-{seq}" not in appendix for seq in range(13, 19))

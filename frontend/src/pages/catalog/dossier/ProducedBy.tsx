@@ -15,16 +15,16 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
   const scripts = produced.scripts ?? [];
   const mode = produced.write_mode ? WRITE_MODE_SENTENCE[produced.write_mode] : null;
   return (
-    <section className="av-panel av-stage tone-collect av-dossier-card av-dossier-produced" aria-label={t("它是怎么产出的")}>
+    <section className="av-panel av-stage tone-collect av-dossier-card av-dossier-produced" aria-label={t("产出方式")}>
       <div className="av-dossier-card__hd">
-        <h2><Tile icon={produced.kind === "view" ? "view" : "upload"} tone="collect" size="sm" />{t("它是怎么产出的")}</h2>
+        <h2><Tile icon={produced.kind === "view" ? "view" : "upload"} tone="collect" size="sm" />{t("产出方式")}</h2>
       </div>
       {produced.kind === "view" ? (
         <div className="av-dossier-produced__item">
           <p>{t("这是一个视图，内容由定义实时算出")}</p>
           {a.definition?.raw_sql ? (
             <details className="av-dossier-details">
-              <summary>{t("看视图 SQL")}</summary>
+              <summary>{t("视图 SQL")}</summary>
               <Code sql={a.definition.raw_sql} />
             </details>
           ) : null}
@@ -41,7 +41,7 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
               </p>
               {s.sql ? (
                 <details className="av-dossier-details">
-                  <summary>{t("看脚本")}</summary>
+                  <summary>{t("脚本")}</summary>
                   <Code sql={s.sql} raw />
                 </details>
               ) : null}

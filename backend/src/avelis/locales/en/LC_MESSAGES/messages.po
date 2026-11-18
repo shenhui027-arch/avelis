@@ -1036,7 +1036,7 @@ msgstr "Suggested verification"
 msgid "{label}：{detail}"
 msgstr "{label}: {detail}"
 
-msgid "还没查清"
+msgid "待查明"
 msgstr "Still unresolved"
 
 msgid "关键数据"

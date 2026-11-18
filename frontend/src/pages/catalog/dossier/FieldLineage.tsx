@@ -14,7 +14,7 @@ type Field = NonNullable<AssetDossier["fields"]>[number];
 const FIELD_LIMIT = 12;
 
 const SKIPPED: Record<string, string> = {
-  no_model: t("还没有可用的模型，请管理员在模型配置里登记"),
+  no_model: t("暂无可用的模型，请管理员在模型配置里登记"),
   policy: t("已关闭向模型发送代码片段，不能生成说明"),
   nothing: t("没有需要补写的字段"),
 };
@@ -43,7 +43,7 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
   const runGenerate = () => generate.mutate(undefined, {
     onSuccess: (r) => {
       if (r.skipped) setMessage({ ok: r.skipped === "nothing", text: SKIPPED[r.skipped] ?? r.skipped });
-      else if (r.notes?.length) setMessage({ ok: true, text: t("模型写了 {{count}} 条草稿，确认后才算数", { count: r.notes.length }) });
+      else if (r.notes?.length) setMessage({ ok: true, text: t("已生成 {{count}} 条草稿，确认后生效", { count: r.notes.length }) });
       else setMessage({ ok: true, text: SKIPPED.nothing });
     },
     onError: (e) => setMessage({ ok: false, text: errorText(e) }),
@@ -68,7 +68,7 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
           <th className="av-dossier-lineage__src">{t("来源字段")}</th>
           <th className="av-dossier-lineage__arrow"><span className="av-dossier-sr">→</span></th>
           <th className="av-dossier-lineage__col">{t("本表字段")}</th>
-          <th>{t("怎么加工")}</th>
+          <th>{t("加工说明")}</th>
         </tr></thead>
         <tbody>
           {shown.map((f) => (
@@ -113,16 +113,16 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
       </td>
       <td className="av-dossier-lineage__how">
         {editing ? (
-          <NoteEditor label={t("{{name}} 怎么加工", { name: f.column })} initial={note?.text ?? ""} busy={busy}
+          <NoteEditor label={t("{{name}} 的加工说明", { name: f.column })} initial={note?.text ?? ""} busy={busy}
             onCancel={onCancel} onSave={(text) => onSave(f.column, text, false)} />
         ) : <>
           {note ? <p className={state === "stale" ? "is-stale" : undefined}>{note.text}</p> : null}
           <div className="av-dossier-lineage__meta">
             {f.relation ? <span className="av-tag">{RELATION_LABEL[f.relation] ?? f.relation}</span> : null}
             {state === "confirmed" ? <Pill tone="ok">{note?.confirmed_by ? t("{{name}} 已确认", { name: note.confirmed_by.display_name }) : t("已确认")}</Pill> : null}
-            {state === "draft" ? <Pill tone="warn">{t("模型草稿 · 待确认")}</Pill> : null}
-            {state === "stale" ? <Pill tone="warn">{t("来源变了 · 需重新确认")}</Pill> : null}
-            {state === "none" ? <span className="av-muted">{t("还没有说明")}</span> : null}
+            {state === "draft" ? <Pill tone="warn">{t("AI 草稿 · 待确认")}</Pill> : null}
+            {state === "stale" ? <Pill tone="warn">{t("来源已变更 · 需重新确认")}</Pill> : null}
+            {state === "none" ? <span className="av-muted">{t("暂无说明")}</span> : null}
             {canEdit && needsConfirm(note) ? <>
               <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={busy} onClick={() => onSave(f.column, note!.text, true)}
                 aria-label={t("确认 {{name}} 的说明", { name: f.column })}>{t("确认")}</button>
@@ -135,11 +135,11 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
             ) : null}
             {canEdit && state === "none" ? (
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
-                aria-label={t("给 {{name}} 写说明", { name: f.column })}>{t("写说明")}</button>
+                aria-label={t("为 {{name}} 添加说明", { name: f.column })}>{t("添加说明")}</button>
             ) : null}
             {f.expression ? (
               <details className="av-dossier-details">
-                <summary>{t("看表达式")}</summary>
+                <summary>{t("表达式")}</summary>
                 <code className="av-dossier-expr">{f.expression}</code>
               </details>
             ) : null}

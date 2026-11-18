@@ -105,16 +105,16 @@ export function CatalogPage() {
           </div>
           <div className="av-pane__body av-catalog-page__objects">
             {section === "metrics" ? <QueryState query={metrics} compact isEmpty={() => metricList.length === 0}
-              emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : undefined}>
+              emptyText={term ? t("没有匹配指标") : t("暂无指标")} emptyAction={term ? clearSearch : undefined}>
               {() => <nav className="av-tree" aria-label={t("指标对象")}>{metricList.map((m) => <Link key={m.id} to={`/catalog/metrics/${m.id}`}
                 className="av-tree__item" aria-current={id === m.id ? "page" : undefined}><Icon name="chart" small /><span>{m.name}</span></Link>)}</nav>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} compact isEmpty={() => assetList.length === 0}
-              emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : undefined}>
+              emptyText={term ? t("没有匹配资产") : t("暂无资产")} emptyAction={term ? clearSearch : undefined}>
               {() => <><CatalogAssetTree key={`${id ?? "list"}:${term}:${assetOffset}`} assets={assetList} selectedId={id} searching={!!term} />{assetPager}</>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} compact isEmpty={() => domainList.length === 0}
-              emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : undefined}>
+              emptyText={term ? t("没有匹配业务域") : t("暂无业务域")} emptyAction={term ? clearSearch : undefined}>
               {() => <nav className="av-tree" aria-label={t("业务域对象")}>{domainList.map((d, i) => <Link key={d.id} to={`/catalog/domains/${d.id}`}
                 className="av-tree__item" aria-current={id === d.id ? "page" : undefined}>
                 <span className={`av-swatch av-swatch--${SWATCHES[i % SWATCHES.length]}`} /><span>{d.name}</span></Link>)}</nav>}
@@ -130,7 +130,7 @@ export function CatalogPage() {
           </header>
           <div className="av-pane__body">
             {section === "metrics" ? <QueryState query={metrics} isEmpty={() => metricList.length === 0}
-              emptyText={term ? t("没有匹配指标") : t("还没有指标")} emptyAction={term ? clearSearch : createMetric}>
+              emptyText={term ? t("没有匹配指标") : t("暂无指标")} emptyAction={term ? clearSearch : createMetric}>
               {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("指标")}</th><th>{t("状态")}</th><th>{t("负责人")}</th></tr></thead>
                 <tbody>{metricList.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><span className="av-cell"><Tile icon="chart" tone="catalog" />
                   <span className="av-cell__text"><span><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link>
@@ -138,7 +138,7 @@ export function CatalogPage() {
                   <td><Status value={m.versions[0]?.status} /></td><td>{m.owner.display_name}</td></tr>)}</tbody></table></div>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} isEmpty={() => assetList.length === 0}
-              emptyText={term ? t("没有匹配资产") : t("还没有资产")} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>}>
+              emptyText={term ? t("没有匹配资产") : t("暂无资产")} emptyAction={term ? clearSearch : <Link className="av-btn av-btn--secondary" to="/settings/datasources">{t("查看数据源")}</Link>}>
               {() => <><div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("资产")}</th><th>{t("类型")}</th><th>{t("状态")}</th></tr></thead>
                 <tbody>{[...groupBySource(assetList)].map(([sourceId, rows]) => {
                   const open = !collapsed.has(sourceId);
@@ -151,7 +151,7 @@ export function CatalogPage() {
                 })}</tbody></table></div>{assetPager}</>}
             </QueryState> : null}
             {section === "domains" ? <QueryState query={domains} isEmpty={() => domainList.length === 0}
-              emptyText={term ? t("没有匹配业务域") : t("还没有业务域")} emptyAction={term ? clearSearch : createDomain}>
+              emptyText={term ? t("没有匹配业务域") : t("暂无业务域")} emptyAction={term ? clearSearch : createDomain}>
               {() => <div className="av-table-wrap"><table className="av-table av-catalog-table"><thead><tr><th>{t("业务域")}</th><th>{t("说明")}</th><th>{t("成员")}</th></tr></thead>
                 <tbody>{domainList.map((d) => <tr key={d.id} className="is-link" onClick={rowLink(`/catalog/domains/${d.id}`)}><td><span className="av-cell"><Tile icon="users" tone="ask" />
                   <span className="av-cell__text"><Link to={`/catalog/domains/${d.id}`}>{d.name}</Link><span>{d.code}</span></span></span></td><td>{d.description || "—"}</td>

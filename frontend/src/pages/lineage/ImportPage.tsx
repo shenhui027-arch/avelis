@@ -47,7 +47,7 @@ export function ImportPage() {
           <PaneHeader title={t("导入记录")} count={imports.isSuccess ? imports.data.length : undefined}>
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-import-history-toggle" onClick={() => setHistoryOpen(false)}>{t("收起")}</button>
           </PaneHeader>
-          <div className="av-scroll"><QueryState query={imports} isEmpty={(data) => !data.length} emptyText={t("还没有导入记录")} compact>
+          <div className="av-scroll"><QueryState query={imports} isEmpty={(data) => !data.length} emptyText={t("暂无导入记录")} compact>
             {(data) => data.map((b) => <Link key={b.id} to={`/lineage/import/${b.id}`} onClick={() => setHistoryOpen(false)}
               aria-current={b.id === jobId ? "page" : undefined} className={`av-row av-import-history__row${b.id === jobId ? " is-active" : ""}`}>
               <span className="av-row__main"><span className="av-row__title av-mono">{b.filename ?? "—"}</span>
@@ -257,7 +257,7 @@ function BatchContent({ b }: { b: Batch }) {
     { label: t("有效边"), n: stats.active_edges },
     { label: t("折叠"), n: stats.folded_edges },
     { label: t("待确认"), n: stats.pending_candidates },
-    { label: t("未对上"), n: unmatched.length },
+    { label: t("未匹配"), n: unmatched.length },
     ...(replaced ? [{ label: t("替换旧边"), n: replaced }] : []),
   ];
   const done = progress.statements_done ?? 0;
@@ -278,7 +278,7 @@ function BatchContent({ b }: { b: Batch }) {
       <div className="av-import-result-tabs"><Tabs value={tab} onChange={setTab} options={[
         { value: "statements", label: <>{t("语句")} {stats.statement_count ? <Count n={stats.statement_count} /> : null}</> },
         { value: "candidates", label: <>{t("边")} {stats.pending_candidates ? <Count n={stats.pending_candidates} /> : null}</> },
-        { value: "tables", label: <>{t("未对上")} {unmatched.length ? <Count n={unmatched.length} /> : null}</> },
+        { value: "tables", label: <>{t("未匹配")} {unmatched.length ? <Count n={unmatched.length} /> : null}</> },
         { value: "files", label: t("文件") }, { value: "payload", label: t("发给模型") },
       ]} /></div>
       <div className="av-scroll">

@@ -73,9 +73,9 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 | **问数回答** | **深色主题** |
 | ![问数回答：确定性要点、模型解读与热力图](docs/images/ask-answer.png) | ![深色主题的分析会话](docs/images/analysis-dark.png) |
 | **资产档案** | **字段血缘** |
-| ![资产档案：从哪些表来、这张表、被谁用，以及活跃口径、最近谁问过、结构变化](docs/images/asset-dossier.png) | ![每个字段的来源、加工类型与一句说明，模型起草、负责人确认，表达式收起](docs/images/asset-dossier-fields.png) |
+| ![资产档案：从哪些表来、这张表、被谁用，以及活跃口径、近期提问、结构变化](docs/images/asset-dossier.png) | ![每个字段的来源、加工类型与一句说明，模型起草、负责人确认，表达式收起](docs/images/asset-dossier-fields.png) |
 
-更多页面（问数首页、报告的“还没查清”、导出、个人经验、设置、登录页）见[界面导览](docs/product-tour.md)。
+更多页面（问数首页、报告的“待查明”、导出、个人经验、设置、登录页）见[界面导览](docs/product-tour.md)。
 
 ## 支持的数据库
 

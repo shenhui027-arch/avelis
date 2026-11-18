@@ -250,7 +250,7 @@ def to_html(
             ]
     if unexplained := content._field(report, "unexplained"):
         parts += [
-            "<section><h2>" + _text(gettext("还没查清")) + '</h2><ul class="unresolved">',
+            "<section><h2>" + _text(gettext("待查明")) + '</h2><ul class="unresolved">',
             *["<li>" + _text(item.strip()) + "</li>" for item in unexplained.split("；") if item.strip()],
             "</ul></section>",
         ]

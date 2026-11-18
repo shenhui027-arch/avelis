@@ -105,7 +105,7 @@ export function Workbench() {
                       <td className="num">{String(m.asks_week)}</td>
                     </tr>))}</tbody>
                 </table>
-                {!d.my_metrics.length ? <Empty compact icon="chart" text={t("你还没有负责的指标")} action={<div className="av-actions"><Link to="/catalog/metrics" className="av-btn av-btn--secondary av-btn--sm">{t("浏览指标")}</Link>{canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary av-btn--sm">{t("新建指标")}</Link> : null}</div>} /> : null}
+                {!d.my_metrics.length ? <Empty compact icon="chart" text={t("暂无你负责的指标")} action={<div className="av-actions"><Link to="/catalog/metrics" className="av-btn av-btn--secondary av-btn--sm">{t("浏览指标")}</Link>{canCreate ? <Link to="/catalog/metrics?create=1" className="av-btn av-btn--primary av-btn--sm">{t("新建指标")}</Link> : null}</div>} /> : null}
               </div>
           </div>
         </div>
