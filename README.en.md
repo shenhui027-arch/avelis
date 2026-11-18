@@ -15,7 +15,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.en.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
-[![version](https://img.shields.io/badge/version-v1.0.8-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.8)
+[![version](https://img.shields.io/badge/version-v1.0.9-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.9)
 
 [Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.8 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis v1.0.9 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## A note from the author
 
@@ -51,6 +51,7 @@ AI has let developers like us be among the first to taste the rewards of this wa
 
 | Version | Added |
 |---|---|
+| **v1.0.9** | Interface wording: clearer titles, buttons and note states on the asset dossier, with a copy icon next to the table name; “Recent changes” is its own card on the workbench; the model context window accepts k and M units; empty states and analysis report wording are unified |
 | **v1.0.8** | Asset dossier: one page per table with upstream and downstream flow, metrics in use, recent questions, schema changes, column sources and how the table is produced; column notes are drafted by the model and confirmed by the owner. Answers gain highlights and a model reading, with a single Ask entry on the analysis page; six new charts (area, bar + line, Pareto, waterfall, heatmap, scatter). Design system v5 and a new sign-in page; “fingerprint” renamed “checksum”, database engines shown by full name |
 | **v1.0.7** | Login page fix: the header and content now share one centered width, so on wide screens the headline, product preview and sign-in card stay together instead of drifting to opposite edges |
 | **v1.0.6** | Interface redesign: a soft workbench look (light first, dark just as finished) without gradients, glows or redundant helper text, with extra context behind ⓘ tooltips; Motion animations for sliding selections, page changes and popovers opening and closing; reworked Ask home and workbench; fonts bundled with the image instead of downloaded at runtime |
