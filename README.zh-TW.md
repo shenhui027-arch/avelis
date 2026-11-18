@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.0.8-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.8)
+[![version](https://img.shields.io/badge/version-v1.0.9-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.9)
 
 [功能亮點](#功能亮點) · [最近更新](#最近更新) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.8 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.0.9 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
@@ -51,6 +51,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.0.9** | 介面表達調整：資產檔案頁的標題、按鈕與說明狀態改為書面表達，複製表名改為表名後的圖示；工作臺「最近變更」拆為獨立卡片；模型上下文視窗可帶 k、M 單位填寫；全站空狀態與分析報告文案統一 |
 | **v1.0.8** | 資產檔案頁：每張表一頁，集中展示上下游流向、在用口徑、近期提問、結構變化、欄位來源與產出方式；欄位說明由模型起草、負責人確認。問數回答新增要點與模型解讀，問數入口統一到分析頁；新增面積、柱線雙軸、帕累托、瀑布、熱力、散點六種圖表。設計系統 v5 與新登入頁；「指紋」更名為「校驗碼」，資料庫引擎顯示全稱 |
 | **v1.0.7** | 登入頁修正：頁首與主體收進置中的內容寬度，寬螢幕上標題、產品示意與登入卡成為一組，不再被拉到螢幕兩端 |
 | **v1.0.6** | 介面重新設計：柔光工作台（淺色為主、深色同等），去掉漸層、輝光與冗餘說明文字，補充說明收進 ⓘ 提示；引入 Motion，選取塊滑動、頁面切換與浮層開合有過渡；問數首頁與工作台重新排版；字型隨映像打包，執行期不再下載 |
