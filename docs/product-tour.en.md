@@ -2,7 +2,7 @@
 
 English | [简体中文](product-tour.md) | [繁體中文](product-tour.zh-TW.md)
 
-This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-13 from the v1.0.8 release branch, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The personal experience page keeps its v1.0.7 screenshot (engine tags there still show the old two-letter abbreviations); its entries were saved from this analysis's conclusions at that time.
+This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-18 from main after v1.0.8, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The personal experience page keeps its v1.0.7 screenshot (engine tags there still show the old two-letter abbreviations); its entries were saved from this analysis's conclusions at that time.
 
 ## Sign-in
 

@@ -18,6 +18,12 @@
 /* 左栏拆成两张卡片（待办 / 被拦截的提问、我负责的指标），标题固定，内容各自滚动 */
 .av-workbench__col { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; min-height: 0; }
 .av-workbench__card { flex: 1 1 0; min-height: 0; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
+/* 上排：待办 + 最近变更并排（最近变更是固定宽度的窄卡）；下排：我负责的指标占整行 */
+.av-workbench__row { display: flex; flex: 1 1 0; gap: var(--space-3); min-width: 0; min-height: 0; }
+.av-workbench__row > .av-workbench__card { display: flex; flex-direction: column; }
+.av-workbench__card--todo { flex: 1 1 0; min-width: 0; }
+.av-workbench__card--changes { flex: 0 0 clamp(calc(var(--space-8) * 7.5), 30%, calc(var(--space-8) * 9.5)); min-width: 0; }
+.av-workbench__card--changes .av-step__title { overflow-wrap: anywhere; }
 .av-workbench__card--metrics { flex-grow: 1.4; }
 .av-workbench__card--metrics thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-surface); }
 .av-workbench .av-btn--sm { min-width: calc(var(--space-8) * 2); }
@@ -45,6 +51,8 @@
   .av-fill > .av-workbench__workspace { flex: none; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
   .av-workbench__workspace .av-pane__body { overflow: visible; }
   .av-workbench__card { flex: none; }
+  .av-workbench__row { flex: none; flex-direction: column; }
+  .av-workbench__card--changes { flex: none; }
   .av-workbench__workspace > .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
   .av-workbench .av-stages { grid-template-columns: repeat(5, minmax(calc(var(--space-6) * 5), 1fr)); overflow-x: auto; }
 }
@@ -873,6 +881,7 @@
   .av-hero::after { opacity: .35; }
 }
 .av-models__ctx { width: 120px; height: var(--size-control-sm); }
+.av-models__ctx[aria-invalid="true"] { border-color: var(--danger); }
 /* 血缘：搜索表、可点击的上下游、缩放比例、分组的影响条件 */
 .av-lineage__search { position: relative; display: flex; align-items: center; gap: var(--space-2); flex: 0 1 280px; width: auto; min-width: 140px; /* 工具栏放不下时（如英文）先收窄搜索框，不挤出右侧 */ height: var(--size-control-sm, 28px); padding: 0 var(--space-2); border: 1px solid var(--line-default); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-tertiary); }
 .av-lineage__search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
@@ -1127,3 +1136,5 @@
 .av-narrative__follow:disabled { opacity: .6; cursor: default; }
 .av-answer__ft { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .av-workbench__source > .av-plat { justify-self: start; }
+.av-lineage__qualified a { color: inherit; text-decoration: none; }
+.av-lineage__qualified a:hover { color: var(--accent-text); text-decoration: underline; }
