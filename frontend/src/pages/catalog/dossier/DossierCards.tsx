@@ -1,4 +1,4 @@
-// 档案页的一排等高卡片：在用的口径、最近谁问过、最近结构变化。没有数据的卡片整张不渲染。
+// 档案页的一排等高卡片：活跃口径、最近谁问过、最近结构变化。没有数据的卡片整张不渲染。
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -52,7 +52,7 @@ function Card({ tone, icon, title, aside, children }: { tone: KitTone; icon: str
 function MetricsCard({ d }: { d: AssetDossier }) {
   const metrics = d.metrics ?? [];
   return (
-    <Card tone="catalog" icon="chart" title={t("在用的口径")} aside={t("{{count}} 个", { count: metrics.length })}>
+    <Card tone="catalog" icon="chart" title={t("活跃口径")} aside={t("{{count}} 个", { count: metrics.length })}>
       {metrics.map((m) => (
         <Link key={m.version_id} className="av-dossier-row av-dossier-row--link" to={`/catalog/metrics/${m.id}`}>
           <span className="av-dossier-row__main"><span>{m.name}</span><span>{m.description || m.code}</span></span>

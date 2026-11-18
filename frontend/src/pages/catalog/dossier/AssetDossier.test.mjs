@@ -100,7 +100,7 @@ assert.doesNotMatch(band, /没有采集到上游表|还没有被口径/);
 
 // 档案页签：三张卡、字段血缘（前 12 个 + 展开）、说明各状态、生成按钮、脚本原文不可见时的提示
 const tab = render(AssetDossier, { a: asset, dossier: ok(full) });
-assert.match(tab, /在用的口径/);
+assert.match(tab, /活跃口径/);
 assert.match(tab, /href="\/catalog\/metrics\/m1"/);
 assert.match(tab, /最近谁问过/);
 assert.match(tab, /近 30 天 42 次/);

@@ -1640,7 +1640,7 @@
   "已确认 {{name}} 的业务含义": "Confirmed the business meaning of {{name}}",
   "定义校验码": "Definition checksum",
   "还没有采集到这张表的字段来源、口径或提问记录": "No column sources, definitions or question history have been collected for this table yet",
-  "在用的口径": "Definitions in use",
+  "活跃口径": "Active definitions",
   "{{count}} 个_one": "{{count}}",
   "{{count}} 个_other": "{{count}}",
   "最近谁问过": "Recently asked by",
