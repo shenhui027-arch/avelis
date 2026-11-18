@@ -89,7 +89,7 @@ assert.match(band, /t_daily/);
 assert.match(band, /一句话草稿/);
 assert.match(band, /模型草稿 · 待确认/);
 assert.match(band, />确认</);
-assert.match(band, />改一下</);
+assert.match(band, />修改</);
 assert.match(band, /乙 负责/);
 assert.match(band, /14 个字段/);
 assert.match(band, /1 个口径/);
@@ -127,10 +127,10 @@ assert.match(tab, /每次整表覆盖写入。/);
 assert.match(tab, /脚本原文只对这张表的负责人和维护者显示/);
 assert.doesNotMatch(tab, /看脚本|undefined/);
 
-// 无编辑权限：不出现确认、改一下、写说明与生成按钮
+// 无编辑权限：不出现确认、修改、写说明与生成按钮
 const readonly = render(AssetDossier, { a: asset, dossier: ok({ ...full, can_edit_notes: false }) });
-assert.doesNotMatch(readonly, /让模型补写说明|>确认<|>改一下<|>写说明</);
-assert.doesNotMatch(render(FlowBand, { a: asset, d: { ...full, can_edit_notes: false }, onMessage() {} }), />确认<|>改一下</);
+assert.doesNotMatch(readonly, /让模型补写说明|>确认<|>修改<|>写说明</);
+assert.doesNotMatch(render(FlowBand, { a: asset, d: { ...full, can_edit_notes: false }, onMessage() {} }), />确认<|>修改</);
 
 // 全空：流向带两侧给一句话；档案页签不渲染卡片、字段表与产出
 client.setQueryData(["change-events", "asset", "a2", 5], { total: 0, items: [] });

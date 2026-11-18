@@ -127,11 +127,11 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
               <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={busy} onClick={() => onSave(f.column, note!.text, true)}
                 aria-label={t("确认 {{name}} 的说明", { name: f.column })}>{t("确认")}</button>
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
-                aria-label={t("改一下 {{name}} 的说明", { name: f.column })}>{t("改一下")}</button>
+                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
             </> : null}
             {canEdit && state === "confirmed" ? (
               <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onEdit}
-                aria-label={t("改一下 {{name}} 的说明", { name: f.column })}>{t("改一下")}</button>
+                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
             ) : null}
             {canEdit && state === "none" ? (
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}

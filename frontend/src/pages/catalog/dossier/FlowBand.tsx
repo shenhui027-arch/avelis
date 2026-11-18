@@ -92,13 +92,13 @@ function Hero({ a, d, onMessage }: { a: AssetDetail; d: AssetDossier; onMessage:
               <Pill tone="warn">{state === "draft" ? t("模型草稿 · 待确认") : t("来源变了 · 需重新确认")}</Pill>
               {d.can_edit_notes ? <>
                 <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={save.isPending} onClick={() => submit(summary.text!, true)}>{t("确认")}</button>
-                <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("改一下")}</button>
+                <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("修改")}</button>
               </> : null}
             </div>
           ) : null}
           {state === "confirmed" && summary.source === "note" && d.can_edit_notes ? (
             <div className="av-dossier-hero__note">
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("改一下")}</button>
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(true)}>{t("修改")}</button>
             </div>
           ) : null}
         </div>
