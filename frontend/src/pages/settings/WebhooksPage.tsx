@@ -53,8 +53,8 @@ export function WebhooksPage() {
           <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("添加订阅")}</button>
         </div> : null}
       </div>
-      {/* 身份加载中显示骨架、出错显示重试，避免管理员被误判为无权限 */}
-      {!me.isSuccess ? <QueryState query={me} rows={6}>{() => null}</QueryState> : !isAdmin ? <Empty text={t("只有管理员可以配置通知订阅")} /> : <div className="av-workspace av-webhooks">
+      {/* 身份未取到时显示骨架或报错重试；已有身份数据时后台刷新失败不影响工作区 */}
+      {me.data === undefined ? <QueryState query={me} rows={6}>{() => null}</QueryState> : !isAdmin ? <Empty text={t("只有管理员可以配置通知订阅")} /> : <div className="av-workspace av-webhooks">
         <section className="av-pane av-webhooks__list">
           <PaneHeader title={<>{t("订阅")} <Hint text={t("治理事件按订阅推送到外部地址（JSON，HMAC-SHA256 签名）；投递失败会退避重试，不影响 Avelis 里的操作")} /></>} count={subs.data?.length} />
           <div className="av-pane__body">
