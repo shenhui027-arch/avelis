@@ -15,7 +15,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.en.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
-[![version](https://img.shields.io/badge/version-v1.0.10-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.10)
+[![version](https://img.shields.io/badge/version-v1.0.11-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.11)
 
 [Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.10 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis v1.0.11 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## A note from the author
 
@@ -43,14 +43,16 @@ AI has let developers like us be among the first to taste the rewards of this wa
 - **Governed metrics.** Metrics have versions, a publishing state machine, pre-publish checks, review and cross-domain approval. Join paths and grain are checked so joins cannot silently inflate totals.
 - **Change management.** Upstream schema change → impact analysis → review. Changes are attributed to the database user who made them, and history is append-only, sealed in a hash chain, searchable and exportable.
 - **Grounded Q&A.** A LangGraph agent understands the question and asks follow-ups. The model only submits a structured intent; SQL is generated deterministically from published metrics, validated, and run with a read-only account after checking that the source schema still matches. Each answer carries model-independent highlights (total, change, highest and lowest, concentration) and the model's reading, gets a chart you can switch among 14 kinds (including area, bar + line, Pareto, waterfall, heatmap and scatter); “why” questions in the same box turn into a multi-step analysis.
-- **Analysis agent.** Multi-step analysis of "why did this change, what is related, what should we do". Data is fetched only through governed queries, every number in the report is verified, and conclusions are labelled as fact, calculation, inference or recommendation. Reports export to PDF, HTML or Markdown; analyses can be scheduled.
+- **Analysis agent.** Multi-step analysis of "why did this change, what is related, what should we do". Data is fetched only through governed queries, every number in the report is verified, and conclusions are labelled as fact, calculation, inference or recommendation. Reports export to PDF, HTML or Markdown; analyses can be scheduled. The analysis process is shown as a timeline of reasoning passages and tool calls, with the model's reasoning text streaming in while it runs.
 - **Learns from confirmation.** Questions the model raises are confirmed with the user and stored as governed experience that later questions and analyses reuse.
+- **Skill marketplace.** Upload skill packages in the open [Agent Skills](https://agentskills.io) format; an admin reviews them before they are listed, and each user decides which ones to enable. Q&A and analysis pick relevant enabled skills automatically, or you can reference them explicitly with “+” or “/” in the input box. Scripts in a package are stored, never executed.
 - **Pluggable models.** Configure DeepSeek, OpenAI, Anthropic, Qwen or any OpenAI-compatible endpoint in the UI and assign models per purpose. Without a model, a rule-based demo model is used and labelled as such.
 
 ## What's new
 
 | Version | Added |
 |---|---|
+| **v1.0.11** | Skill marketplace: upload packages in the Agent Skills format, admin review before listing, each user enables their own; quick answers and root-cause analysis pick skills automatically, and “+” or “/” in the input box references them. The analysis process becomes a step-by-step timeline: a spinner and live reasoning text while running, with each reasoning passage and tool call expandable on its own |
 | **v1.0.10** | UI audit fixes: dark-theme contrast, narrow-screen layout and accessibility; one shared pagination bar and two collapsible-section styles across the app; “Edit” for rewriting existing content, “New” vs. “Add” by object type; loading and error states with retry |
 | **v1.0.9** | Interface wording: clearer titles, buttons and note states on the asset dossier, with a copy icon next to the table name; “Recent changes” is its own card on the workbench; the model context window accepts k and M units; empty states and analysis report wording are unified |
 | **v1.0.8** | Asset dossier: one page per table with upstream and downstream flow, metrics in use, recent questions, schema changes, column sources and how the table is produced; column notes are drafted by the model and confirmed by the owner. Answers gain highlights and a model reading, with a single Ask entry on the analysis page; six new charts (area, bar + line, Pareto, waterfall, heatmap, scatter). Design system v5 and a new sign-in page; “fingerprint” renamed “checksum”, database engines shown by full name |
@@ -76,8 +78,10 @@ See the [changelog](CHANGELOG.md) for every change and [Releases](https://github
 | ![Ask answer: deterministic highlights, the model’s reading and a heatmap](docs/images/en/ask-answer.png) | ![Analysis session in the dark theme](docs/images/en/analysis-dark.png) |
 | **Asset dossier** | **Column lineage** |
 | ![Asset dossier: where it comes from, the table, who uses it, plus metrics in use, recent askers and schema changes](docs/images/en/asset-dossier.png) | ![Source columns, derivation type and a plain sentence per column, drafted by the model and confirmed by the owner, expression collapsed](docs/images/en/asset-dossier-fields.png) |
+| **Skill marketplace** | **Analysis process** |
+| ![Skill marketplace: skill cards, enable switches and the upload button](docs/images/en/skills.png) | ![Analysis process timeline: one row per reasoning passage or tool call, each expandable](docs/images/en/analysis-process.png) |
 
-More pages (Q&A home, report follow-ups, export, personal experience, settings, sign-in page) are in the [product tour](docs/product-tour.en.md).
+More pages (Q&A home, referencing skills, report follow-ups, export, personal experience, settings, sign-in page) are in the [product tour](docs/product-tour.en.md).
 
 ## Supported databases
 

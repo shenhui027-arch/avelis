@@ -2,7 +2,7 @@
 
 English | [简体中文](product-tour.md) | [繁體中文](product-tour.zh-TW.md)
 
-This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-18 from main after v1.0.8, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved before the screenshots from what was confirmed in this analysis.
+This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-19 from v1.0.11, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved before the screenshots from what was confirmed in this analysis, and the skills on the skills page are sample packages uploaded beforehand.
 
 ## Sign-in
 
@@ -32,7 +32,7 @@ Start from **Ask** or **New question**. You can ask for a single number, or ask 
 
 An analysis is a conversation in time order:
 
-- the user's question and a collapsible “thought deeply” section (time taken, steps, reasoning segments);
+- the user's question and a collapsible “Thought for N s” section (time taken, reasoning passages, tool calls);
 - a conclusion-first report: key conclusions (numbers carry source markers), source verification results, ranked causes (primary cause, direction, contribution and the datasets cited);
 - the evidence panel on the right: every dataset produced by this analysis, labelled as governed query, calculation, exploration or context;
 - the input box and model bar fixed at the bottom (model name, thinking level, a ring showing context usage), where you can follow up, point out mistakes or add rules.
@@ -42,6 +42,12 @@ An analysis is a conversation in time order:
 Further down the report is “Still unresolved · the model can keep investigating”: each unexplained point can be investigated further with one click. Below that are the basis for the conclusions, the basis for the analysis, and the confirmations and corrections that can be saved as experience.
 
 ![Report: open questions and further investigation](images/en/analysis-report.png)
+
+### Thinking and steps
+
+Open “Thought for N s” to see the analysis as a timeline, one row per reasoning passage or tool call. Tool rows show whether the call succeeded or failed, how long it took and the dataset it produced; expand one to see its arguments and a summary of the result. Reasoning rows expand to the full reasoning text. While an analysis runs, the current step shows a spinner and the header shows “Thinking…”, the current step and the time so far; with models whose thinking protocol has been verified, such as DeepSeek, the reasoning text appears live.
+
+![Thinking and steps](images/en/analysis-process.png)
 
 ### Export
 
@@ -64,6 +70,16 @@ An analysis session in the dark theme:
 What you confirm or correct during analyses is kept as personal experience (rules, joins and so on) and recalled automatically by metric definition and asset in later analyses. Join experience can be turned into a governed join path.
 
 ![Personal experience](images/en/experiences.png)
+
+## Skills
+
+“Skills” in the sidebar is a skill marketplace. Packages follow the open [Agent Skills](https://agentskills.io) format: a zip holding one skill folder with a `SKILL.md`, optionally with reference files and scripts. Anyone can upload; an admin reviews a skill before it is listed. Each user enables listed skills for themselves, and none are enabled by default. Scripts in a package are stored and viewable but never executed.
+
+![Skill marketplace](images/en/skills.png)
+
+Q&A and analysis pick relevant skills from the ones you have enabled. You can also reference skills explicitly with the “+” at the left of the input box or by typing `/`. The report's analysis basis lists the skills and versions that were used.
+
+![Referencing a skill in the input box](images/en/skills-reference.png)
 
 ## Lineage
 
