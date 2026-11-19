@@ -5,8 +5,8 @@ import { formatDate } from "../../../format";
 import { t } from "../../../i18n";
 
 const WRITE_MODE_SENTENCE: Record<string, string> = {
-  // 与顶部流向带 FlowBand 的重建文案统一为书面表达
-  overwrite: t("每次整表覆盖写入。"), append: t("脚本每次在已有数据后追加。"), create: t("每次重建"),
+  // 产出方式正文统一使用带句号的完整书面陈述句
+  overwrite: t("每次整表覆盖写入。"), append: t("脚本每次在已有数据后追加。"), create: t("每次重建整表。"),
 };
 
 export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {

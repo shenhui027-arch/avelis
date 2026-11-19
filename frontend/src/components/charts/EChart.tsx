@@ -1,5 +1,5 @@
 // ECharts 画布（按需引入、单独分块懒加载）：主题从设计令牌读，深浅切换时重画；导出 PNG 用同一实例。
-import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
+import { BarChart, CustomChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, MarkPointComponent, TitleComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -8,8 +8,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { chartHeight, chartOption, type ChartSpec, type ChartTheme } from "./chartOption";
 import type { NumberStyle } from "../../numbers";
 
-// 标注（极值点、平均线）来自 chart 工具的 marks 参数，按需引入也要注册这两个组件
-echarts.use([BarChart, LineChart, PieChart, HeatmapChart, ScatterChart, VisualMapComponent, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent,
+// 标注（极值点、平均线）与稀疏热力图自定义底格均需按需注册
+echarts.use([BarChart, CustomChart, LineChart, PieChart, HeatmapChart, ScatterChart, VisualMapComponent, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent,
   MarkPointComponent, MarkLineComponent, CanvasRenderer]);
 
 function readTheme(): ChartTheme {

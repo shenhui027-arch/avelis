@@ -1,11 +1,11 @@
 // 变更记录（留底，ADR 0008）：按数据源、对象、类型、时间、数据库用户筛选；导出 CSV / JSON（带哈希）；管理员核验哈希链。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
-import { Banner, Count, DateInput, Empty, Hint, Icon, Pager, Pill, Select, Skeleton, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
+import { Banner, Count, DateInput, Hint, Icon, Pager, Pill, QueryState, Select, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { recordQuery, type RecordFilters } from "./recordFilters";
@@ -64,8 +64,17 @@ export function ChangeRecords() {
   const { query, invalid } = recordQuery(filters, tz);
   const records = useQuery({
     queryKey: ["change-events", query, offset],
+    placeholderData: (prev) => prev,
     queryFn: () => unwrap(api.GET("/api/change-events", { params: { query: { ...query, limit: PAGE, offset } } })),
   });
+  // 条目减少导致当前页越界为空时退回有效末页，避免范围倒挂或卡在空页
+  useEffect(() => {
+    if (!records.isSuccess || records.isPlaceholderData || offset === 0) return;
+    if (!records.data.items.length || offset >= records.data.total) {
+      const lastPage = records.data.total > 0 ? Math.floor((records.data.total - 1) / PAGE) * PAGE : 0;
+      setOffset(lastPage);
+    }
+  }, [records.isSuccess, records.isPlaceholderData, records.data, offset]);
   const isAdmin = !!me.data?.roles.includes("admin");
   const [verify, setVerify] = useState<Verify | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,27 +153,28 @@ export function ChangeRecords() {
 
           <section className="av-panel">
             <div className="av-panel__hd">
-              <h2 className="av-panel__title">{t("记录")} <Count n={data?.total ?? 0} /></h2>
-              <Pager offset={offset} page={PAGE} total={data?.total ?? 0} inline alwaysShow onChange={setOffset} />
+              <h2 className="av-panel__title">{t("记录")}{records.isSuccess ? <> <Count n={records.data.total} /></> : null}</h2>
+              <Pager offset={offset} page={PAGE} total={data?.total} paging={records.isFetching} inline alwaysShow onChange={setOffset} />
             </div>
-            {records.isLoading ? <Skeleton rows={6} /> : null}
-            {data && !data.items.length ? <Empty text={t("没有符合条件的变更")} compact /> : null}
-            {data?.items.length ? (
-              <ol className="av-audit" aria-label={t("记录")}>{data.items.map((e: Record) => {
-                const [icon, tone] = recordLook(e.kind);
-                return (
-                  <li key={e.id}>
-                    <Tile icon={icon} tone={tone} />
-                    <div className="av-audit__body">
-                      <span className="av-audit__title av-mono" data-tip={`${e.datasource} · ${e.asset ?? ""}`}>{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset) || "—"}</Link> : shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</span>
-                      {recordDetail(e) ? <span className="av-audit__desc" data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String((e.before as { [k: string]: unknown }).hash ?? "").slice(0, 8), v2: String((e.after as { [k: string]: unknown }).hash ?? "").slice(0, 8) }) : undefined}>{recordDetail(e)}</span> : null}
-                      <span className="av-audit__tags"><Pill>{EVENT_LABEL[e.kind] ?? e.kind}</Pill><Actor e={e} />
-                        <Link className="av-tag" to={`/changes/${e.change_set_id}`} data-tip={t("链序号 {{v1}} · {{v2}}", { v1: e.chain_seq ?? "—", v2: e.row_hash ?? "" })}>{e.change_set_id.slice(0, 8)}</Link></span>
-                    </div>
-                    <span className="av-audit__time">{formatTime(e.detected_at, tz)}</span>
-                  </li>);
-              })}</ol>
-            ) : null}
+            {/* 变更记录面板接入 QueryState，统一处理加载骨架、报错重试与空态 */}
+            <QueryState query={records} rows={6} compact isEmpty={(d) => !d.items.length} emptyText={t("没有符合条件的变更")}>
+              {(d) => (
+                <ol className="av-audit" aria-label={t("记录")}>{d.items.map((e: Record) => {
+                  const [icon, tone] = recordLook(e.kind);
+                  return (
+                    <li key={e.id}>
+                      <Tile icon={icon} tone={tone} />
+                      <div className="av-audit__body">
+                        <span className="av-audit__title av-mono" data-tip={`${e.datasource} · ${e.asset ?? ""}`}>{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset) || "—"}</Link> : shortName(e.asset) || "—"}{e.column ? `.${e.column}` : ""}</span>
+                        {recordDetail(e) ? <span className="av-audit__desc" data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String((e.before as { [k: string]: unknown }).hash ?? "").slice(0, 8), v2: String((e.after as { [k: string]: unknown }).hash ?? "").slice(0, 8) }) : undefined}>{recordDetail(e)}</span> : null}
+                        <span className="av-audit__tags"><Pill>{EVENT_LABEL[e.kind] ?? e.kind}</Pill><Actor e={e} />
+                          <Link className="av-tag" to={`/changes/${e.change_set_id}`} data-tip={t("链序号 {{v1}} · {{v2}}", { v1: e.chain_seq ?? "—", v2: e.row_hash ?? "" })}>{e.change_set_id.slice(0, 8)}</Link></span>
+                      </div>
+                      <span className="av-audit__time">{formatTime(e.detected_at, tz)}</span>
+                    </li>);
+                })}</ol>
+              )}
+            </QueryState>
           </section>
         </div>
       </div>

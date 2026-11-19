@@ -5,7 +5,9 @@
 /* 变更：左侧列表是一张卡片，右侧详情落在页面底色上（详情里的分区各自是卡片） */
 .av-changes { display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: var(--space-4); height: 100vh; padding: var(--space-6); }
 .av-changes > .av-pane + .av-pane { border-left: none; }
+/* 右侧滚动区内保留 4px 安全内边距，防止顶部操作按钮的 2px+2px 键盘焦点环被裁切 */
 .av-changes .av-page { padding: 0; }
+.av-changes > .av-pane:not(.av-changes__list) .av-page { padding: var(--space-1); }
 .av-changes__list { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 /* 变更页头、列表行、详情元信息与复核抽屉统一使用设计令牌 */
 .av-changes__hd { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-4) 0; }
@@ -131,7 +133,7 @@
 @media (prefers-reduced-motion: reduce) { .av-flow__dots { display: none; } }
 .av-lineage__zoom { bottom: var(--space-4); right: var(--space-4); gap: var(--space-1); }
 .av-lineage__zoom .av-btn:not(.av-btn--icon) { min-width: calc(var(--space-8) * 2); }
-.av-lineage__inspector { min-height: 0; height: 100%; overflow: auto; }
+.av-lineage__inspector { position: relative; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; }
 .av-lineage__inspector-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .av-lineage__inspector-actions > .av-section-label { min-width: 0; }
 .av-lineage__inspector-actions .av-actions { flex-shrink: 0; }
@@ -710,7 +712,8 @@
 .av-spinner { width: 14px; height: 14px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: av-spin .8s linear infinite; }
 @keyframes av-spin { to { transform: rotate(360deg); } }
 .av-doc__more { border-top: 1px solid var(--line-subtle); padding-top: var(--space-3); }
-.av-doc__more > :not(summary) { margin-top: var(--space-3); }
+/* 提高特异性避免被后加载的 kit.css .av-disclosure 覆盖，仅对单个包裹块留上外边距 */
+.av-disclosure.av-doc__more > :not(summary) { margin-top: var(--space-3); }
 .av-doc__method { margin: 0; color: var(--text-secondary); font: var(--type-body-compact); }
 .av-doc__meta { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: 0; }
 
@@ -919,9 +922,10 @@
 .av-lineage__toggle { display: inline-flex; align-items: center; flex-shrink: 0; gap: var(--space-2); color: var(--text-secondary); font: var(--type-caption); font-weight: 500; white-space: nowrap; cursor: pointer; user-select: none; }
 .av-lineage__toolbar .av-seg, .av-lineage__toolbar .av-seg * { white-space: nowrap; flex-shrink: 0; }
 @media (max-width: 1280px) { .av-lineage__search { width: 200px; } }
-/* 血缘检查器：左边缘拖动调宽（宽度记在本机），内容换行显示，不出现横向滚动 */
-.av-lineage[data-inspector-open="true"] { grid-template-columns: minmax(0, 1fr) var(--lineage-inspector-w, var(--size-inspector)); }
-.av-lineage__inspector { position: relative; overflow-x: hidden; }
+/* 血缘检查器：宽屏双列并排可拖动调宽，≤1279px 保持单列叠层避免切走画布轨道 */
+@media (min-width: 1280px) {
+  .av-lineage[data-inspector-open="true"] { grid-template-columns: minmax(0, 1fr) var(--lineage-inspector-w, var(--size-inspector)); }
+}
 .av-lineage__resize { position: absolute; top: 0; bottom: 0; left: 0; z-index: 2; width: 6px; cursor: col-resize; touch-action: none; }
 .av-lineage__resize:hover, .av-lineage__resize:active { background: linear-gradient(90deg, var(--accent) 0 2px, transparent 2px); }
 .av-lineage__inspector .av-chain__item { height: auto; min-height: 32px; padding: 6px 10px; align-items: flex-start; }
@@ -1072,9 +1076,10 @@
 .av-runlog__queued { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
 .av-runlog__queued .av-banner { font-size: 12px; }
 .av-fieldcheck { display: block; }
-.av-fieldcheck__more { font-size: 12px; opacity: .8; text-decoration: underline; text-underline-offset: 2px; }
+/* 展开链接固定靠右且不换行，避免提示语折行时被挤成竖排；列表间距交由外层横幅 gap 统一控制 */
+.av-fieldcheck__more { margin-left: auto; flex: none; white-space: nowrap; font-size: 12px; opacity: .8; text-decoration: underline; text-underline-offset: 2px; }
 .av-fieldcheck[open] .av-fieldcheck__more { display: none; }
-.av-fieldcheck ul { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 18px; color: var(--text-secondary); }
+.av-fieldcheck ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 18px; color: var(--text-secondary); }
 
 /* Ossie 互通（ADR 0017） */
 .av-ossie { display: flex; flex-direction: column; gap: var(--space-4); }

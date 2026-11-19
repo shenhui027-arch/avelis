@@ -1,16 +1,16 @@
 // 通知订阅（ADR 0018）：把治理事件推送到外部系统。管理员配置 Webhook、查看投递记录、重投死信。
 // 签名密钥创建或轮换时只显示一次；请求体只含事件契约字段，验签方法见 docs/events.md。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import {
-  Banner, ConfirmDialog, Count, Drawer, Empty, Hint, Pager, PaneHeader, Pill, QueryState, Select, Switch, useMessage,
+  Banner, ConfirmDialog, Count, Drawer, Empty, Hint, Pager, PaneHeader, Pill, QueryState, Select, Skeleton, Switch, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
-import { SettingsTabs, useRoles } from "../../layout/Shell";
+import { SettingsTabs, useMe } from "../../layout/Shell";
 
 type Subscription = Schemas["SubscriptionOut"];
 type EventType = Schemas["EventType"];
@@ -35,7 +35,8 @@ const STATUS_LABEL: Record<string, string> = { pending: t("待投递"), delivere
 const groupOf = (type: string) => GROUPS.find((g) => g.prefix && type.startsWith(g.prefix)) ?? GROUPS[GROUPS.length - 1];
 
 export function WebhooksPage() {
-  const isAdmin = useRoles().has("admin");
+  const me = useMe();
+  const isAdmin = !!me.data?.roles.includes("admin");
   const subs = useQuery({ queryKey: ["webhook-subscriptions"], enabled: isAdmin,
     queryFn: () => unwrap(api.GET("/api/webhook-subscriptions")) });
   const [selected, setSelected] = useState<string>();
@@ -52,7 +53,8 @@ export function WebhooksPage() {
           <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("添加订阅")}</button>
         </div> : null}
       </div>
-      {!isAdmin ? <Empty text={t("只有管理员可以配置通知订阅")} /> : <div className="av-workspace av-webhooks">
+      {/* 当前用户身份加载中先显示骨架，避免管理员刷新时闪现无权限空态 */}
+      {me.isPending ? <Skeleton rows={6} /> : !isAdmin ? <Empty text={t("只有管理员可以配置通知订阅")} /> : <div className="av-workspace av-webhooks">
         <section className="av-pane av-webhooks__list">
           <PaneHeader title={<>{t("订阅")} <Hint text={t("治理事件按订阅推送到外部地址（JSON，HMAC-SHA256 签名）；投递失败会退避重试，不影响 Avelis 里的操作")} /></>} count={subs.data?.length} />
           <div className="av-pane__body">
@@ -95,9 +97,16 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
   const PAGE = 50;
   // 投递由 worker 异步完成：有待投递条目时每 5 秒刷新，否则每 30 秒，页面开着就能看到结果和新事件
   const outbox = useQuery({ queryKey: ["event-outbox", sub.id, status, offset],
+    placeholderData: (prev) => prev,
     refetchInterval: (query) => (query.state.data?.items.some((d) => d.status === "pending") ? 5_000 : 30_000),
     queryFn: () => unwrap(api.GET("/api/event-outbox", { params: { query: {
       subscription_id: sub.id, ...(status ? { status: status as "pending" | "delivered" | "dead" } : {}), limit: PAGE, offset } } })) });
+  // 轮询或筛选后当前非首页变空时自动退回有效上一页，避免卡在没有分页条的空状态
+  useEffect(() => {
+    if (!outbox.isSuccess || outbox.isPlaceholderData || offset === 0 || outbox.data.items.length > 0) return;
+    const lastPage = outbox.data.total > 0 ? Math.floor((outbox.data.total - 1) / PAGE) * PAGE : 0;
+    setOffset(Math.min(Math.max(0, offset - PAGE), lastPage));
+  }, [outbox.isSuccess, outbox.isPlaceholderData, outbox.data, offset]);
   const toggle = useAction((enabled: boolean) => unwrap(api.PATCH("/api/webhook-subscriptions/{subscription_id}",
     { params: { path: { subscription_id: sub.id } }, body: { enabled } })), ["webhook-subscriptions"]);
   const test = useAction(() => unwrap(api.POST("/api/webhook-subscriptions/{subscription_id}/test",
@@ -128,7 +137,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
         <dt>{t("结果")}</dt><dd>{!sub.outcomes || sub.outcomes.length === 2 ? t("成功与失败") : sub.outcomes[0] === "success" ? t("仅成功") : t("仅失败")}</dd>
       </dl>
       <div className="av-webhooks__records-hd">
-        <h3>{t("投递记录")} <Count n={outbox.data?.total ?? 0} /></h3>
+        <h3>{t("投递记录")}{outbox.isSuccess ? <> <Count n={outbox.data.total} /></> : null}</h3>
         <Select label={t("投递状态")} value={status} style={{ width: 140 }} onChange={(v) => { setStatus(v); setOffset(0); }}>
           <option value="">{t("全部状态")}</option>
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -150,7 +159,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
                 onClick={() => redeliver.mutate(d.id, { onSuccess: () => onMessage({ ok: true, text: t("已重新排入投递") }), onError: fail })}>{t("重投")}</button> : null}</td>
             </tr>)}</tbody>
           </table>
-          <Pager offset={offset} page={PAGE} total={page.total} onChange={setOffset} />
+          <Pager offset={offset} page={PAGE} total={page.total} inline busy={outbox.isFetching} onChange={setOffset} />
         </>}
       </QueryState>
     </div>

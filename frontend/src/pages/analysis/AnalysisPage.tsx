@@ -376,7 +376,7 @@ function LookupAnswer({ a, onContinue }: { a: Answer; onContinue?: (text: string
       {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={(text) => onContinue?.(text)} disabled={!onContinue} /> : null}
       {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
         <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
-      <details className="av-disclosure av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
+      <details className="av-disclosure av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><div className="av-doc__evidence"><Evidence a={a} /></div></details>
     </section>
   );
 }
@@ -395,16 +395,46 @@ function RunDetail({ id }: { id: string }) {
   const focus = useRef<HTMLDivElement>(null);
   const ids = conv.data?.runs.map((t) => t.id) ?? [id];
   const total = ids.length;
-  // 有多轮时定位到地址指向的那一轮（续问后地址换成新一轮，也就滚到新一轮）；
-  // 点某一轮的证据切换地址时，那一轮已在视口里就不跳动
+  // 目标轮挂载后定位到视口顶部；前序轮次由骨架加载为正文撑开高度时，在用户主动滚动前保持对齐
   useEffect(() => {
     const el = focus.current;
-    if (total < 2 || !el) return;
+    const scroller = el?.closest(".av-analysis__scroll");
+    if (total < 2 || !run.isSuccess || !el || !scroller) return;
     const box = el.getBoundingClientRect();
-    const view = el.closest(".av-analysis__scroll")?.getBoundingClientRect();
-    if (view && box.bottom > view.top && box.top < view.bottom) return;
-    el.scrollIntoView({ block: "start" });
-  }, [total, id]);
+    const view = scroller.getBoundingClientRect();
+    if (!(box.bottom > view.top && box.top < view.bottom)) {
+      el.scrollIntoView({ block: "start" });
+    }
+    const idx = ids.indexOf(id);
+    if (idx <= 0 || typeof ResizeObserver === "undefined") return;
+    const before = Array.from(scroller.querySelectorAll(":scope > .av-turn")).slice(0, idx);
+    if (!before.length) return;
+    let userMoved = false;
+    const stop = () => { userMoved = true; };
+    const heights = new Map(before.map((node) => [node, node.getBoundingClientRect().height]));
+    const ro = new ResizeObserver(() => {
+      if (userMoved) return;
+      let changed = false;
+      for (const node of before) {
+        const h = node.getBoundingClientRect().height;
+        if (Math.abs(h - (heights.get(node) ?? 0)) >= 1) {
+          heights.set(node, h);
+          changed = true;
+        }
+      }
+      if (changed) el.scrollIntoView({ block: "start" });
+    });
+    before.forEach((node) => ro.observe(node));
+    scroller.addEventListener("wheel", stop, { passive: true });
+    scroller.addEventListener("touchmove", stop, { passive: true });
+    scroller.addEventListener("pointerdown", stop, { passive: true });
+    return () => {
+      ro.disconnect();
+      scroller.removeEventListener("wheel", stop);
+      scroller.removeEventListener("touchmove", stop);
+      scroller.removeEventListener("pointerdown", stop);
+    };
+  }, [total, id, run.isSuccess]);
   // 报告详情加载与出错状态接入 QueryState，避免闪现空态插画
   return (
     <QueryState query={run}>

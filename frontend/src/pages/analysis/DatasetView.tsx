@@ -130,7 +130,7 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
         <Pager offset={shown} page={PAGE} total={d.total} paging={paging} align="center"
           label={paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}
           onChange={setOffset} />
-        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
+        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption av-fold__aside">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
           {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}
           <Code sql={d.sql} /></details> : null}
       </div> : null}

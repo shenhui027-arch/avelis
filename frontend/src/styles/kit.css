@@ -28,6 +28,10 @@
 /* --- 标签与胶囊：方角中性标签 .av-tag 与全圆角语气胶囊 .av-pill ------------------------------------- */
 .av-tag { display: inline-flex; flex: none; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--line-subtle);
   border-radius: var(--radius-xs); background: var(--bg-raised); color: var(--text-secondary); font: 500 11px/18px var(--font-mono); white-space: nowrap; }
+/* 风险基数标签（置于 .av-tag 之后，避免同特异性覆盖丢失警告色） */
+.av-tag.av-edge-tag--warn, .av-edge-tag--warn { border-color: color-mix(in srgb, var(--warn) 60%, transparent); color: var(--warn); }
+/* 树节点内的重名编码标签限制最大宽度并允许省略，避免挤没左侧名称 */
+.av-tree__item > .av-tag { display: block; flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .av-pill { display: inline-flex; flex: none; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 1px solid var(--line-subtle);
   border-radius: var(--radius-full); background: var(--bg-raised); color: var(--text-secondary); font: 500 12px/20px var(--font-sans); white-space: nowrap; }
 /* 语气胶囊：在中性基础定义之后覆盖底色与文字色 */
@@ -131,8 +135,12 @@
 
 /* --- 分页条：全站列表与数据集共用的翻页栏 ----------------------------------------------------------- */
 .av-pager { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: var(--space-2) var(--space-4); }
+.av-pager > .av-caption { white-space: nowrap; }
 .av-pager--center { justify-content: center; gap: var(--space-3); padding: var(--space-2) 0; }
 .av-pager--inline { padding: 0; }
+/* 目录窄左栏紧凑分页：减小内边距与按钮留白，避免 192px 栏宽下溢出 */
+.av-pager--compact { justify-content: space-between; gap: var(--space-1); padding: var(--space-2); }
+.av-pager--compact .av-btn--sm { padding: 0 var(--space-2); }
 
 /* --- 折叠面板：卡片式 .av-fold 与行内式 .av-disclosure 共用展开箭头与动效 ---------------------------- */
 .av-fold > summary, .av-disclosure > summary { list-style: none; cursor: pointer; user-select: none; }
@@ -144,15 +152,20 @@
 .av-fold[open] > summary::before, .av-disclosure[open] > summary::before { transform: rotate(90deg); }
 .av-fold > summary:focus-visible, .av-disclosure > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 .av-fold { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-raised); }
-.av-fold > summary { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); color: var(--text-primary); font: var(--type-body-strong); }
-.av-fold > summary > .av-caption { margin-left: auto; font-weight: 400; }
+/* 折叠卡标题字号与正文二级标题（13px）保持同一层级，推右信息仅由 .av-fold__aside 显式启用 */
+.av-fold > summary { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); color: var(--text-primary); font: 500 13px/20px var(--font-sans); }
+.av-fold > summary > .av-caption { font-weight: 400; }
+.av-fold__aside { margin-left: auto; }
 .av-fold > :not(summary) { margin: 0 var(--space-4) var(--space-4); }
 .av-disclosure > summary { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-secondary); font: 500 12px/20px var(--font-sans); transition: color var(--dur-fast) var(--ease-out); }
 .av-disclosure > summary:hover { color: var(--text-primary); }
 .av-disclosure > :not(summary) { margin-top: var(--space-2); }
+/* 横幅内折叠：复用横幅左侧语气图标，隐藏重复展开箭头并清零额外外边距 */
 .av-banner.av-disclosure { flex-direction: column; }
-.av-banner.av-disclosure > summary { display: flex; width: 100%; color: var(--text-primary); font: inherit; }
+.av-banner.av-disclosure > summary { display: flex; align-items: flex-start; gap: var(--space-2); width: 100%; color: var(--text-primary); font: inherit; }
+.av-banner.av-disclosure > summary::before { display: none; }
 .av-banner.av-disclosure > summary > .av-caption { margin-left: auto; }
+.av-banner.av-disclosure > :not(summary) { margin-top: 0; }
 
 /* --- 审计时间流：图标块 + 标题与说明 + 标签行，时间在右 ------------------------------------------- */
 .av-audit { display: flex; flex-direction: column; margin: 0; padding: var(--space-2) 0; list-style: none; }

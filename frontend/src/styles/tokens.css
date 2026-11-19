@@ -70,6 +70,7 @@
   --danger: #f4416b;
   --danger-subtle: rgba(244,65,107,0.16);
   --danger-solid: #c81e52;
+  --danger-solid-hover: #d62259;
   --edge-default: rgba(231,233,234,0.22);
   --edge-identity: #8b98a5;
   --domain-violet: #a78bfa;
@@ -151,7 +152,8 @@
   --warn-subtle: #fff4d6;
   --danger: #d61f57;
   --danger-subtle: #fde7ee;
-  --danger-solid: #d61f57;
+  --danger-solid: #c81e52;
+  --danger-solid-hover: #ae1946;
   --edge-default: rgba(15,20,25,0.22);
   --edge-identity: #94a3b8;
   --domain-violet: #8b5cf6;

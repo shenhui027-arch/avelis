@@ -63,7 +63,7 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
           d.some((x) => x.decision === "rejected") ? t("否决 {{count}} 项", { count: d.filter((x) => x.decision === "rejected").length }) : "",
           a.supplement ? t("补充：{{supplement}}", { supplement: a.supplement }) : "") };
     }
-    case "message": return { icon: "send", title: t("你的插话"), user: String(o.text ?? a.text ?? "") };
+    case "message": return { icon: "send", title: t("补充指令"), user: String(o.text ?? a.text ?? "") };
     case "compact": {
       const kt = (n: unknown) => (typeof n === "number" ? `${(n / 1000).toFixed(1)}k` : "?");
       return { icon: "fit", title: o.reason === "manual" ? t("按你的要求压缩了上下文") : t("上下文接近上限，已自动压缩"),

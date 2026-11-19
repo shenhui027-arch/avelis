@@ -65,7 +65,7 @@ export function Count({ n }: { n: number }) {
 }
 
 /** 统一分页条：兼容无总数的 hasNext 翻页与已知 total 的范围翻页。 */
-export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, alwaysShow, label, onChange }: {
+export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, compact, alwaysShow, label, onChange }: {
   offset: number; page: number; shown?: number; total?: number; hasNext?: boolean;
   /** 占位数据加载中：暂停向后翻，避免连点越过末页 */
   busy?: boolean;
@@ -73,24 +73,43 @@ export function Pager({ offset, shown, page, total, hasNext, busy, paging, align
   paging?: boolean;
   align?: "end" | "center";
   inline?: boolean;
+  compact?: boolean;
   alwaysShow?: boolean;
   label?: ReactNode;
   onChange: (offset: number) => void;
 }) {
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef<"prev" | "next" | null>(null);
   const more = hasNext ?? (total !== undefined ? offset + page < total : false);
+  const prevDisabled = !!(paging || offset === 0);
+  const nextDisabled = !!(paging || busy || !more);
+  // 首末页按钮因翻页变为禁用时将焦点移至另一侧可用按钮，避免键盘焦点丢失到 body
+  useEffect(() => {
+    const side = pendingFocus.current;
+    if (!side || paging || busy) return;
+    pendingFocus.current = null;
+    if (side === "prev") {
+      if (!prevDisabled) prevRef.current?.focus();
+      else if (!nextDisabled) nextRef.current?.focus();
+    } else {
+      if (!nextDisabled) nextRef.current?.focus();
+      else if (!prevDisabled) prevRef.current?.focus();
+    }
+  }, [offset, more, paging, busy, prevDisabled, nextDisabled]);
   if (!alwaysShow && offset === 0 && !more) return null;
   const range = label ?? (total !== undefined
-    ? (total > 0 ? `${offset + 1}–${Math.min(offset + (shown ?? page), total)}${inline ? "" : ` / ${total}`}` : "0")
+    ? (total > 0 ? `${offset + 1}–${Math.min(offset + (shown ?? page), total)}${inline || compact ? "" : ` / ${total}`}` : "0")
     : (shown ? `${offset + 1}–${offset + shown}` : "—"));
-  const cls = `av-pager${align === "center" ? " av-pager--center" : ""}${inline ? " av-pager--inline" : ""}`;
+  const cls = `av-pager${align === "center" ? " av-pager--center" : ""}${inline ? " av-pager--inline" : ""}${compact ? " av-pager--compact" : ""}`;
   return (
-    <div className={cls}>
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || offset === 0}
-        onClick={() => onChange(Math.max(0, offset - page))}>{t("上一页")}</button>
+    <nav className={cls} aria-label={t("分页")}>
+      <button ref={prevRef} type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={prevDisabled}
+        onClick={() => { if (document.activeElement === prevRef.current) pendingFocus.current = "prev"; onChange(Math.max(0, offset - page)); }}>{t("上一页")}</button>
       <span className={`av-caption${label ? "" : " av-mono"}`}>{range}</span>
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || busy || !more}
-        onClick={() => onChange(offset + page)}>{t("下一页")}</button>
-    </div>
+      <button ref={nextRef} type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={nextDisabled}
+        onClick={() => { if (document.activeElement === nextRef.current) pendingFocus.current = "next"; onChange(offset + page); }}>{t("下一页")}</button>
+    </nav>
   );
 }
 

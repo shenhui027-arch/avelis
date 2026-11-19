@@ -59,8 +59,8 @@ export function ChangesPage() {
           ]} />
         </div>
         <div className="av-pane__body">
-          {/* 变更集列表接入 QueryState，统一加载骨架与错误重试 */}
-          <QueryState query={sets} isEmpty={() => !list.length} emptyText={t("没有变更")} compact>
+          {/* 变更集列表接入 QueryState，待处理为空时给出明确提示 */}
+          <QueryState query={sets} isEmpty={() => !list.length} emptyText={filter === "open" ? t("没有待处理的变更") : t("没有变更")} compact>
             {() => byDay.map(([day, items]) => (
               <div key={day}>
                 <div className="av-tree__label av-changes__day">{formatDate(items[0].created_at, tz)}</div>
@@ -75,9 +75,8 @@ export function ChangesPage() {
       {view === "records" ? <ChangeRecords /> : current ? <Detail key={current} id={current} /> : (
         <section className="av-pane av-changes__detail" aria-label={t("变更详情")}>
           <div className="av-pane__body">
-            <QueryState query={sets} rows={6} isEmpty={() => true} emptyText={t("没有变更")}>
-              {() => null}
-            </QueryState>
+            {/* 左栏已展示空态时右栏不再重复渲染相同大号空态，仅保留加载骨架 */}
+            {sets.isPending ? <QueryState query={sets} rows={6}>{() => null}</QueryState> : null}
           </div>
         </section>
       )}
