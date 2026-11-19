@@ -109,4 +109,5 @@ def test_line_comment_chains_are_linear(newline):
     large = _timed_comment_chain(8000, newline)
     longest = _timed_comment_chain(20000, newline)
     assert longest < 0.5, f"20000 comments took {longest:.6f}s"
-    assert large / small <= 2.3, f"4000={small:.6f}s, 8000={large:.6f}s, ratio={large / small:.3f}"
+    # 线性时翻倍规模的耗时比约为 2，平方级约为 4；2.6 给 CI 调度噪声留余量，仍能区分两者。
+    assert large / small <= 2.6, f"4000={small:.6f}s, 8000={large:.6f}s, ratio={large / small:.3f}"

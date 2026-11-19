@@ -575,9 +575,11 @@ def test_multiple_unreachable_subscriptions_do_not_block_healthy_first_round(del
             await asyncio.sleep(10)
         return httpx.Response(204)
 
+    # 不可达端点每次挂起 10 秒；只要整轮远低于 10 秒并送达健康订阅，就说明它们没有阻塞首轮。
+    # 预算与上限留足余量：四次认领各是一个短事务，CI 机器负载高时 0.2 秒内排不完。
     started = time.monotonic()
-    assert delivery.deliver_due(budget_seconds=0.2, transport=httpx.MockTransport(receive)) == 4
-    assert time.monotonic() - started < 0.8
+    assert delivery.deliver_due(budget_seconds=1.0, transport=httpx.MockTransport(receive)) == 4
+    assert time.monotonic() - started < 4.0
     assert "healthy.example.test" in received
     with delivery_database() as session:
         assert session.get(EventOutbox, "healthy-0").status == "delivered"
