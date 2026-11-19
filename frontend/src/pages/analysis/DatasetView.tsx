@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useNumberStyle } from "../../api/hooks";
-import { Code, DateInput, Drawer, Empty, Icon, Pill } from "../../components/ui";
+import { Code, DateInput, Drawer, Empty, Icon, Pager, Pill } from "../../components/ui";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import type { ChartSpec } from "../../components/charts/chartOption";
 import { t } from "../../i18n";
@@ -94,7 +94,7 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
   return (
     <div className="av-dsview">
       <header className="av-dsview__hd">
-        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("← 返回报告")}</button>
+        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}><Icon name="back" small />{t("返回报告")}</button>
         <div className="av-dsview__title">
           <span className="av-tag av-mono">{refId}</span>
           <h1 title={d?.title}>{d?.title ?? t("数据集")}</h1>
@@ -127,11 +127,9 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           <thead><tr>{d.columns.map((c, j) => <th key={c} className={numCols[j] ? "num" : undefined}>{datasetLabel(d, c)}</th>)}</tr></thead>
           <tbody>{d.rows.map((row, i) => <tr key={shown + i}>{row.map((v, j) => <td key={j} className={numCols[j] ? "av-mono num" : "av-mono"}>{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
         </table></div>
-        {pages > 1 ? <div className="av-dsview__pager">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown === 0} onClick={() => setOffset(shown - PAGE)}>{t("上一页")}</button>
-          <span className="av-caption">{paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}</span>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown + PAGE >= d.total} onClick={() => setOffset(shown + PAGE)}>{t("下一页")}</button>
-        </div> : null}
+        <Pager offset={shown} page={PAGE} total={d.total} paging={paging} align="center"
+          label={paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}
+          onChange={setOffset} />
         {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
           {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}
           <Code sql={d.sql} /></details> : null}

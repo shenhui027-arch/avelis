@@ -115,7 +115,7 @@ function JoinReview({ path, onClose, onUpdated }: { path: JoinPath; onClose: () 
         </Select></label>
         <label className="av-field"><span className="av-label">{t("审核意见（选填）")}</span><textarea className="av-textarea" rows={3} value={note} disabled={decide.isPending} onChange={(e) => setNote(e.target.value)} /></label>
       </> : <span className="av-caption">{t("当前没有你需要审核的业务域")}</span>}
-      {path.approvals.length ? <details className="av-asset-evidence"><summary>{t("审核记录")}</summary><div className="av-join-history">{path.approvals.map((approval, i) => <dl className="av-kv" key={i}>
+      {path.approvals.length ? <details className="av-disclosure av-asset-evidence"><summary>{t("审核记录")}</summary><div className="av-join-history">{path.approvals.map((approval, i) => <dl className="av-kv" key={i}>
         <dt>{t("业务域")}</dt><dd>{rows.find((d) => d.id === approval.domain_id)?.name ?? String(approval.domain_id)}</dd>
         <dt>{t("结论")}</dt><dd><Status value={String(approval.decision)} /></dd>
         <dt>{t("意见")}</dt><dd>{String(approval.note ?? t("未填写"))}</dd>
@@ -123,7 +123,7 @@ function JoinReview({ path, onClose, onUpdated }: { path: JoinPath; onClose: () 
       </dl>)}</div></details> : null}
     </>}</QueryState>}</QueryState>
     <Banner message={message} />
-    <details className="av-asset-evidence"><summary>{t("基数核验依据")}</summary><pre className="av-code av-join-evidence">{JSON.stringify(path.cardinality_basis, null, 2)}</pre></details>
+    <details className="av-disclosure av-asset-evidence"><summary>{t("基数核验依据")}</summary><pre className="av-code av-join-evidence">{JSON.stringify(path.cardinality_basis, null, 2)}</pre></details>
   </Drawer>;
 }
 

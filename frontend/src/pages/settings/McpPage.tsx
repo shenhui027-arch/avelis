@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, ApiError, unwrap } from "../../api/client";
 import { useAction, useTimeZone } from "../../api/hooks";
-import { Banner, ConfirmDialog, Empty, Hint, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
+import { Banner, ConfirmDialog, Empty, Hint, Pager, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
@@ -104,13 +104,7 @@ ${t("外部工具只能读取口径与血缘，或按已发布口径查询数据
                     onClick={() => setConfirm({ kind: "client", id: c.id, name: c.client_name })}>{t("禁用")}</button>}</td>
                 </tr>)}</tbody>
               </table>
-              {offset > 0 || hasNext ? <div className="av-actions av-webhooks__pager">
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0}
-                  onClick={() => setOffset(Math.max(0, offset - CLIENT_PAGE))}>{t("上一页")}</button>
-                <span className="av-caption av-mono">{offset + 1}–{offset + items.length}</span>
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext}
-                  onClick={() => setOffset(offset + CLIENT_PAGE)}>{t("下一页")}</button>
-              </div> : null}</>; }}
+              <Pager offset={offset} shown={items.length} page={CLIENT_PAGE} hasNext={hasNext} onChange={setOffset} /></>; }}
             </QueryState>
           </div>
         </section> : null}

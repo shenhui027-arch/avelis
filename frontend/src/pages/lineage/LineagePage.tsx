@@ -434,7 +434,7 @@ function Canvas() {
               onPaneClick={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />}
           </QueryState>
           {graph.isSuccess && graph.data.nodes.length ? <>
-            <details className="av-float av-lineage__legend">
+            <details className="av-float av-disclosure av-lineage__legend">
               <summary>{t("图例")}</summary>
               <div className="av-lineage__legend-items">
                 <Legend tone="value" label={t("取值")} />

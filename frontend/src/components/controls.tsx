@@ -143,7 +143,7 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
   };
 
   return (
-    <span className={`av-select-wrap${className ? ` ${className}` : ""}`} style={{ width: "100%", ...style }}>
+    <span className={`av-select-wrap${className ? ` ${className}` : ""}`} style={style}>
       <button ref={anchor} type="button" id={id} className="av-select av-select--button" role="combobox" aria-haspopup="listbox"
         aria-expanded={open} aria-controls={open ? listId : undefined} aria-label={label} aria-invalid={invalid || undefined}
         aria-describedby={describedBy} aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
@@ -255,9 +255,9 @@ function shift(y: number, m: number, d: number, days: number) {
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
 
 /** 日期输入：值是 YYYY-MM-DD 字符串（空串表示未选），与原生 date 输入相同。 */
-export function DateInput({ value, onChange, label, placeholder, disabled, invalid, title, clearable = true }: {
+export function DateInput({ value, onChange, label, placeholder, disabled, invalid, title, clearable = true, style }: {
   value: string; onChange: (v: string) => void; label?: string; placeholder?: string; disabled?: boolean;
-  invalid?: boolean; title?: string; clearable?: boolean;
+  invalid?: boolean; title?: string; clearable?: boolean; style?: CSSProperties;
 }) {
   const [open, setOpen] = useState(false);
   const picked = parseDate(value);
@@ -296,7 +296,7 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
   };
 
   return (
-    <span className="av-select-wrap" style={{ width: "100%" }}>
+    <span className="av-select-wrap" style={style}>
       <button ref={anchor} type="button" className="av-select av-select--button av-date" aria-haspopup="dialog" aria-expanded={open}
         aria-label={label} aria-invalid={invalid || undefined} data-tip={title} disabled={disabled}
         onClick={() => (open ? setOpen(false) : openPanel())}

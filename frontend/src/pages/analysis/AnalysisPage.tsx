@@ -376,7 +376,7 @@ function LookupAnswer({ a, onContinue }: { a: Answer; onContinue?: (text: string
       {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={(text) => onContinue?.(text)} disabled={!onContinue} /> : null}
       {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
         <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
-      <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
+      <details className="av-disclosure av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
     </section>
   );
 }
@@ -521,7 +521,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
           </div>
         </section>
         {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">{t("有 {{count}} 条事实或计算未通过来源校验，已在“结论依据”里标出", { count: verification.unverified })}</div> : null}
-        {badFields.map((f) => <details key={f.field} className="av-banner av-banner--warn av-fieldcheck">
+        {badFields.map((f) => <details key={f.field} className="av-banner av-banner--warn av-disclosure av-fieldcheck">
           <summary>{t("“{{field}}”里有内容没能核实来源（例如直接写了数字），这部分不算核验通过", { field: FIELD_LABEL[f.field] ?? f.field })}<span className="av-fieldcheck__more">{t("查看原因")}</span></summary>
           <ul>{(f.problems ?? []).map((p, i) => <li key={i}>{p}</li>)}</ul>
         </details>)}
@@ -558,7 +558,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       </> : null}
       {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
         <section className="av-analysis__joins" aria-label={t("关联路径")}>
-          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />{t("你确认的 {{count}} 条关联已提交为关联路径， 负责人审核通过后所有分析都能用。", { count: r.join_candidates.length })}<Link to="/catalog/joins">{t("查看")}</Link></p> : null}
+          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />{t("你确认的 {{count}} 条关联已提交为关联路径，负责人审核通过后所有分析都能用。", { count: r.join_candidates.length })}<Link to="/catalog/joins">{t("查看")}</Link></p> : null}
           {r.checkpoint_warnings?.map((w) => <div key={w} className="av-banner av-banner--warn" role="status"><Icon name="info" />{w}</div>)}
         </section>
       ) : null}
@@ -621,7 +621,7 @@ function Datasets({ id }: { id: string }) {
                   `/api/analysis/runs/${id}/datasets/${d.seq}/csv`, `analysis-${id}-${d.ref}.csv`).catch((e) => setError(errorText(e)))}>
                   <Icon name="download" />CSV</button>
               </div>
-              {d.sql ? <details><summary className="av-caption">{t("SQL 与口径版本")}</summary><Code sql={d.sql} /></details> : null}
+              {d.sql ? <details className="av-disclosure"><summary>{t("SQL 与口径版本")}</summary><Code sql={d.sql} /></details> : null}
             </div> : null}
           </section>
         );

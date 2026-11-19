@@ -15,8 +15,10 @@
   -webkit-mask-image: linear-gradient(180deg, #000 20%, transparent 95%); mask-image: linear-gradient(180deg, #000 20%, transparent 95%); }
 .av-login__logo { display: inline-flex; align-items: center; gap: 10px; color: var(--text-primary); font: 600 20px/1 var(--font-sans); letter-spacing: -0.01em; }
 /* 品牌标记：蓝色圆角块 + 白色 A */
-.av-login__mark { display: inline-grid; flex: none; place-items: center; border-radius: 30%; background: linear-gradient(140deg, #3fb0f7, #0a78cb);
-  box-shadow: 0 6px 16px -6px rgba(10, 120, 203, .6); --accent: #ffffff; --text-primary: #ffffff; --flow: #cfe9ff; }
+.av-login__mark { display: inline-grid; flex: none; place-items: center; border-radius: 30%;
+  background: linear-gradient(150deg, var(--brand-mark-from), var(--brand-mark-to)); color: var(--text-on-accent);
+  box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--brand-mark-to) 60%, transparent), inset 0 1px 0 rgba(255, 255, 255, .35);
+  --accent: var(--text-on-accent); --text-primary: var(--text-on-accent); --flow: var(--brand-mark-flow); --logo-flow: var(--brand-mark-flow); }
 .av-login__brand-body { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 44px; max-width: 640px; }
 .av-login__brand h1 { margin: 0; font: 500 clamp(40px, 3.9vw, 56px)/1.08 var(--font-sans); letter-spacing: -0.03em; color: var(--text-primary); }
 
@@ -69,7 +71,7 @@
 .av-login__card-hd p { margin: 0; color: var(--text-tertiary); font: 400 14px/22px var(--font-sans); }
 .av-login__card .av-label { color: var(--text-secondary); font: 500 13px/18px var(--font-sans); }
 .av-login__input { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 12px 0 14px; border: 1px solid var(--line-default);
-  border-radius: 14px; background: var(--bg-raised); color: var(--text-tertiary); transition: border-color var(--dur-fast), box-shadow var(--dur-fast), background-color var(--dur-fast); }
+  border-radius: 14px; background: var(--bg-raised); color: var(--text-tertiary); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
 .av-login__input:hover { border-color: var(--line-strong); }
 .av-login__input:focus-within { border-color: var(--mod-collect); background: var(--bg-surface); box-shadow: 0 0 0 4px var(--accent-subtle); color: var(--accent-text); }
 .av-login__input input { flex: 1; min-width: 0; height: 100%; border: none; background: transparent; color: var(--text-primary); font: 400 15px/22px var(--font-sans); outline: none; }

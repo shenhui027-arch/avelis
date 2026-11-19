@@ -237,8 +237,8 @@ function Sidebar() {
               {ok === null ? t("尚未采集") : ok ? t("采集正常") : t("采集失败")}</small></span>
         </Link>
       ) : null}
-      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新问题")}>
-        <Icon name="plus" /><span className="av-sb__label">{t("新问题")}</span>
+      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新建提问")}>
+        <Icon name="plus" /><span className="av-sb__label">{t("新建提问")}</span>
       </button>
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮

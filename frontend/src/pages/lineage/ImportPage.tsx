@@ -38,7 +38,7 @@ export function ImportPage() {
           <button type="button" className="av-btn av-btn--secondary av-import-history-toggle" aria-expanded={historyOpen}
             aria-controls="import-history" onClick={() => setHistoryOpen(!historyOpen)}>{t("导入记录")}</button>
           <Link className="av-btn av-btn--secondary" to="/lineage"><Icon name="lineage" />{t("血缘")}</Link>
-          <Link className="av-btn av-btn--primary" to="/lineage/import"><Icon name="plus" />{t("新导入")}</Link>
+          <Link className="av-btn av-btn--primary" to="/lineage/import"><Icon name="plus" />{t("新建导入")}</Link>
         </div>
       </div>
       <div className="av-workspace av-import-workspace" data-history-open={historyOpen}
@@ -220,7 +220,7 @@ function NewImport() {
 function BatchView({ batchId }: { batchId: string }) {
   const batch = useImport(batchId);
   if (batch.isError && batch.error instanceof ApiError && batch.error.status === 404) return <section className="av-pane av-import-query-state">
-    <Empty text={t("导入批次不存在")} action={<Link className="av-btn av-btn--primary" to="/lineage/import">{t("新导入")}</Link>} /></section>;
+    <Empty text={t("导入批次不存在")} action={<Link className="av-btn av-btn--primary" to="/lineage/import">{t("新建导入")}</Link>} /></section>;
   if (!batch.isSuccess) return <section className="av-pane av-import-query-state" aria-label={t("导入批次")}><QueryState query={batch}>{() => null}</QueryState></section>;
   return <BatchContent b={{ ...batch.data, files: batch.data.files ?? [] }} />;
 }
@@ -510,7 +510,7 @@ function Candidates({ b, version, onLocate }: { b: Batch; version: string; onLoc
               {hasDetail ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" aria-expanded={open === c.id} onClick={() => setOpen(open === c.id ? null : c.id)}>{t("依据")}</button> : null}
               <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!lines?.length} onClick={() => onLocate({ file_id: c.file_id, lines })}>{t("定位原文")}</button>
               {c.status === "pending" || c.status === "written" ? <button type="button" className="av-btn av-btn--ghost av-btn--sm"
-                onClick={() => { setEditing(c.id); setEdit({ relation: c.relation, target_column: c.target_column ?? "", reason: "" }); }}>{t("修改")}</button> : null}
+                onClick={() => { setEditing(c.id); setEdit({ relation: c.relation, target_column: c.target_column ?? "", reason: "" }); }}>{t("编辑")}</button> : null}
             </div>
           </div>
           {open === c.id ? <EdgeDetail hops={hops} evidence={evidence} /> : null}

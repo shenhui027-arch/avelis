@@ -24,7 +24,7 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
         <div className="av-dossier-produced__item">
           <p>{t("这是一个视图，内容由定义实时算出")}</p>
           {a.definition?.raw_sql ? (
-            <details className="av-dossier-details">
+            <details className="av-disclosure">
               <summary>{t("视图 SQL")}</summary>
               <Code sql={a.definition.raw_sql} />
             </details>
@@ -41,7 +41,7 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
                 <span className="av-caption">{t("导入于 {{date}}", { date: formatDate(s.imported_at, tz) })}</span>
               </p>
               {s.sql ? (
-                <details className="av-dossier-details">
+                <details className="av-disclosure">
                   <summary>{t("脚本")}</summary>
                   <Code sql={s.sql} raw />
                 </details>

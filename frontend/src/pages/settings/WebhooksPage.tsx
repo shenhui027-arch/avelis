@@ -6,7 +6,7 @@ import { useState } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import {
-  Banner, ConfirmDialog, Count, Drawer, Empty, Hint, PaneHeader, Pill, QueryState, Select, Switch, useMessage,
+  Banner, ConfirmDialog, Count, Drawer, Empty, Hint, Pager, PaneHeader, Pill, QueryState, Select, Switch, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
@@ -49,7 +49,7 @@ export function WebhooksPage() {
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="webhooks" /></div>
         {isAdmin ? <div className="av-actions">
-          <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("新建订阅")}</button>
+          <button type="button" className="av-btn av-btn--primary" onClick={() => setEditing("new")}>{t("添加订阅")}</button>
         </div> : null}
       </div>
       {!isAdmin ? <Empty text={t("只有管理员可以配置通知订阅")} /> : <div className="av-workspace av-webhooks">
@@ -70,7 +70,7 @@ export function WebhooksPage() {
         <section className="av-pane av-webhooks__detail">
           {current ? <SubscriptionDetail key={current.id} sub={current} onEdit={() => setEditing(current)}
             onSecret={(value) => setSecret({ name: current.name, secret: value })} onMessage={setMessage} />
-            : <Empty text={t("新建订阅后，这里显示它的投递记录")} />}
+            : <Empty text={t("添加订阅后，这里显示它的投递记录")} />}
           <div style={{ padding: "0 16px" }}><Banner message={message} /></div>
         </section>
       </div>}
@@ -150,11 +150,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
                 onClick={() => redeliver.mutate(d.id, { onSuccess: () => onMessage({ ok: true, text: t("已重新排入投递") }), onError: fail })}>{t("重投")}</button> : null}</td>
             </tr>)}</tbody>
           </table>
-          {page.total > PAGE ? <div className="av-actions av-webhooks__pager">
-            <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t("上一页")}</button>
-            <span className="av-caption av-mono">{offset + 1}–{Math.min(offset + PAGE, page.total)} / {page.total}</span>
-            <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset + PAGE >= page.total} onClick={() => setOffset(offset + PAGE)}>{t("下一页")}</button>
-          </div> : null}
+          <Pager offset={offset} page={PAGE} total={page.total} onChange={setOffset} />
         </>}
       </QueryState>
     </div>
@@ -188,7 +184,7 @@ function SubscriptionEditor({ sub, onClose, onSaved }: {
     if (next.has(type)) next.delete(type); else next.add(type);
     return { ...f, event_types: next };
   });
-  return <Drawer title={sub ? t("编辑订阅") : t("新建订阅")} onClose={() => { if (!save.isPending) onClose(); }} footer={<div className="av-actions">
+  return <Drawer title={sub ? t("编辑订阅") : t("添加订阅")} onClose={() => { if (!save.isPending) onClose(); }} footer={<div className="av-actions">
     <button type="button" className="av-btn av-btn--ghost" disabled={save.isPending} onClick={onClose}>{t("取消")}</button>
     <button type="button" className="av-btn av-btn--primary" disabled={!valid || save.isPending} onClick={() => save.mutate(undefined, {
       onSuccess: (out) => onSaved(out.sub, out.secret), onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>

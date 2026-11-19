@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
-import { Banner, Count, DateInput, Empty, Hint, Icon, Pill, Select, Skeleton, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
+import { Banner, Count, DateInput, Empty, Hint, Icon, Pager, Pill, Select, Skeleton, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { recordQuery, type RecordFilters } from "./recordFilters";
@@ -145,11 +145,7 @@ export function ChangeRecords() {
           <section className="av-panel">
             <div className="av-panel__hd">
               <h2 className="av-panel__title">{t("记录")} <Count n={data?.total ?? 0} /></h2>
-              <div className="av-actions">
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t("上一页")}</button>
-                <span className="av-caption av-mono">{data?.total ? `${offset + 1}–${Math.min(offset + PAGE, data.total)}` : "0"}</span>
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!data || offset + PAGE >= data.total} onClick={() => setOffset(offset + PAGE)}>{t("下一页")}</button>
-              </div>
+              <Pager offset={offset} page={PAGE} total={data?.total ?? 0} inline alwaysShow onChange={setOffset} />
             </div>
             {records.isLoading ? <Skeleton rows={6} /> : null}
             {data && !data.items.length ? <Empty text={t("没有符合条件的变更")} compact /> : null}

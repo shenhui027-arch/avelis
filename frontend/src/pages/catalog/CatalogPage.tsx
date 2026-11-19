@@ -55,6 +55,11 @@ export function CatalogPage() {
   const term = query.trim().toLocaleLowerCase();
   const matches = (...values: (string | null | undefined)[]) => !term || values.some((value) => value?.toLocaleLowerCase().includes(term));
   const metricList = (metrics.data ?? []).filter((m) => matches(m.name, m.code, ...m.aliases));
+  // 业务域色点与重名指标集合：左侧指标树区分同名指标
+  const domainSwatches = new Map((domains.data ?? []).map((d, i) => [d.id, SWATCHES[i % SWATCHES.length]]));
+  const metricNameCounts = new Map<string, number>();
+  for (const m of metricList) metricNameCounts.set(m.name, (metricNameCounts.get(m.name) ?? 0) + 1);
+  const dupNames = new Set([...metricNameCounts].filter(([, n]) => n > 1).map(([name]) => name));
   const assetList = (assets.data ?? []).slice(0, ASSET_PAGE);
   const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
   const assetPager = <Pager offset={assetOffset} shown={assetList.length} page={ASSET_PAGE} hasNext={moreAssets}
@@ -106,8 +111,16 @@ export function CatalogPage() {
           <div className="av-pane__body av-catalog-page__objects">
             {section === "metrics" ? <QueryState query={metrics} compact isEmpty={() => metricList.length === 0}
               emptyText={term ? t("没有匹配指标") : t("暂无指标")} emptyAction={term ? clearSearch : undefined}>
-              {() => <nav className="av-tree" aria-label={t("指标对象")}>{metricList.map((m) => <Link key={m.id} to={`/catalog/metrics/${m.id}`}
-                className="av-tree__item" aria-current={id === m.id ? "page" : undefined}><Icon name="chart" small /><span>{m.name}</span></Link>)}</nav>}
+              {() => <nav className="av-tree" aria-label={t("指标对象")}>{metricList.map((m) => {
+                const domainSwatch = m.domain_id ? domainSwatches.get(m.domain_id) : undefined;
+                return <Link key={m.id} to={`/catalog/metrics/${m.id}`} title={`${m.name} (${m.code})`}
+                  className="av-tree__item" aria-current={id === m.id ? "page" : undefined}>
+                  <Icon name="chart" small />
+                  {domainSwatch ? <span className={`av-swatch av-swatch--${domainSwatch}`} aria-hidden /> : null}
+                  <span>{m.name}</span>
+                  {dupNames.has(m.name) ? <span className="av-tag">{m.code}</span> : null}
+                </Link>;
+              })}</nav>}
             </QueryState> : null}
             {section === "assets" ? <QueryState query={assets} compact isEmpty={() => assetList.length === 0}
               emptyText={term ? t("没有匹配资产") : t("暂无资产")} emptyAction={term ? clearSearch : undefined}>
@@ -195,9 +208,9 @@ function CatalogAssetTree({ assets, selectedId, searching }: { assets: Asset[]; 
   const containsSelected = (items: Asset[]) => searching || items.some((a) => a.id === selectedId);
   return <nav className="av-catalog-asset-tree" aria-label={t("资产对象")}>{[...sources].map(([sourceId, source]) => {
     const sourceAssets = [...source.catalogs.values()].flatMap((schemas) => [...schemas.values()].flat());
-    return <details key={sourceId} open={containsSelected(sourceAssets)}><summary><Icon name="db" small /><span>{source.name}</span><Count n={sourceAssets.length} /></summary>
-      {[...source.catalogs].map(([catalog, schemas]) => <details key={catalog} open={containsSelected([...schemas.values()].flat())}>
-        <summary><span>{catalog}</span></summary>{[...schemas].map(([schema, items]) => <details key={schema} open={containsSelected(items)}>
+    return <details key={sourceId} className="av-disclosure" open={containsSelected(sourceAssets)}><summary><Icon name="db" small /><span>{source.name}</span><Count n={sourceAssets.length} /></summary>
+      {[...source.catalogs].map(([catalog, schemas]) => <details key={catalog} className="av-disclosure" open={containsSelected([...schemas.values()].flat())}>
+        <summary><span>{catalog}</span></summary>{[...schemas].map(([schema, items]) => <details key={schema} className="av-disclosure" open={containsSelected(items)}>
           <summary><span>{schema}</span><Count n={items.length} /></summary>{items.map((a) => <Link key={a.id} to={`/catalog/assets/${a.id}`}
             className="av-tree__item" title={a.qualified} aria-current={selectedId === a.id ? "page" : undefined}>
             <Icon name={a.kind === "view" ? "view" : "table"} small /><span className="av-mono">{a.qualified.split(".").pop()}</span></Link>)}

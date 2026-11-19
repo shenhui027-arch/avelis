@@ -108,6 +108,12 @@
   --mod-change: #f4416b;
   --mod-change-subtle: rgba(244,65,107,0.16);
   --mod-change-text: #f6698a;
+  --bg-seg-thumb: #272c33;
+  --hero-from: #0868b0;
+  --hero-to: #064a85;
+  --brand-mark-from: #3fb0f7;
+  --brand-mark-to: #0a78cb;
+  --brand-mark-flow: #cfe9ff;
   --shadow-node: 0 0 0 1px rgba(231,233,234,0.08);
   --shadow-overlay: 0 0 0 1px rgba(231,233,234,0.1), 0 16px 40px -12px rgba(0,0,0,0.7);
   --shadow-glow: 0 0 0 1px #1d9bf0, 0 0 0 4px rgba(29,155,240,0.22);
@@ -184,6 +190,12 @@
   --mod-change: #e0245e;
   --mod-change-subtle: #fde7ee;
   --mod-change-text: #c81e52;
+  --bg-seg-thumb: #ffffff;
+  --hero-from: #0868b0;
+  --hero-to: #064a85;
+  --brand-mark-from: #3fb0f7;
+  --brand-mark-to: #0a78cb;
+  --brand-mark-flow: #cfe9ff;
   --shadow-node: 0 1px 2px rgba(15,20,25,0.05);
   --shadow-overlay: 0 0 0 1px rgba(15,20,25,0.06), 0 10px 30px -8px rgba(15,20,25,0.16);
   --shadow-glow: 0 0 0 1px #1e9df1, 0 0 0 4px rgba(30,157,241,0.18);

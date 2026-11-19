@@ -69,7 +69,7 @@ export function AskPage() {
             <Hint text={t("只按已发布口径回答；口径受影响时拦截，不会悄悄改用其他口径")} /></div>
           <div className="av-actions">
             <button type="button" className="av-btn av-btn--ghost" onClick={() => setShowHistory(!showHistory)}><Icon name="audit" />{t("会话")}</button>
-            <button type="button" className="av-btn av-btn--secondary" onClick={() => { setSelected(null); navigate("/analysis"); }}><Icon name="plus" />{t("新会话")}</button>
+            <button type="button" className="av-btn av-btn--secondary" onClick={() => { setSelected(null); navigate("/analysis"); }}><Icon name="plus" />{t("新建会话")}</button>
           </div>
         </div>
         {showHistory ? (

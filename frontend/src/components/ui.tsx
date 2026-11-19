@@ -64,16 +64,34 @@ export function Count({ n }: { n: number }) {
   return <span className="av-count">{n}</span>;
 }
 
-/** 按 offset 翻页：列表按 page + 1 条取数，多出的那条只用来判断有没有下一页（没有总数也能翻）。 */
-export function Pager({ offset, shown, page, hasNext, busy, onChange }: { offset: number; shown: number; page: number; hasNext: boolean;
-  /** 新一页还在加载（仍显示上一页占位）：暂停向后翻，避免连点越过末页 */
-  busy?: boolean; onChange: (offset: number) => void }) {
-  if (offset === 0 && !hasNext) return null;
-  return <div className="av-actions av-webhooks__pager">
-    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page))}>{t("上一页")}</button>
-    <span className="av-caption av-mono">{shown ? `${offset + 1}–${offset + shown}` : "—"}</span>
-    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext || busy} onClick={() => onChange(offset + page)}>{t("下一页")}</button>
-  </div>;
+/** 统一分页条：兼容无总数的 hasNext 翻页与已知 total 的范围翻页。 */
+export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, alwaysShow, label, onChange }: {
+  offset: number; page: number; shown?: number; total?: number; hasNext?: boolean;
+  /** 占位数据加载中：暂停向后翻，避免连点越过末页 */
+  busy?: boolean;
+  /** 整页切换加载中：前后翻页均暂停 */
+  paging?: boolean;
+  align?: "end" | "center";
+  inline?: boolean;
+  alwaysShow?: boolean;
+  label?: ReactNode;
+  onChange: (offset: number) => void;
+}) {
+  const more = hasNext ?? (total !== undefined ? offset + page < total : false);
+  if (!alwaysShow && offset === 0 && !more) return null;
+  const range = label ?? (total !== undefined
+    ? (total > 0 ? `${offset + 1}–${Math.min(offset + (shown ?? page), total)}${inline ? "" : ` / ${total}`}` : "0")
+    : (shown ? `${offset + 1}–${offset + shown}` : "—"));
+  const cls = `av-pager${align === "center" ? " av-pager--center" : ""}${inline ? " av-pager--inline" : ""}`;
+  return (
+    <div className={cls}>
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || offset === 0}
+        onClick={() => onChange(Math.max(0, offset - page))}>{t("上一页")}</button>
+      <span className={`av-caption${label ? "" : " av-mono"}`}>{range}</span>
+      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || busy || !more}
+        onClick={() => onChange(offset + page)}>{t("下一页")}</button>
+    </div>
+  );
 }
 
 const PLAT: Record<string, string> = {

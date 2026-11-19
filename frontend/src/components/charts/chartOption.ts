@@ -33,7 +33,7 @@ export type ChartMark = { type: "max" | "min" | "average"; series: string; serie
 
 /** 主题取值：由组件从 CSS 令牌读出后传入。 */
 export type ChartTheme = { series: string[]; neutral: string; good: string; bad: string; grid: string; axis: string;
-  text: string; muted: string; surface: string; font: string; mono: string };
+  text: string; muted: string; surface: string; raised?: string; font: string; mono: string };
 
 type Option = Record<string, unknown>;
 
@@ -300,6 +300,17 @@ function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, ba
   const ys = h.y_categories.map(category);
   const low = h.min ?? 0;
   const high = h.max != null && h.max !== low ? h.max : low + 1;
+  // 突出某些期间时，其余期间的格子弱化（highlight 按横轴类目匹配）
+  const toCell = (i: number, j: number, v: number | null) => spec.highlight?.length && dimmed(spec, i)
+    ? { value: [i, j, v ?? "-"], itemStyle: { opacity: DIM } } : [i, j, v ?? "-"];
+  const seen = new Set(h.cells.map(([i, j]) => `${i},${j}`));
+  const data = h.cells.map(([i, j, v]) => toCell(i, j, v));
+  // 末尾补齐未出现的空坐标，配合 outOfRange 画出浅底格以区分无数据与画布空白
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = 0; j < ys.length; j++) {
+      if (!seen.has(`${i},${j}`)) data.push(toCell(i, j, null));
+    }
+  }
   return { ...base,
     tooltip: { ...tipBox(theme), trigger: "item", formatter: (p: { value: [number, number, number | string] }) => {
       const [i, j, v] = p.value;
@@ -312,10 +323,9 @@ function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, ba
     visualMap: { type: "continuous", min: low, max: high, calculable: false, orient: "horizontal", left: "center", bottom: 0,
       itemWidth: 10, itemHeight: 160, text: [formatAxis(high, unit, style), formatAxis(low, unit, style)],
       textStyle: { color: theme.muted, fontFamily: theme.font, fontSize: 11 },
-      inRange: { color: [fade(color, 0.08), fade(color, 0.5), color] } },
-    // 突出某些期间时，其余期间的格子弱化（highlight 按横轴类目匹配）
-    series: [{ type: "heatmap", name: s?.name, data: h.cells.map(([i, j, v]) => spec.highlight?.length && dimmed(spec, i)
-      ? { value: [i, j, v ?? "-"], itemStyle: { opacity: DIM } } : [i, j, v ?? "-"]),
+      inRange: { color: [fade(color, 0.08), fade(color, 0.5), color] },
+      outOfRange: { color: theme.raised || fade(theme.axis, 0.25) } },
+    series: [{ type: "heatmap", name: s?.name, data,
       itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 4 },
       emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } } }] };
 }

@@ -132,23 +132,23 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
               <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={busy} onClick={() => onSave(f.column, note!.text, true)}
                 aria-label={t("确认 {{name}} 的说明", { name: f.column })}>{t("确认")}</button>
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
-                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
+                aria-label={t("编辑 {{name}} 的说明", { name: f.column })}>{t("编辑")}</button>
             </> : null}
             {canEdit && state === "confirmed" ? (
               <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onEdit}
-                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
+                aria-label={t("编辑 {{name}} 的说明", { name: f.column })}>{t("编辑")}</button>
             ) : null}
             {canEdit && state === "none" ? (
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
                 aria-label={t("为 {{name}} 添加说明", { name: f.column })}>{t("添加说明")}</button>
             ) : null}
-            {f.expression ? (
-              <details className="av-dossier-details">
-                <summary>{t("表达式")}</summary>
-                <code className="av-dossier-expr">{f.expression}</code>
-              </details>
-            ) : null}
           </div>
+          {f.expression ? (
+            <details className="av-disclosure av-dossier-lineage__expr">
+              <summary>{t("表达式")}</summary>
+              <code className="av-dossier-expr">{f.expression}</code>
+            </details>
+          ) : null}
         </>}
       </td>
     </tr>
