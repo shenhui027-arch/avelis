@@ -1188,7 +1188,7 @@ def _bar_chart(
 
 # 浅色主题图表令牌；测试核对 tokens.json，运行时不依赖前端文件。
 VIZ_PALETTE = ("#1e9df1", "#00b87a", "#f7b928", "#e0245e", "#8b5cf6", "#14b8c4", "#f97316", "#64748b")
-VIZ_NEUTRAL = "#a3adb6"
+VIZ_NEUTRAL = "#788591"
 VIZ_DIM = "#dfe5ea"
 
 

@@ -147,6 +147,9 @@
 .av-app { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100vh; background: var(--bg-base); }
 .av-sb { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; width: var(--size-rail); height: 100vh; padding: 16px 12px 12px; overflow: visible; z-index: 30; border-right: 1px solid var(--line-subtle); background: var(--bg-canvas); transition: width .3s var(--ease-out); }
 .av-sb.is-collapsed { width: 72px; padding-inline: 12px; }
+/* 窄屏临时展开：侧栏浮在内容上方，网格列仍只占收起宽度 */
+.av-sb.is-overlay { margin-right: calc(72px - var(--size-rail)); box-shadow: var(--shadow-overlay); }
+.av-sb__scrim { position: fixed; inset: 0; z-index: 29; background: color-mix(in srgb, var(--bg-base) 40%, transparent); }
 .av-sb.is-collapsed .av-sb__label { display: none; }
 .av-sb__brand { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); height: 40px; padding: 0 2px 0 8px; margin-bottom: 12px; }
 .av-sb__brand > a { display: inline-flex; color: inherit; text-decoration: none; border-radius: var(--radius-sm); }

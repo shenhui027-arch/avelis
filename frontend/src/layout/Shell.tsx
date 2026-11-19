@@ -205,11 +205,21 @@ function Sidebar() {
   const location = useLocation();
   const sources = useDatasources();
   const tasks = useAnalysisTasks();
-  const [collapsed, setCollapsed, compact] = useCollapsed();
+  const [wideCollapsed, setCollapsed, compact] = useCollapsed();
+  // 窄屏默认收起，可临时展开为浮层（保留最近对话入口）；切换页面、点外部或按 Esc 收回
+  const [overlay, setOverlay] = useState(false);
+  const collapsed = compact ? !overlay : wideCollapsed;
+  useEffect(() => { setOverlay(false); }, [location.pathname, compact]);
+  useEffect(() => {
+    if (!overlay) return;
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") setOverlay(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlay]);
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   const ok = primary?.last_run ? primary.last_run.status === "succeeded" : null;
   const toggle = () => {
-    if (compact) return;
+    if (compact) { setOverlay(!overlay); return; }
     setCollapsed(!collapsed);
     try {
       localStorage.setItem("avelis.sidebar", collapsed ? "open" : "collapsed");
@@ -218,16 +228,15 @@ function Sidebar() {
     }
   };
   return (
-    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}`} aria-label={t("主导航")}>
+    <>
+    {compact && overlay ? <div className="av-sb__scrim" aria-hidden="true" onClick={() => setOverlay(false)} /> : null}
+    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}${compact && overlay ? " is-overlay" : ""}`} aria-label={t("主导航")}>
       <div className="av-sb__brand">
         <Link to="/" aria-label={t("Avelis 工作台")}>{collapsed ? <LogoMark size={28} /> : <Logo size={28} />}</Link>
-        {/* 窄屏强制收起时不渲染展开按钮，避免挤占主内容区 */}
-        {compact ? null : (
-          <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
-            aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")} aria-expanded={!collapsed}>
-            <Icon name="sidebar" />
-          </button>
-        )}
+        <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
+          aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")} aria-expanded={!collapsed}>
+          <Icon name="sidebar" />
+        </button>
       </div>
       {primary ? (
         <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title={t("数据源与最近一次采集")}>
@@ -269,6 +278,7 @@ function Sidebar() {
         <NotificationBell />
       </div>
     </nav>
+    </>
   );
 }
 

@@ -276,7 +276,8 @@ export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, co
   rows?: number; compact?: boolean; children: (data: T) => ReactNode;
 }) {
   if (query.isPending) return <Skeleton rows={rows} />;
-  if (query.isError) {
+  // 已有数据时后台刷新失败不替换内容（避免卸载正在编辑的输入），只有首次加载失败才显示报错
+  if (query.isError && query.data === undefined) {
     return (
       <div className="av-query-error" role="alert">
         <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("加载失败")}</span>
