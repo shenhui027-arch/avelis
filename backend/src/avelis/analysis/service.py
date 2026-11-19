@@ -19,6 +19,7 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -1476,6 +1477,16 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
             }
             for d in datasets
         ],
+    )
+    # 运行中的实时过程与步骤记录同一套当前权限投影：有来源不可读时不返回推理文字，工具参数只留结构字段
+    data["live"] = (
+        live.view(
+            live.read(run.id),
+            restricted=has_restricted,
+            project_args=lambda args: step_args(SimpleNamespace(kind="tool", args=args)),
+        )
+        if full and run.status == "running"
+        else None
     )
     from avelis.analysis.figures import report_figures
 

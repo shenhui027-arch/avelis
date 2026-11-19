@@ -1347,26 +1347,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/analysis/runs/{run_id}/live": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Run Live
-         * @description 运行中的实时过程（推理文字、正在执行的工具），供页面在运行中高频轮询；不在运行中时返回 null。
-         */
-        get: operations["get_run_live_api_analysis_runs__run_id__live_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/analysis/runs/{run_id}/resume": {
         parameters: {
             query?: never;
@@ -2590,6 +2570,12 @@ export interface components {
              * @description 读取时距开始的毫秒数（按服务器时钟计算）
              */
             elapsed_ms?: number | null;
+            /**
+             * Restricted
+             * @description 有来源当前不可读：推理文字与正文不返回，工具参数只保留结构字段
+             * @default false
+             */
+            restricted?: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -2763,6 +2749,8 @@ export interface components {
             } | null;
             /** Steps */
             steps?: components["schemas"]["AnalysisStepOut"][] | null;
+            /** @description 运行中的实时过程（推理文字或正在执行的工具），只在运行中的完整详情里返回 */
+            live?: components["schemas"]["AnalysisLiveOut"] | null;
             /** Datasets */
             datasets?: components["schemas"]["AnalysisDatasetOut"][] | null;
             /** Messages */
@@ -8972,37 +8960,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalysisRunOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_run_live_api_analysis_runs__run_id__live_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AnalysisLiveOut"] | null;
                 };
             };
             /** @description Validation Error */

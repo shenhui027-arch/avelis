@@ -6,6 +6,7 @@
 存在 Redis（与任务唤醒同一实例），键带过期时间，不是事实来源：丢失或 Redis 不可用只影响实时显示，
 完整的推理文字仍随 model 步骤写入步骤记录。写入有节流；Redis 出错一次后本次运行不再尝试，不拖慢分析。
 after_seq 是写入时已提交的最后一个步骤序号：前端只在还没有更新的步骤时显示这条实时状态，避免与已完成的步骤重复。
+页面经运行详情（service.run_view）读取，与步骤记录同一套当前权限投影（view），不单独开放读取。
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Callable
 
 from avelis.db import utcnow
 
@@ -101,9 +103,13 @@ class LiveSink:
 
 
 def read(run_id: str) -> dict[str, Any] | None:
+    global _unavailable_until
+    if time.monotonic() < _unavailable_until:
+        return None
     try:
         raw = _client().get(_key(run_id))
     except Exception as exc:  # noqa: BLE001
+        _unavailable_until = time.monotonic() + BACKOFF_SECONDS
         log.warning("读取分析 %s 的实时过程失败：%s", run_id, type(exc).__name__)
         return None
     if not raw:
@@ -113,6 +119,37 @@ def read(run_id: str) -> dict[str, Any] | None:
     except ValueError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def view(
+    state: dict[str, Any] | None, *, restricted: bool, project_args: Callable[[dict], dict]
+) -> dict[str, Any] | None:
+    """运行详情里的实时过程：与步骤记录同一套当前权限投影。有任何来源当前不可读时，推理文字与正文一律不返回
+    （它们可能复述任意来源的数据），工具参数只保留 project_args 认可的结构字段。内容不完整时当作没有。"""
+    if not state or state.get("phase") not in ("model", "tool"):
+        return None
+    after_seq, started_at = state.get("after_seq"), state.get("started_at")
+    if not isinstance(after_seq, int) or not isinstance(started_at, str):
+        return None
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return None
+    if started.tzinfo is not None:  # 元数据库时间统一按 UTC 无时区保存
+        started = started.astimezone(timezone.utc).replace(tzinfo=None)
+    args = state.get("args") if isinstance(state.get("args"), dict) else {}
+    text = {key: state.get(key) if isinstance(state.get(key), str) else None for key in ("thinking", "text")}
+    return {
+        "phase": state["phase"],
+        "after_seq": after_seq,
+        "started_at": started_at,
+        "elapsed_ms": max(0, int((utcnow() - started).total_seconds() * 1000)),
+        "tool": state.get("tool") if isinstance(state.get("tool"), str) else None,
+        "args": project_args(args) if restricted else args,
+        "thinking": None if restricted else text["thinking"],
+        "text": None if restricted else text["text"],
+        "restricted": restricted,
+    }
 
 
 def clear(run_id: str) -> None:

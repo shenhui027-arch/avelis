@@ -1,5 +1,6 @@
 """运行中的实时过程：流式回复按官方协议合并（推理文字、工具调用、用量、终止原因与非流式一致），
-推理文字边收边交给实时缓冲；正在执行的工具写入实时缓冲；Redis 不可用时不影响分析；接口只在运行中返回。"""
+推理文字边收边交给实时缓冲；正在执行的工具写入实时缓冲；Redis 不可用时不影响分析；
+运行详情里的实时过程与步骤同一套当前权限投影；流在终止块之前结束按传输层错误处理。"""
 
 from __future__ import annotations
 
@@ -13,9 +14,9 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
-from avelis.analysis import agent, live
-from avelis.api import analysis as analysis_api
+from avelis.analysis import agent, live, service
 from avelis.llm_protocol import ReasoningRoundTripChatOpenAI, response_finish_reason, stream_reply, streams_live
+from tests.unit.test_analysis_dataset_access import dataset_db  # noqa: F401 - 共用撤权夹具
 from tests.unit.test_analysis_toolbox import make_box
 
 
@@ -235,22 +236,100 @@ def test_live_sink_gives_up_quietly_when_redis_is_down(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("status", "stored", "expected"),
+    ("stored", "expected"),
     [
-        (
-            "running",
-            {"phase": "model", "after_seq": 2, "started_at": "2026-11-19T08:00:00+00:00", "thinking": "想"},
-            "model",
-        ),
-        ("running", {"phase": "model", "after_seq": 2, "started_at": "t"}, None),
-        ("running", {"phase": "bogus"}, None),
-        ("succeeded", {"phase": "model", "after_seq": 2, "started_at": "t"}, None),
-        ("running", None, None),
+        ({"phase": "model", "after_seq": 2, "started_at": "2026-11-19T08:00:00+00:00", "thinking": "想"}, "model"),
+        ({"phase": "tool", "after_seq": 2, "started_at": "2026-11-19T08:00:00", "tool": "query_metric"}, "tool"),
+        ({"phase": "model", "after_seq": 2, "started_at": "t"}, None),
+        ({"phase": "model", "after_seq": "2", "started_at": "2026-11-19T08:00:00"}, None),
+        ({"phase": "bogus"}, None),
+        (None, None),
     ],
 )
-def test_live_endpoint_only_returns_valid_state_of_a_running_run(monkeypatch, status, stored, expected):
-    run = SimpleNamespace(id="r1", status=status)
-    monkeypatch.setattr(analysis_api.analysis, "visible_run", lambda session, user, run_id: run)
-    monkeypatch.setattr(analysis_api.analysis_live, "read", lambda run_id: stored)
-    out = analysis_api.get_run_live("r1", user=SimpleNamespace(), session=SimpleNamespace())
+def test_live_view_drops_incomplete_state(stored, expected):
+    out = live.view(stored, restricted=False, project_args=dict)
     assert (out or {}).get("phase") == expected
+    if out:
+        assert out["elapsed_ms"] >= 0 and out["restricted"] is False
+
+
+LIVE_TOOL = {
+    "phase": "tool",
+    "after_seq": 1,
+    "started_at": "2026-11-19T08:00:00",
+    "tool": "query_sql",
+    "args": {"sql": "SELECT 7654321", "metric_code": "gmv", "start_date": "2026-09-01", "note": "受限成员甲"},
+}
+LIVE_MODEL = {
+    "phase": "model",
+    "after_seq": 1,
+    "started_at": "2026-11-19T08:00:00",
+    "thinking": "推理包含受限成员甲",
+    "text": "模型复述 7654321",
+}
+
+
+@pytest.mark.parametrize("state", [LIVE_TOOL, LIVE_MODEL])
+def test_run_view_applies_current_permissions_to_live_state(dataset_db, monkeypatch, state):
+    """数据权限在模型流式回复期间被撤销：下一次读取运行详情时，实时过程按与步骤相同的投影收紧。"""
+    session, user, run, _, asset, _, _ = dataset_db
+    run.status = "running"
+    session.commit()
+    monkeypatch.setattr(live, "read", lambda run_id: state)
+    before = service.run_view(session, run, user=user)["live"]
+    assert before["restricted"] is False
+    assert before["args"] == state.get("args", {}) and before["thinking"] == state.get("thinking")
+
+    asset.domain_id = "hidden"
+    session.commit()
+    after = service.run_view(session, run, user=user)["live"]
+    assert after["restricted"] is True and after["thinking"] is None and after["text"] is None
+    assert after["args"] == ({"metric_code": "gmv", "start_date": "2026-09-01"} if state is LIVE_TOOL else {})
+    assert "7654321" not in json.dumps(after, ensure_ascii=False)
+    assert "受限成员甲" not in json.dumps(after, ensure_ascii=False)
+
+    run.status = "succeeded"
+    session.commit()
+    assert service.run_view(session, run, user=user)["live"] is None
+    assert service.run_view(session, run, full=False, user=user).get("live") is None
+
+
+def test_stream_ending_without_a_terminal_chunk_is_a_transport_error():
+    """提供方或代理在终止块之前干净地关闭连接：不当作完整回复，也不执行其中的工具调用。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        events = [
+            _chunk({"role": "assistant", "content": None, "reasoning_content": "想"}),
+            _chunk(
+                {
+                    "tool_calls": [
+                        {"index": 0, "id": "c", "type": "function", "function": {"name": "echo", "arguments": "{}"}}
+                    ]
+                }
+            ),
+        ]
+        return httpx.Response(200, content=_sse(*events), headers={"content-type": "text/event-stream"})
+
+    model = ReasoningRoundTripChatOpenAI(
+        model="deepseek-flash",
+        api_key="unit-test-key",
+        base_url="https://deepseek.invalid",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    with pytest.raises(httpx.RemoteProtocolError):
+        stream_reply(model, [HumanMessage("x")], lambda t, x: None)
+    assert agent._is_transient_error(httpx.RemoteProtocolError("x"))  # 与连接中断一样按临时错误重试一次
+
+
+def test_live_read_backs_off_after_a_redis_error(monkeypatch):
+    monkeypatch.setattr(live, "_unavailable_until", 0.0)
+    calls = []
+
+    def down():
+        calls.append(1)
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(live, "_client", down)
+    assert live.read("r1") is None and live.read("r1") is None
+    assert len(calls) == 1  # 第二次不再等待连接超时

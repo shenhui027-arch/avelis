@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -14,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from avelis import charts, jobs, modelcfg
 from avelis.analysis import export
-from avelis.analysis import live as analysis_live
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
 from avelis.analysis.dataset_projection import build_column_roles, dataset_meta
@@ -192,26 +190,6 @@ def delete_conversation(
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
 def get_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return analysis.run_view(session, analysis.visible_run(session, user, run_id), user=user)
-
-
-@router.get("/analysis/runs/{run_id}/live", response_model=S.AnalysisLiveOut | None)
-def get_run_live(
-    run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
-) -> dict | None:
-    """运行中的实时过程（推理文字、正在执行的工具），供页面在运行中高频轮询；不在运行中时返回 null。"""
-    run = analysis.visible_run(session, user, run_id)
-    data = analysis_live.read(run.id) if run.status == "running" else None
-    if not data:
-        return None
-    try:
-        out = S.AnalysisLiveOut.model_validate(data).model_dump()
-        started = datetime.fromisoformat(out["started_at"])
-        if started.tzinfo is not None:  # 元数据库时间统一按 UTC 无时区保存
-            started = started.astimezone(timezone.utc).replace(tzinfo=None)
-        out["elapsed_ms"] = max(0, int((utcnow() - started).total_seconds() * 1000))
-    except (ValueError, TypeError):  # 实时缓冲内容不完整时当作没有
-        return None
-    return out
 
 
 @router.post("/analysis/runs/{run_id}/resume", response_model=S.AnalysisRunOut)

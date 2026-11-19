@@ -17,7 +17,8 @@
   交给回调（问数页的“思考中”实时显示）；流式增量里的 reasoning_content 同样放进
   additional_kwargs，合并后与非流式回复一致。
   流式请求按 OpenAI 规范请求用量（stream_options.include_usage），原始用量放进 response_metadata.token_usage，
-  缓存命中等字段与非流式一致。读取超时只限制单次等待，整体截止时间由调用方传入的 deadline 控制。
+  缓存命中等字段与非流式一致。读取超时只限制单次等待，整体截止时间由调用方传入的 deadline 控制；
+  没有收到带 finish_reason 的终止块就结束的流按传输层错误处理（与连接中断一致），不当作完整回复。
 """
 )
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+import httpx
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.messages.utils import message_chunk_to_message
 from langchain_openai import ChatOpenAI
@@ -170,4 +172,7 @@ def stream_reply(
     merged = chunks[0] + chunks[1:] if len(chunks) > 1 else chunks[0]
     reply = message_chunk_to_message(merged)
     assert isinstance(reply, AIMessage)
+    if response_finish_reason(reply) is None:
+        # 连接在终止块之前被干净地关闭（提供方或代理中断）：回复不完整，按传输层错误处理（可重试），不执行其中的工具调用
+        raise httpx.RemoteProtocolError("模型流式回复在终止块之前结束")
     return reply

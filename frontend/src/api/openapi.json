@@ -4704,62 +4704,6 @@
     }
    }
   },
-  "/api/analysis/runs/{run_id}/live": {
-   "get": {
-    "tags": [
-     "analysis"
-    ],
-    "summary": "Get Run Live",
-    "description": "运行中的实时过程（推理文字、正在执行的工具），供页面在运行中高频轮询；不在运行中时返回 null。",
-    "operationId": "get_run_live_api_analysis_runs__run_id__live_get",
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ],
-    "parameters": [
-     {
-      "name": "run_id",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "title": "Run Id"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "anyOf": [
-          {
-           "$ref": "#/components/schemas/AnalysisLiveOut"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "title": "Response Get Run Live Api Analysis Runs  Run Id  Live Get"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
   "/api/analysis/runs/{run_id}/resume": {
    "post": {
     "tags": [
@@ -8895,6 +8839,12 @@
       ],
       "title": "Elapsed Ms",
       "description": "读取时距开始的毫秒数（按服务器时钟计算）"
+     },
+     "restricted": {
+      "type": "boolean",
+      "title": "Restricted",
+      "description": "有来源当前不可读：推理文字与正文不返回，工具参数只保留结构字段",
+      "default": false
      }
     },
     "additionalProperties": true,
@@ -9419,6 +9369,17 @@
        }
       ],
       "title": "Steps"
+     },
+     "live": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisLiveOut"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "运行中的实时过程（推理文字或正在执行的工具），只在运行中的完整详情里返回"
      },
      "datasets": {
       "anyOf": [

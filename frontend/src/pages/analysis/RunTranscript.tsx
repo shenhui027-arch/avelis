@@ -130,7 +130,7 @@ function useTicker(active: boolean) {
   }, [active]);
 }
 
-/** 轮询之间新到的字逐字补上（约 0.9 秒补完），像流式输出；减少动态效果时直接显示。 */
+/** 两次轮询（约 2 秒）之间新到的字逐字补上，像流式输出；减少动态效果时直接显示。 */
 function useReveal(text: string) {
   const [shown, setShown] = useState(text.length);
   const prev = useRef(text);
@@ -142,7 +142,7 @@ function useReveal(text: string) {
     const start = performance.now();
     let frame = 0;
     const step = (now: number) => {
-      const k = Math.min(1, (now - start) / 900);
+      const k = Math.min(1, (now - start) / 1800);
       setShown(Math.round(from + (text.length - from) * k));
       if (k < 1) frame = requestAnimationFrame(step);
     };
@@ -235,7 +235,7 @@ function LiveRow({ live, polledAt }: { live: Live; polledAt: number }) {
   return <Item mark="run" live open title={t("思考中")} time={time}
     body={<div className="av-runlog__stream" ref={box}>
       {thinking ? <p className="av-thought__text">{thinking}<span className="av-caret" aria-hidden /></p>
-        : <span className="av-caption">{t("等待模型返回…")}</span>}
+        : <span className="av-caption">{live.restricted ? t("推理内容可能涉及你当前无权查看的数据，运行中不显示") : t("等待模型返回…")}</span>}
       {text ? <div className="av-runlog__said">{text}</div> : null}
     </div>} />;
 }
@@ -249,11 +249,11 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
   const steps = run.steps ?? [];
   const messages = ((run as Run & { messages?: Message[] }).messages ?? []).filter((m) => !m.consumed_at);
   const running = !!live && run.status === "running";
-  const liveQuery = useQuery({
-    queryKey: ["analysis-run-live", run.id], enabled: running, refetchInterval: running ? 1000 : false,
-    queryFn: () => unwrap(api.GET("/api/analysis/runs/{run_id}/live", { params: { path: { run_id: run.id } } })),
-  });
-  const data = running ? liveQuery.data : null;
+  // 实时过程随运行详情一起轮询（与步骤同一套当前权限投影）；记下收到的时刻，让耗时在两次轮询之间继续走
+  const data = running ? run.live ?? null : null;
+  const received = useRef({ live: data, at: Date.now() });
+  if (received.current.live !== data) received.current = { live: data, at: Date.now() };
+  const polledAt = received.current.at;
   // 已经出现更新的步骤时，这条实时状态已过时（那一步完成并写入了步骤记录）
   const current = data && !steps.some((s) => s.seq > data.after_seq) ? data : null;
   useTicker(running);
@@ -279,7 +279,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
   const thoughts = steps.filter((s) => s.kind === "model" && (s.output as { thinking?: string } | null)?.thinking).length;
   const calls = steps.filter((s) => s.kind === "tool").length;
   const failed = steps.filter((s) => s.kind === "tool" && s.status !== "ok" && s.status !== "skipped").length;
-  const liveMs = current ? Number(current.elapsed_ms ?? 0) + Math.max(0, Date.now() - liveQuery.dataUpdatedAt) : 0;
+  const liveMs = current ? Number(current.elapsed_ms ?? 0) + Math.max(0, Date.now() - polledAt) : 0;
   const summary = [thoughts ? t("{{count}} 段推理", { count: thoughts }) : "", calls ? t("{{count}} 次工具调用", { count: calls }) : "",
     failed ? t("{{count}} 次失败", { count: failed }) : ""].filter(Boolean).join(" · ");
   const last = steps.length ? describe(steps[steps.length - 1]).title : "";
@@ -302,7 +302,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
         {messages.map((m) => (
           <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">{t("待生效")}</Pill></li>))}
-        {current ? <LiveRow key={`${current.phase}-${current.after_seq}`} live={current} polledAt={liveQuery.dataUpdatedAt} />
+        {current ? <LiveRow key={`${current.phase}-${current.after_seq}`} live={current} polledAt={polledAt} />
           : live && run.status !== "waiting" ? <li className="av-runlog__item is-run"><div className="av-runlog__row">
             <span className="av-runlog__toggle"><span className="av-runlog__nochev" /><span className="av-spinner" aria-hidden />
               {run.status === "queued" ? <Queued /> : <span className="av-caption">{t("正在进行下一步…")}</span>}</span></div></li> : null}

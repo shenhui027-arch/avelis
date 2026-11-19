@@ -993,6 +993,9 @@ class AnalysisLiveOut(Out):
     tool: str | None = None
     args: Json = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, description="读取时距开始的毫秒数（按服务器时钟计算）")
+    restricted: bool = Field(
+        default=False, description="有来源当前不可读：推理文字与正文不返回，工具参数只保留结构字段"
+    )
 
 
 class ColumnRole(Out):
@@ -1250,6 +1253,9 @@ class AnalysisRunOut(Out):
     filter_alignment: list[FilterAlignmentOut] = Field(default_factory=list)
     verification: Json | None = None
     steps: list[AnalysisStepOut] | None = None
+    live: AnalysisLiveOut | None = Field(
+        default=None, description="运行中的实时过程（推理文字或正在执行的工具），只在运行中的完整详情里返回"
+    )
     datasets: list[AnalysisDatasetOut] | None = None
     messages: list[AnalysisMessageOut] = Field(default_factory=list)
     parent_run_id: str | None = None

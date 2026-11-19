@@ -527,6 +527,7 @@
   "思考中": "Thinking",
   "思考中…": "Thinking…",
   "等待模型返回…": "Waiting for the model…",
+  "推理内容可能涉及你当前无权查看的数据，运行中不显示": "The reasoning may involve data you can no longer view, so it is not shown while running",
   "{{count}} 段推理_one": "{{count}} reasoning passage",
   "{{count}} 段推理_other": "{{count}} reasoning passages",
   "{{count}} 次工具调用_one": "{{count}} tool call",
