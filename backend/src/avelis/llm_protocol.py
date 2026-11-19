@@ -24,6 +24,9 @@
 
 from __future__ import annotations
 
+import contextvars
+import queue
+import threading
 import time
 from typing import Any, Callable
 
@@ -132,6 +135,24 @@ def _text(content: Any) -> str:
     )
 
 
+def _pump(bound: Any, messages: list, out: queue.Queue, stop: threading.Event) -> None:
+    """在单独线程里读流：把每个增量放进队列，结束放 done，出错放 error。stop 置位后在下一个增量处停止并关闭流。"""
+    stream = None
+    try:
+        stream = iter(bound.stream(messages, stream_usage=True))
+        for chunk in stream:
+            if stop.is_set():
+                return
+            out.put(("chunk", chunk))
+        out.put(("done", None))
+    except BaseException as exc:  # noqa: BLE001 - 交回调用线程按原样抛出
+        out.put(("error", exc))
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
+
+
 def stream_reply(
     bound: Any,
     messages: list,
@@ -141,32 +162,46 @@ def stream_reply(
     interval: float = 0.25,
 ) -> AIMessage:
     """流式请求一次模型并合并为完整回复；收到增量时把累计的推理文字与正文交给 on_delta（至多每 interval 秒一次）。
-    超过 deadline（time.monotonic）时中止并抛出 TimeoutError（与非流式的请求超时同样按传输层临时错误处理）。"""
+    超过 deadline（time.monotonic）时中止并抛出 TimeoutError（与非流式的请求超时同样按传输层临时错误处理）。
+    读流放在单独的线程里，调用方按剩余时间等待下一个增量：提供方在两个增量之间停住时，等待同样受 deadline 约束，
+    不会再多等一个读取超时。放弃的读取线程在下一个增量或读取超时时自行结束，其结果不再使用。"""
     chunks: list[AIMessageChunk] = []
     thinking: list[str] = []
     text: list[str] = []
     notified = 0.0
-    stream = iter(bound.stream(messages, stream_usage=True))
+    out: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    reader = threading.Thread(
+        target=contextvars.copy_context().run, args=(_pump, bound, messages, out, stop), daemon=True
+    )
+    reader.start()
     try:
-        for chunk in stream:
-            if not isinstance(chunk, AIMessageChunk):
+        while True:
+            wait = None if deadline is None else deadline - time.monotonic()
+            if wait is not None and wait <= 0:
+                raise TimeoutError("模型流式回复超过剩余时间")
+            try:
+                kind, value = out.get(timeout=wait)
+            except queue.Empty:
+                raise TimeoutError("模型流式回复超过剩余时间") from None
+            if kind == "done":
+                break
+            if kind == "error":
+                raise value
+            if not isinstance(value, AIMessageChunk):
                 continue
-            chunks.append(chunk)
-            piece = (chunk.additional_kwargs or {}).get(REASONING_FIELD)
+            chunks.append(value)
+            piece = (value.additional_kwargs or {}).get(REASONING_FIELD)
             if isinstance(piece, str):
                 thinking.append(piece)
-            if chunk.content:
-                text.append(_text(chunk.content))
+            if value.content:
+                text.append(_text(value.content))
             now = time.monotonic()
-            if (piece or chunk.content) and now - notified >= interval:
+            if (piece or value.content) and now - notified >= interval:
                 notified = now
                 on_delta("".join(thinking), "".join(text))
-            if deadline is not None and now > deadline:
-                raise TimeoutError("模型流式回复超过剩余时间")
     finally:
-        close = getattr(stream, "close", None)
-        if close is not None:
-            close()
+        stop.set()
     if not chunks:
         raise ModelProtocolError("model_protocol", "模型流式回复没有任何内容")
     merged = chunks[0] + chunks[1:] if len(chunks) > 1 else chunks[0]

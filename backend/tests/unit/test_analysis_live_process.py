@@ -333,3 +333,31 @@ def test_live_read_backs_off_after_a_redis_error(monkeypatch):
     monkeypatch.setattr(live, "_client", down)
     assert live.read("r1") is None and live.read("r1") is None
     assert len(calls) == 1  # 第二次不再等待连接超时
+
+
+def test_stream_deadline_also_bounds_a_stall_between_chunks():
+    """提供方在两个增量之间停住：按剩余时间等待下一个增量，到时即中止，不再多等一个读取超时。"""
+    from langchain_core.messages import AIMessageChunk
+
+    class Stalling:
+        def stream(self, messages, **kwargs):
+            yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "想"})
+            time.sleep(3)  # 模拟读取阻塞
+            yield AIMessageChunk(content="晚到")
+
+    deltas = []
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        stream_reply(Stalling(), [HumanMessage("x")], lambda t, x: deltas.append(t), deadline=started + 0.5, interval=0)
+    assert time.monotonic() - started < 2
+    assert deltas == ["想"]
+
+
+def test_stream_errors_from_the_reader_are_raised_to_the_caller():
+    class Broken:
+        def stream(self, messages, **kwargs):
+            raise httpx.ConnectError("down")
+            yield  # pragma: no cover
+
+    with pytest.raises(httpx.ConnectError):
+        stream_reply(Broken(), [HumanMessage("x")], lambda t, x: None, deadline=time.monotonic() + 5)
