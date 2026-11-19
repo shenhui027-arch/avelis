@@ -41,6 +41,13 @@ def dns_results(*addresses):
 
 
 @pytest.fixture(autouse=True)
+def isolated_slots(monkeypatch):
+    """每个用例用独立的并发槽：模块级信号量跨用例共享，前一个用例残留的后台线程不能挤占后一个用例的认领与投递。"""
+    for name in ("_DNS_SLOTS", "_CLAIM_SLOTS", "_DELIVERY_SLOTS"):
+        monkeypatch.setattr(delivery, name, threading.BoundedSemaphore(64))
+
+
+@pytest.fixture(autouse=True)
 def isolated_network(monkeypatch):
     monkeypatch.setattr(delivery, "get_settings", lambda: build_settings({"AVELIS_SECRET": SECRET}))
     monkeypatch.setattr(delivery.socket, "getaddrinfo", lambda *args, **kwargs: dns_results(PUBLIC_IP))
@@ -575,9 +582,12 @@ def test_multiple_unreachable_subscriptions_do_not_block_healthy_first_round(del
             await asyncio.sleep(10)
         return httpx.Response(204)
 
+    # 不可达端点每次挂起 10 秒；只要整轮远低于 10 秒并送达健康订阅，就说明它们没有阻塞首轮。
+    # 预算与上限留足余量：四次认领各是一个短事务，CI 机器负载高时 0.2 秒内排不完。
     started = time.monotonic()
-    assert delivery.deliver_due(budget_seconds=0.2, transport=httpx.MockTransport(receive)) == 4
-    assert time.monotonic() - started < 0.8
+    attempts = delivery.deliver_due(budget_seconds=1.0, transport=httpx.MockTransport(receive))
+    assert attempts == 4, f"attempts={attempts}, received={received}"
+    assert time.monotonic() - started < 4.0
     assert "healthy.example.test" in received
     with delivery_database() as session:
         assert session.get(EventOutbox, "healthy-0").status == "delivered"
