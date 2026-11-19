@@ -1221,3 +1221,57 @@ class OAuthToken(Base):
 
     def get_user(self):
         return self.user_id
+
+
+# --- 技能市场 ---------------------------------------------------------------------
+
+
+class Skill(Base):
+    __tablename__ = "skill"
+
+    id: Mapped[str] = pk()
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    owner_id: Mapped[str] = fk("app_user.id")
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending", nullable=False)
+    published_version: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+
+
+class SkillVersion(Base):
+    __tablename__ = "skill_version"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "version"),
+        Index(
+            "uq_skill_version_pending",
+            "skill_id",
+            unique=True,
+            postgresql_where=sa_text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[str] = pk()
+    skill_id: Mapped[str] = fk("skill.id", index=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    frontmatter: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    files: Mapped[list[dict]] = mapped_column(JsonType, nullable=False)
+    has_scripts: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    zip_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    zip_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    uploaded_by: Mapped[str] = fk("app_user.id", index=False)
+    uploaded_at: Mapped[datetime] = created()
+    reviewed_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    review_note: Mapped[str | None] = mapped_column(Text)
+
+
+class SkillEnablement(Base):
+    __tablename__ = "skill_enablement"
+
+    user_id: Mapped[str] = mapped_column(IdType, ForeignKey("app_user.id"), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(IdType, ForeignKey("skill.id"), primary_key=True, index=True)
+    created_at: Mapped[datetime] = created()

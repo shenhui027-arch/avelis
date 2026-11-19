@@ -146,13 +146,16 @@ With an external PostgreSQL and Redis, you can run the image on its own:
 docker build -t avelis:1.0.10 .                       # build at the repository root
 docker run -d --name avelis -p 8080:8000 \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10
 docker run -d --name avelis-worker --no-healthcheck \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10 python -m avelis.jobs
 ```
 
 The image reads `/etc/avelis/avelis.toml` by default. Its built-in health check targets the API, so the worker container disables it with `--no-healthcheck`. Point `[database]` and `[redis]` at the external services; `[bootstrap] auto_migrate` and `auto_init_admin` both default to `true` and may be omitted. You can also skip the configuration file and pass everything as `-e AVELIS_*` environment variables.
+Skill packages are stored at `[skills] dir` (default `/var/lib/avelis/skills`). Compose mounts the named `skills` volume in both `app` and `worker`. In multi-instance deployments, give every app and worker instance read and write access to the same shared directory. If you change the configured path, update the mount point as well.
 
 ## 5. Reverse proxy and HTTPS
 
@@ -226,11 +229,15 @@ cd deploy/docker
 docker compose up -d --build
 ```
 
-With `auto_migrate = true`, the new app migrates the metadata database on start (with several replicas, a PostgreSQL advisory lock serializes the migration); the worker restarts only after the migration finishes and the app is ready. Back up the metadata database before upgrading.
+With `auto_migrate = true`, the new app migrates the metadata database on start (with several replicas, a PostgreSQL advisory lock serializes the migration); the worker restarts only after the migration finishes and the app is ready. Back up the metadata database and the skills volume as a pair before upgrading.
 
 ## 9. Backup and restore
 
-Back up the metadata database and `avelis.toml`. Data source passwords and model keys are stored encrypted in the database, so a restore needs the same `[security] secret`. Redis holds only rebuildable caches and wake-up signals.
+Back up the metadata database, the skills volume, and `avelis.toml`. Data source passwords and model keys are stored encrypted in the database, so a restore needs the same `[security] secret`. Redis holds only rebuildable caches and wake-up signals.
+
+The database and skills volume must be backed up and restored as a pair. Pause writes from all app and worker instances before backing up the entire skills volume, including the hidden `.versions` directory. Restore the database and skills volume from the same backup set before restarting the app and worker.
+
+Only after verifying that the database is back at a revision before `0026` and that the skill tables are absent may you move the old skills volume out of the active storage path. Keep the entire old volume in a separate location.
 
 ```bash
 # Back up
@@ -238,6 +245,7 @@ docker compose exec -T postgres pg_dump -U avelis -d avelis -Fc > avelis-$(date 
 # Restore into an empty database (stop app and worker first)
 docker compose stop app worker
 docker compose exec -T postgres pg_restore -U avelis -d avelis --clean --if-exists < avelis-2026-10-31.dump
+# Restore the skills directory before starting app and worker
 docker compose start app worker
 ```
 

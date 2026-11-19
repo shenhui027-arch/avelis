@@ -2411,3 +2411,153 @@ msgstr "The sources or derivation of column “{column}” have changed. Refresh
 
 msgid "这条说明已被其他人修改，请刷新后再确认"
 msgstr "This description was changed by someone else. Refresh, then confirm again"
+
+msgid "技能包不是有效的 zip 文件"
+msgstr "The skill package is not a valid ZIP file"
+
+msgid "技能包解压后总大小不能超过 {limit} 字节"
+msgstr "The uncompressed skill package must not exceed {limit} bytes"
+
+msgid "技能包包含不支持的条目：{name}"
+msgstr "The skill package contains an unsupported entry: {name}"
+
+msgid "技能包包含不支持的压缩方式：{name}"
+msgstr "The skill package uses an unsupported compression method for: {name}"
+
+msgid "技能包内文件路径冲突：{name}"
+msgstr "Conflicting file path in the skill package: {name}"
+
+msgid "SKILL.md 的 frontmatter 必须是有效的 YAML 映射"
+msgstr "The SKILL.md frontmatter must be a valid YAML mapping"
+
+msgid "包内需要恰好一个技能目录，且包含 SKILL.md"
+msgstr "The package must contain exactly one skill directory with a SKILL.md file"
+
+msgid "SKILL.md 必须是 UTF-8 文本"
+msgstr "SKILL.md must be UTF-8 text"
+
+msgid "技能名称须为 1 到 64 个小写字母、数字或单连字符，且以字母或数字开头和结尾"
+msgstr "Skill names must be 1–64 characters long, with lowercase letters, digits and single hyphens between them"
+
+msgid "技能名称必须与包内目录名一致"
+msgstr "The skill name must match its directory name in the package"
+
+msgid "技能描述不能为空，且不能超过 1024 字"
+msgstr "The skill description is required and must be at most 1024 characters"
+
+msgid "compatibility 必须是 1 到 500 个字符的文本"
+msgstr "compatibility must be text between 1 and 500 characters"
+
+msgid "metadata 的键和值都必须是字符串"
+msgstr "metadata keys and values must all be strings"
+
+msgid "建议不超过 500 行"
+msgstr "We recommend at most 500 lines"
+
+msgid "建议正文不超过 5000 个估算 token"
+msgstr "We recommend keeping the body within an estimated 5000 tokens"
+
+msgid "包含 {count} 个脚本：只保存，不会执行"
+msgstr "Scripts included: {count}. They are stored without being run"
+
+msgid "allowed-tools 不生效"
+msgstr "allowed-tools has no effect"
+
+msgid "通过技能校验"
+msgstr "Passed skill validation"
+
+msgid "技能文件路径不能包含符号链接"
+msgstr "Skill file paths must not contain symbolic links"
+
+msgid "技能版本文件已存在"
+msgstr "Files for this skill version already exist"
+
+msgid "技能文件不存在"
+msgstr "Skill file not found"
+
+msgid "技能不存在"
+msgstr "Skill not found"
+
+msgid "只有管理员可以审核技能"
+msgstr "Only administrators can review skills"
+
+msgid "技能请求参数无效"
+msgstr "Invalid skill request parameters"
+
+msgid "技能版本不存在"
+msgstr "Skill version not found"
+
+msgid "技能包不存在"
+msgstr "Skill package not found"
+
+msgid "已存在同名技能 {name}，请修改名称后重新上传，或选择覆盖"
+msgstr "A skill named {name} already exists. Rename the skill and upload again, or choose to overwrite it"
+
+msgid "不存在可覆盖的同名技能"
+msgstr "No skill with this name exists to overwrite"
+
+msgid "只有技能上传人或管理员可以覆盖技能"
+msgstr "Only the skill owner or an administrator can overwrite it"
+
+msgid "该技能已有待审核的版本"
+msgstr "This skill already has a version pending review"
+
+msgid "只能设置已上架技能的启用状态"
+msgstr "Only listed skills can be enabled or disabled"
+
+msgid "只有待审核版本可以执行此操作"
+msgstr "This action requires a version pending review"
+
+msgid "只有该版本的上传人可以撤回"
+msgstr "Only the uploader of this version can withdraw it"
+
+msgid "只有技能上传人或管理员可以下架技能"
+msgstr "Only the skill owner or an administrator can delist it"
+
+msgid "只有已上架技能可以下架"
+msgstr "Only listed skills can be delisted"
+
+msgid "技能包不能超过 {limit} 字节"
+msgstr "The skill package must not exceed {limit} bytes"
+
+msgid "技能不在本次分析的可用目录中"
+msgstr "This skill is not available for the current analysis"
+
+msgid "技能已加载"
+msgstr "Skill already loaded"
+
+msgid "脚本只读，不执行"
+msgstr "Scripts are read-only and never run"
+
+msgid "技能工具只读取 UTF-8 文本文件"
+msgstr "Skill tools read only UTF-8 text files"
+
+msgid "文件内容已截断至 64 KB"
+msgstr "File content was truncated to 64 KB"
+
+msgid "技能 {name} 未启用或未上架"
+msgstr "Skill {name} is disabled or unlisted"
+
+msgid "技能 {name} 的正文已截断"
+msgstr "The body of skill {name} was truncated"
+
+msgid "最多引用 5 个技能"
+msgstr "You can reference up to 5 skills"
+
+msgid "技能文件不可用：{name}"
+msgstr "Skill files are unavailable: {name}"
+
+msgid "frontmatter 不能超过 16 KB"
+msgstr "Frontmatter must not exceed 16 KB"
+
+msgid "SKILL.md 不能超过 256 KB"
+msgstr "SKILL.md must not exceed 256 KB"
+
+msgid "文件路径分段不能超过 255 字节：{name}"
+msgstr "File path components must not exceed 255 bytes: {name}"
+
+msgid "技能 {name} 的正文超出预算，未注入"
+msgstr "The body of skill {name} did not fit within the budget and was omitted"
+
+msgid "技能文件清单仅显示前 200 项"
+msgstr "Only the first 200 skill files are shown"

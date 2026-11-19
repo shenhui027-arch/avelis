@@ -23,6 +23,7 @@ const NAV: { to: string; label: string; icon: string; mod: string; end?: boolean
   { to: "/lineage", label: t("血缘"), icon: "lineage", mod: "lineage" },
   { to: "/catalog", label: t("目录"), icon: "catalog", mod: "catalog" },
   { to: "/changes", label: t("变更"), icon: "change", mod: "change" },
+  { to: "/skills", label: t("技能"), icon: "skill", mod: "ask" },
 ];
 
 export function useMe() {

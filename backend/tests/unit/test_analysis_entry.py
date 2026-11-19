@@ -24,6 +24,12 @@ from tests.unit.test_analysis_pipeline import WINDOW, big_catalog
 from tests.unit.test_analysis_pipeline import catalog as pipeline_catalog
 
 
+@pytest.fixture(autouse=True)
+def _no_enabled_skills(monkeypatch):
+    """这些用例的假会话不支持技能目录查询；技能相关行为由专门的用例覆盖。"""
+    monkeypatch.setattr("avelis.skills.service.enabled_catalog", lambda *args, **kwargs: [])
+
+
 def scope_reply(question_type="lookup", **extra):
     return reply("submit_scope", {"question_type": question_type, "metric_codes": ["m_a"], **extra}, "scope")
 

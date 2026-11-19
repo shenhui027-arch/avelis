@@ -196,6 +196,15 @@ MCP 工具使用權杖所代表使用者的現有業務域權限，並受授權�
 
 逾時採集與匯入的治理收尾會在後續掃描中重試，業務任務本身不會自動重跑。每個 worker 使用獨立的投遞迴圈，長業務任務與歷史清理不會延後 Webhook 投遞。每輪最多處理 50 筆，按訂閱輪流並行傳送；同一訂閱同一時間最多一個請求進行中。單次請求包含 DNS 解析在內最多 5 秒，連線最多 3 秒，且不超過本輪剩餘預算；不會按訂閱數量縮短單次期限。詳見[事件投遞規則](events.zh-TW.md#投遞與簽章驗證)。
 
+### 技能市集 `[skills]`
+
+| 設定檔 | 環境變數 | 預設值 | 說明 |
+|---|---|---|---|
+| `dir` | `AVELIS_SKILLS_DIR` | `/var/lib/avelis/skills` | 技能儲存目錄，由 app 與 worker 共用 |
+| `max_zip_bytes` | `AVELIS_SKILLS_MAX_ZIP_BYTES` | `10485760` | 上傳 ZIP 的大小上限，以位元組計 |
+| `max_unpacked_bytes` | `AVELIS_SKILLS_MAX_UNPACKED_BYTES` | `52428800` | ZIP 解壓縮後的總大小上限，以位元組計 |
+| `max_files` | `AVELIS_SKILLS_MAX_FILES` | `500` | ZIP 項目數上限，包含目錄 |
+
 ### Webhook `[webhook]`
 
 | 設定檔 | 環境變數 | 預設值 | 說明 |

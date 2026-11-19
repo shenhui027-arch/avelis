@@ -1,13 +1,14 @@
 // 分析的人机协作（ADR 0013）：预检后确认依据、对报告质疑或补充、把确认过的内容保存为个人经验。
 // 只有用户明确保存的内容才进入经验库；本次确认只对本次分析生效。
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import { Drawer, Icon, Pill, QueryState, Seg, Select, shortName, Tile } from "../../components/ui";
 import { formatTime } from "../../format";
+import { SkillPickerTrigger, SkillTags, useSkillPicker } from "./ComposeOptions";
 import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 import { t } from "../../i18n";
 
@@ -143,25 +144,55 @@ export function ClarifyPanel({ runId, question, items }: { runId: string; questi
   );
 }
 
+export type SkillVersionRef = Schemas["SkillVersionRefOut"];
+
+const SKILL_SOURCE: Record<string, string> = {
+  explicit: t("已引用"),
+  auto: t("自动选用"),
+  tool: t("推理中加载"),
+};
+
 /** 报告的依据：每项标明来源与本次的确认结果；沿用上次的项单独标出。 */
-export function SourcesPanel({ items, experiences }: { items?: SourceItem[]; experiences?: { id: string; version: number }[] }) {
-  if (!items?.length && !experiences?.length) return null;
+export function SourcesPanel({ items, experiences, skills }: {
+  items?: SourceItem[]; experiences?: { id: string; version: number }[]; skills?: SkillVersionRef[] | null;
+}) {
+  if (!items?.length && !experiences?.length && !skills?.length) return null;
   const pending = (items ?? []).filter((i) => i.status === "unconfirmed").length;
   return (
     <details className="av-fold av-analysis__sources" aria-label={t("分析依据")}>
-      <summary>{t("分析依据")} <span className="av-caption">{t("{{count}} 项", { count: items?.length ?? 0 })}{pending ? t(" · {{pending}} 项未确认", { pending }) : ""}</span>
+      <summary>{t("分析依据")}{items !== undefined ? <> <span className="av-caption">{t("{{count}} 项", { count: items.length })}{pending ? t(" · {{pending}} 项未确认", { pending }) : ""}</span></> : null}
         {experiences?.length ? <Link className="av-caption" to="/analysis/experiences">{t("用到经验 {{count}} 条", { count: experiences.length })}</Link> : null}</summary>
-      <ol className="av-proposals av-proposals--compact">
-        {(items ?? []).map((i, n) => (
-          <li key={`${i.id ?? "u"}-${n}`} className={`av-proposal${i.status === "rejected" ? " is-rejected" : ""}`}>
-            <Pill tone="">{ITEM_KIND[i.kind] ?? i.kind}</Pill>
-            <ItemContent item={i} />
-            <SourcePill source={i.source} />
-            <span className={`av-caption av-proposal__status is-${i.status}`}>
-              {i.inherited ? t("沿用 · ") : ""}{ITEM_STATUS[i.status ?? ""] ?? ""}</span>
-          </li>
-        ))}
-      </ol>
+      {items?.length ? (
+        <ol className="av-proposals av-proposals--compact">
+          {items.map((i, n) => (
+            <li key={`${i.id ?? "u"}-${n}`} className={`av-proposal${i.status === "rejected" ? " is-rejected" : ""}`}>
+              <Pill tone="">{ITEM_KIND[i.kind] ?? i.kind}</Pill>
+              <ItemContent item={i} />
+              <SourcePill source={i.source} />
+              <span className={`av-caption av-proposal__status is-${i.status}`}>
+                {i.inherited ? t("沿用 · ") : ""}{ITEM_STATUS[i.status ?? ""] ?? ""}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {skills?.length ? (
+        <div className="av-analysis__skills">
+          <span className="av-caption">{t("用到技能 {{count}} 个", { count: skills.length })}</span>
+          <span className="av-analysis__skill-list">
+            {skills.map((sk) => {
+              const srcLabel = sk.source ? SKILL_SOURCE[sk.source] : undefined;
+              return (
+                <Link key={sk.version_id ?? `${sk.id}-${sk.version}`} className="av-tag av-analysis__skill-link"
+                  to={`/skills/market?skill=${encodeURIComponent(sk.id)}`}>
+                  <Icon name="skill" small />
+                  <span>{sk.name} v{sk.version}</span>
+                  {srcLabel ? <small className="av-analysis__skill-src">{srcLabel}</small> : null}
+                </Link>
+              );
+            })}
+          </span>
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -184,24 +215,46 @@ export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
   const runId = run.id;
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  const input = useRef<HTMLTextAreaElement>(null);
   const [error, setError] = useState<string | null>(null);
   const picker = useModelChoice((run as { model_choice?: ModelChoice | null }).model_choice);
+  const skillPicker = useSkillPicker(text, setText);
   const followup = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/followup", {
-    params: { path: { run_id: runId } }, body: { text, ...picker.body } as never })), ["analysis-runs", "analysis-conversations", "analysis-conversation"]);
+    params: { path: { run_id: runId } },
+    body: { text, ...(skillPicker.skills.length ? { skills: skillPicker.skills } : {}), ...picker.body } as never,
+  })), ["analysis-runs", "analysis-conversations", "analysis-conversation"]);
   return (
     <form className="av-analysis__followup av-compose" onSubmit={(e) => {
       e.preventDefault();
       if (followup.isPending || !text.trim()) return;
       setError(null);
-      followup.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
+      followup.mutate(undefined, {
+        onSuccess: (r) => { setText(""); skillPicker.clear(); navigate(`/analysis/runs/${r.id}`); },
+        onError: (err) => setError(errorText(err)),
+      });
     }}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      <label htmlFor={`fu-${runId}`} className="av-sr">{t("质疑或补充")}</label>
-      {/* 追问框占位文案改为精炼书面短语 */}
-      <textarea ref={input} id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
-        placeholder={t("追问、指正或补充规则")} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
+      <SkillTags skills={skillPicker.skills} onRemove={skillPicker.remove} />
+      <div className="av-compose__row av-compose__row--followup">
+        <SkillPickerTrigger state={skillPicker} />
+        <label htmlFor={`fu-${runId}`} className="av-sr">{t("质疑或补充")}</label>
+        {/* 追问框占位文案改为精炼书面短语 */}
+        <textarea
+          ref={skillPicker.textareaRef}
+          id={`fu-${runId}`}
+          rows={1}
+          maxLength={4000}
+          value={text}
+          placeholder={t("追问、指正或补充规则")}
+          {...skillPicker.textareaProps}
+          onKeyDown={(e) => {
+            if (skillPicker.onTextareaKeyDown(e)) return;
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      </div>
       <div className="av-compose__bar">
         <span className="av-compose__spacer" />
         <ModelPicker state={picker} />

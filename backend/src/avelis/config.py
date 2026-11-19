@@ -129,6 +129,10 @@ class Settings:
     db_pool_recycle_seconds: int = 1800
     import_max_bytes: int = 20 * 1024**2
     import_max_batch_bytes: int = 100 * 1024**2
+    skills_dir: str = "/var/lib/avelis/skills"
+    skills_max_zip_bytes: int = 10 * 1024**2
+    skills_max_unpacked_bytes: int = 50 * 1024**2
+    skills_max_files: int = 500
     ask_max_tool_rounds: int = 8
     reply_language: str = "auto"
     analysis_tool_calls: int = 30
@@ -369,6 +373,12 @@ def _build_settings(env: dict[str, str]) -> Settings:
         ),
         import_max_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BYTES", Settings.import_max_bytes),
         import_max_batch_bytes=_positive_int(env, "AVELIS_IMPORT_MAX_BATCH_BYTES", Settings.import_max_batch_bytes),
+        skills_dir=_nonempty_string(env, "AVELIS_SKILLS_DIR", Settings.skills_dir),
+        skills_max_zip_bytes=_positive_int(env, "AVELIS_SKILLS_MAX_ZIP_BYTES", Settings.skills_max_zip_bytes),
+        skills_max_unpacked_bytes=_positive_int(
+            env, "AVELIS_SKILLS_MAX_UNPACKED_BYTES", Settings.skills_max_unpacked_bytes
+        ),
+        skills_max_files=_positive_int(env, "AVELIS_SKILLS_MAX_FILES", Settings.skills_max_files),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
         reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
@@ -404,6 +414,9 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_WORKERS",
         "AVELIS_IMPORT_MAX_BYTES",
         "AVELIS_IMPORT_MAX_BATCH_BYTES",
+        "AVELIS_SKILLS_MAX_ZIP_BYTES",
+        "AVELIS_SKILLS_MAX_UNPACKED_BYTES",
+        "AVELIS_SKILLS_MAX_FILES",
         "AVELIS_ASK_MAX_TOOL_ROUNDS",
         "AVELIS_ANALYSIS_TOOL_CALLS",
         "AVELIS_ANALYSIS_SECONDS",
@@ -475,7 +488,11 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 _boolean(values, key, default)
         except ValueError as exc:
             values.problem(key, str(exc))
-    for key, default in (("AVELIS_HOST", Settings.host), ("AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips)):
+    for key, default in (
+        ("AVELIS_HOST", Settings.host),
+        ("AVELIS_FORWARDED_ALLOW_IPS", Settings.forwarded_allow_ips),
+        ("AVELIS_SKILLS_DIR", Settings.skills_dir),
+    ):
         try:
             _nonempty_string(values, key, default)
         except ValueError as exc:
