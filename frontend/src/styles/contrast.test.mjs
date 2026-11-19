@@ -17,8 +17,11 @@ const worst = (text, alpha, from, to) => Math.min(...[0, 0.25, 0.5, 0.75, 1].map
 const WHITE = [255, 255, 255];
 
 const kit = read("./kit.css");
-const from = rgb(kit.match(/--hero-from:\s*(#[0-9a-f]{6})/i)[1]);
-const to = rgb(kit.match(/--hero-to:\s*(#[0-9a-f]{6})/i)[1]);
+// 渐变两端是令牌（深浅两套同值），从 tokens.css 读
+const tokens = read("./tokens.css");
+const from = rgb(tokens.match(/--hero-from:\s*(#[0-9a-f]{6})/i)[1]);
+const to = rgb(tokens.match(/--hero-to:\s*(#[0-9a-f]{6})/i)[1]);
+assert.ok(kit.includes("var(--hero-from)") && kit.includes("var(--hero-to)"), "采集卡片不再使用 hero 渐变令牌，请同步这里的计算");
 const heroRules = kit.slice(kit.indexOf(".av-hero-card {"), kit.indexOf(".av-hero-card .av-heat {"));
 const alphas = [...heroRules.matchAll(/color: rgba\(255, 255, 255, ([.\d]+)\)/g)].map((m) => Number(m[1]));
 const axis = Number(kit.match(/\.av-hero-card \.av-cadence-axis \{[^}]*rgba\(255, 255, 255, ([.\d]+)\)/)[1]);

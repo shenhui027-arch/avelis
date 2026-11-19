@@ -29,6 +29,12 @@ export function Forbidden() {
 
 export function RouteError() {
   const error = useRouteError();
-  if (isRouteErrorResponse(error) && error.status === 404) return <NotFound />;
-  return <PageState code="ERROR" title={t("页面出错了")} text={t("已记录错误。可以刷新重试，或返回工作台。")} />;
+  // 根路由错误边界脱离 Shell 时保留 .av-root 主题色与盒模型
+  return (
+    <div className="av-root" style={{ height: "100%" }}>
+      {isRouteErrorResponse(error) && error.status === 404
+        ? <NotFound />
+        : <PageState code="ERROR" title={t("页面加载异常")} text={t("已记录错误。可以刷新重试，或返回工作台。")} />}
+    </div>
+  );
 }

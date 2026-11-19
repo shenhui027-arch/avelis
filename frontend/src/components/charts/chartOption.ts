@@ -33,7 +33,7 @@ export type ChartMark = { type: "max" | "min" | "average"; series: string; serie
 
 /** 主题取值：由组件从 CSS 令牌读出后传入。 */
 export type ChartTheme = { series: string[]; neutral: string; good: string; bad: string; grid: string; axis: string;
-  text: string; muted: string; surface: string; font: string; mono: string };
+  text: string; muted: string; surface: string; raised?: string; font: string; mono: string };
 
 type Option = Record<string, unknown>;
 
@@ -300,6 +300,37 @@ function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, ba
   const ys = h.y_categories.map(category);
   const low = h.min ?? 0;
   const high = h.max != null && h.max !== low ? h.max : low + 1;
+  // 突出某些期间时，其余期间的格子弱化（highlight 按横轴类目匹配）
+  const toCell = (i: number, j: number, v: number | null) => spec.highlight?.length && dimmed(spec, i)
+    ? { value: [i, j, v ?? "-"], itemStyle: { opacity: DIM } } : [i, j, v ?? "-"];
+  const data = h.cells.map(([i, j, v]) => toCell(i, j, v));
+  // ECharts 热力系列会跳过 null / "-" 坐标，改用底层 custom 系列为空值坐标画淡底格
+  const nonEmpty = new Set(h.cells.filter(([, , v]) => v != null).map(([i, j]) => `${i},${j}`));
+  const emptyCells: [number, number][] = [];
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = 0; j < ys.length; j++) {
+      if (!nonEmpty.has(`${i},${j}`)) emptyCells.push([i, j]);
+    }
+  }
+  const emptyFill = theme.raised || fade(theme.axis, 0.25);
+  const series: Option[] = [{ type: "heatmap", name: s?.name, data,
+    itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 4 },
+    emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } } }];
+  if (emptyCells.length) {
+    series.push({
+      type: "custom", z: 1, silent: true, tooltip: { show: false }, data: emptyCells,
+      renderItem: (_p: unknown, api: { value: (k: number) => number; coord: (v: [number, number]) => [number, number]; size: (v: [number, number]) => [number, number] }) => {
+        const i = api.value(0), j = api.value(1);
+        const [cx, cy] = api.coord([i, j]);
+        const [bw, bh] = api.size([1, 1]);
+        return {
+          type: "rect",
+          shape: { x: cx - bw / 2, y: cy - bh / 2, width: bw, height: bh, r: 4 },
+          style: { fill: emptyFill, stroke: theme.surface, lineWidth: 2, opacity: spec.highlight?.length && dimmed(spec, i) ? DIM : 1 },
+        };
+      },
+    });
+  }
   return { ...base,
     tooltip: { ...tipBox(theme), trigger: "item", formatter: (p: { value: [number, number, number | string] }) => {
       const [i, j, v] = p.value;
@@ -309,15 +340,11 @@ function heatmapOption(spec: ChartSpec, h: NonNullable<ChartSpec["heatmap"]>, ba
     xAxis: { type: "category", data: xs, axisLabel: axisLabel(theme), axisLine: { show: false }, axisTick: { show: false }, splitArea: { show: false } },
     yAxis: { type: "category", data: ys, inverse: true, axisLabel: { ...axisLabel(theme), width: 120, overflow: "truncate" },
       axisLine: { show: false }, axisTick: { show: false } },
-    visualMap: { type: "continuous", min: low, max: high, calculable: false, orient: "horizontal", left: "center", bottom: 0,
+    visualMap: { type: "continuous", seriesIndex: 0, min: low, max: high, calculable: false, orient: "horizontal", left: "center", bottom: 0,
       itemWidth: 10, itemHeight: 160, text: [formatAxis(high, unit, style), formatAxis(low, unit, style)],
       textStyle: { color: theme.muted, fontFamily: theme.font, fontSize: 11 },
       inRange: { color: [fade(color, 0.08), fade(color, 0.5), color] } },
-    // 突出某些期间时，其余期间的格子弱化（highlight 按横轴类目匹配）
-    series: [{ type: "heatmap", name: s?.name, data: h.cells.map(([i, j, v]) => spec.highlight?.length && dimmed(spec, i)
-      ? { value: [i, j, v ?? "-"], itemStyle: { opacity: DIM } } : [i, j, v ?? "-"]),
-      itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 4 },
-      emphasis: { itemStyle: { borderColor: theme.text, borderWidth: 1 } } }] };
+    series };
 }
 
 /** 散点 / 气泡：横纵轴各是一个度量，第三个度量决定气泡大小（面积与值成正比）。 */

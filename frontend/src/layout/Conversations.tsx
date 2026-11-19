@@ -8,13 +8,13 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { api, unwrap, type Schemas } from "../api/client";
 import { errorText, useTimeZone } from "../api/hooks";
 import { Icon } from "../components/Icon";
-import { ConfirmDialog, Empty } from "../components/ui";
+import { ConfirmDialog, Dot, Empty, QueryState, statusOf, type Tone } from "../components/ui";
 import { formatTime } from "../format";
 import { t } from "../i18n";
 
 type Conversation = Schemas["AnalysisConversationOut"] & { archived_at?: string | null };
 
-const RUN_TONE: Record<string, string> = { running: "info", queued: "info", waiting: "warn", failed: "danger", stopped: "" };
+const RUN_TONE: Record<string, Tone> = { running: "info", queued: "info", waiting: "warn", failed: "danger", stopped: "" };
 const LIVE = new Set(["queued", "running", "waiting"]);
 
 export const useConversations = (archived = false) => useQuery({
@@ -113,7 +113,9 @@ export function RecentConversations() {
       <div className="av-sb__sec av-sb__label">{t("最近对话")}</div>
       <div className="av-sb__recent">
         {items.map((c) => {
-          const tone = c.status === "succeeded" ? "ok" : RUN_TONE[c.status] ?? "";
+          const tone: Tone = c.status === "succeeded" ? "ok" : RUN_TONE[c.status] ?? "";
+          // 最近对话状态点：附带状态提示与读屏文字
+          const stateLabel = c.status === "waiting" ? t("待确认") : statusOf(c.status)[1];
           return renaming === c.id ? (
             <RenameField key={c.id} initial={titleOf(c)} onCancel={() => setRenaming(null)}
               onSave={async (t) => { await actions.rename(c.id, t); setRenaming(null); }} />
@@ -121,7 +123,7 @@ export function RecentConversations() {
             <div key={c.id} className="av-sb__rc-row" onContextMenu={(e) => open(e, c)}>
               <Link to={`/analysis/runs/${c.latest_run_id}`} className="av-sb__rc" aria-current={isCurrent(c) ? "page" : undefined}
                 title={titleOf(c)}>
-                <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}${LIVE.has(c.status) ? " is-live" : ""}`} />
+                <Dot tone={tone} label={stateLabel} className={LIVE.has(c.status) ? "is-live" : undefined} />
                 <span>{titleOf(c)}</span>
               </Link>
               <button type="button" className="av-sb__rc-more" aria-label={t("{{title}} 的更多操作", { title: titleOf(c) })} onClick={(e) => open(e, c)}>
@@ -196,25 +198,29 @@ export function ArchivedConversations() {
           <input type="search" value={q} placeholder={t("搜索已归档的对话")} aria-label={t("搜索已归档的对话")} onChange={(e) => setQ(e.target.value)} /></span>
       </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {list.isSuccess && !list.data.length ? <Empty text={t("没有已归档的对话。在左侧对话上右键可以归档。")} /> : null}
-      {list.isSuccess && list.data.length && !items.length ? <Empty text={t("没有匹配的对话")} compact /> : null}
-      <div className="av-analysis__list">
-        {items.map((c) => (
-          <div key={c.id} className="av-row av-archived__row">
-            <Link to={`/analysis/runs/${c.latest_run_id}`} className="av-row__main">
-              <span className="av-row__title">{titleOf(c)}</span>
-              <span className="av-row__meta">{t("{{count}} 轮 · 最近 {{time}}", { count: c.turn_count, time: formatTime(c.updated_at, tz) })}
-                {c.archived_at ? t(" · 归档于 {{time}}", { time: formatTime(c.archived_at, tz) }) : ""}</span>
-            </Link>
-            <span className="av-actions">
-              <button type="button" className="av-btn av-btn--secondary av-btn--sm"
-                onClick={() => actions.restore(c.id).catch((e) => setError(errorText(e)))}><Icon name="refresh" small />{t("恢复")}</button>
-              <button type="button" className="av-btn av-btn--ghost av-btn--sm av-archived__delete" onClick={() => setDeleting(c)}>
-                <Icon name="trash" small />{t("删除")}</button>
-            </span>
+      {/* 已归档列表接入统一加载骨架与错误重试状态 */}
+      <QueryState query={list} rows={3} isEmpty={(data) => data.length === 0}
+        emptyText={t("没有已归档的对话。在左侧对话上右键可以归档。")}>
+        {() => !items.length ? <Empty text={t("没有匹配的对话")} compact /> : (
+          <div className="av-analysis__list">
+            {items.map((c) => (
+              <div key={c.id} className="av-row av-archived__row">
+                <Link to={`/analysis/runs/${c.latest_run_id}`} className="av-row__main">
+                  <span className="av-row__title">{titleOf(c)}</span>
+                  <span className="av-row__meta">{t("{{count}} 轮 · 最近 {{time}}", { count: c.turn_count, time: formatTime(c.updated_at, tz) })}
+                    {c.archived_at ? t(" · 归档于 {{time}}", { time: formatTime(c.archived_at, tz) }) : ""}</span>
+                </Link>
+                <span className="av-actions">
+                  <button type="button" className="av-btn av-btn--secondary av-btn--sm"
+                    onClick={() => actions.restore(c.id).catch((e) => setError(errorText(e)))}><Icon name="refresh" small />{t("恢复")}</button>
+                  <button type="button" className="av-btn av-btn--ghost av-btn--sm av-archived__delete" onClick={() => setDeleting(c)}>
+                    <Icon name="trash" small />{t("删除")}</button>
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )}
+      </QueryState>
       {deleting ? <DeleteDialog c={deleting} onCancel={() => setDeleting(null)} onDone={() => setDeleting(null)} remove={actions.remove} /> : null}
     </section>
   );

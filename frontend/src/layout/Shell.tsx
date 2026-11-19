@@ -165,7 +165,8 @@ function NotificationBell() {
 }
 
 
-// 没有保存过偏好时跟随窗口宽度：1100px 及以下收起，拉宽后自动展开
+// 768px 及以下强制收起侧栏；其余宽度在未保存偏好时按 1100px 阈值自动收起或展开
+const COMPACT = "(max-width: 768px)";
 const NARROW = "(max-width: 1100px)";
 
 function savedCollapsed(): boolean | null {
@@ -178,14 +179,25 @@ function savedCollapsed(): boolean | null {
 }
 
 function useCollapsed() {
-  const [collapsed, setCollapsed] = useState(() => savedCollapsed() ?? window.matchMedia(NARROW).matches);
+  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT).matches);
+  const [collapsed, setCollapsed] = useState(() =>
+    window.matchMedia(COMPACT).matches ? true : (savedCollapsed() ?? window.matchMedia(NARROW).matches));
   useEffect(() => {
-    const media = window.matchMedia(NARROW);
-    const follow = () => { if (savedCollapsed() === null) setCollapsed(media.matches); };
-    media.addEventListener("change", follow);
-    return () => media.removeEventListener("change", follow);
+    const compactMedia = window.matchMedia(COMPACT);
+    const narrowMedia = window.matchMedia(NARROW);
+    const syncCompact = () => {
+      setCompact(compactMedia.matches);
+      setCollapsed(compactMedia.matches ? true : (savedCollapsed() ?? narrowMedia.matches));
+    };
+    const follow = () => { if (!compactMedia.matches && savedCollapsed() === null) setCollapsed(narrowMedia.matches); };
+    compactMedia.addEventListener("change", syncCompact);
+    narrowMedia.addEventListener("change", follow);
+    return () => {
+      compactMedia.removeEventListener("change", syncCompact);
+      narrowMedia.removeEventListener("change", follow);
+    };
   }, []);
-  return [collapsed, setCollapsed] as const;
+  return [compact || collapsed, setCollapsed, compact] as const;
 }
 
 function Sidebar() {
@@ -193,10 +205,21 @@ function Sidebar() {
   const location = useLocation();
   const sources = useDatasources();
   const tasks = useAnalysisTasks();
-  const [collapsed, setCollapsed] = useCollapsed();
+  const [wideCollapsed, setCollapsed, compact] = useCollapsed();
+  // 窄屏默认收起，可临时展开为浮层（保留最近对话入口）；切换页面、点外部或按 Esc 收回
+  const [overlay, setOverlay] = useState(false);
+  const collapsed = compact ? !overlay : wideCollapsed;
+  useEffect(() => { setOverlay(false); }, [location.pathname, compact]);
+  useEffect(() => {
+    if (!overlay) return;
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") setOverlay(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlay]);
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   const ok = primary?.last_run ? primary.last_run.status === "succeeded" : null;
   const toggle = () => {
+    if (compact) { setOverlay(!overlay); return; }
     setCollapsed(!collapsed);
     try {
       localStorage.setItem("avelis.sidebar", collapsed ? "open" : "collapsed");
@@ -205,7 +228,9 @@ function Sidebar() {
     }
   };
   return (
-    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}`} aria-label={t("主导航")}>
+    <>
+    {compact && overlay ? <div className="av-sb__scrim" aria-hidden="true" onClick={() => setOverlay(false)} /> : null}
+    <nav className={`av-sb${collapsed ? " is-collapsed" : ""}${compact && overlay ? " is-overlay" : ""}`} aria-label={t("主导航")}>
       <div className="av-sb__brand">
         <Link to="/" aria-label={t("Avelis 工作台")}>{collapsed ? <LogoMark size={28} /> : <Logo size={28} />}</Link>
         <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
@@ -221,8 +246,8 @@ function Sidebar() {
               {ok === null ? t("尚未采集") : ok ? t("采集正常") : t("采集失败")}</small></span>
         </Link>
       ) : null}
-      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新问题")}>
-        <Icon name="plus" /><span className="av-sb__label">{t("新问题")}</span>
+      <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新建提问")}>
+        <Icon name="plus" /><span className="av-sb__label">{t("新建提问")}</span>
       </button>
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
@@ -253,6 +278,7 @@ function Sidebar() {
         <NotificationBell />
       </div>
     </nav>
+    </>
   );
 }
 

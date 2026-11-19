@@ -137,6 +137,8 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
     params: { path: { datasource_id: ds.id }, query: { wait: true } },
   })), ["datasources", "runs", "assets", "change-sets", "graph"]);
   const [alias, setAlias] = useState({ host: "", port: "" });
+  // 无端点别名时默认收起表单，点击“添加别名”后再展开
+  const [addingAlias, setAddingAlias] = useState(false);
   const addAlias = useAction(() => unwrap(api.POST("/api/endpoint-aliases", {
     body: { datasource_id: ds.id, host: alias.host.trim(), port: Number(alias.port), note: null },
   })), ["datasources"]);
@@ -148,7 +150,8 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
   return (
     <>
       <PaneHeader title={<><span className="av-datasources__name">{ds.name}</span><Plat kind={ds.kind} /><Pill tone={ds.is_test_adapter ? "warn" : "ok"}>{ds.source_label}</Pill></>}>
-        <button type="button" className="av-btn av-btn--primary" disabled={!canEdit || collect.isPending}
+        {/* 重新采集改为次要按钮，避免与右上角添加数据源主按钮竞争焦点 */}
+        <button type="button" className="av-btn av-btn--secondary" disabled={!canEdit || collect.isPending}
           aria-busy={collect.isPending} onClick={() => collect.mutate(undefined, {
             onSuccess: (r) => setMessage({ ok: r.status === "succeeded", text: r.status === "succeeded"
               ? t("采集完成：新版本 {{v1}}，变更 {{v2}} 项", { v1: String(r.stats?.new_versions ?? 0), v2: eventCount(r.stats) })
@@ -181,16 +184,23 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
               <dt>{t("地址")}</dt><dd className="av-mono">{ds.host}:{ds.port}</dd>
               <dt>{t("实例")}</dt><dd className="av-mono">{Object.entries(ds.server_identity).filter(([, v]) => v).map(([k, v]) => `${k}=${String(v)}`).join(" · ") || "—"}</dd>
             </dl>
-            <PaneHeader title={<>{t("端点别名")} <Hint text={t("同一实例在其他系统中的地址，用于追溯外部表")} /></>} count={ds.aliases.length} />
+            <PaneHeader title={<>{t("端点别名")} <Hint text={t("同一实例在其他系统中的地址，用于追溯外部表")} /></>} count={ds.aliases.length}>
+              {canEdit && !ds.aliases.length && !addingAlias ? (
+                <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setAddingAlias(true)}>
+                  <Icon name="plus" small />{t("添加别名")}
+                </button>
+              ) : null}
+            </PaneHeader>
+            {/* 无端点别名时仅显示紧凑提示，不展示大空态插画与常驻表单 */}
             {ds.aliases.length ? <div className="av-table-wrap"><table className="av-table">
               <thead><tr><th>{t("地址")}</th><th>{t("说明")}</th></tr></thead>
               <tbody>{ds.aliases.map((a) => <tr key={a.id}><td className="av-mono">{a.host}:{a.port}</td><td>{a.note ?? "—"}</td></tr>)}</tbody>
-            </table></div> : <Empty compact text={t("暂无端点别名")} />}
-            {canEdit ? <form className="av-alias-form" aria-busy={addAlias.isPending} onSubmit={(e) => {
+            </table></div> : !addingAlias ? <span className="av-caption">{t("暂无端点别名")}</span> : null}
+            {canEdit && (ds.aliases.length > 0 || addingAlias) ? <form className="av-alias-form" aria-busy={addAlias.isPending} onSubmit={(e) => {
               e.preventDefault();
               if (addAlias.isPending || !alias.host.trim() || !validPort(alias.port)) return;
               addAlias.mutate(undefined, {
-                onSuccess: () => { setAlias({ host: "", port: "" }); setMessage({ ok: true, text: t("已登记端点别名") }); },
+                onSuccess: () => { setAlias({ host: "", port: "" }); setAddingAlias(false); setMessage({ ok: true, text: t("已登记端点别名") }); },
                 onError: (error) => setMessage({ ok: false, text: errorText(error) }),
               });
             }}>
@@ -198,9 +208,17 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
                 value={alias.host} onChange={(e) => setAlias({ ...alias, host: e.target.value })} /></label>
               <label className="av-field"><span className="av-label">{t("端口")}</span><input className="av-input av-mono" type="number" min={1} max={65535} required disabled={addAlias.isPending}
                 value={alias.port} onChange={(e) => setAlias({ ...alias, port: e.target.value })} /></label>
-              <button type="submit" className="av-btn av-btn--secondary" disabled={!alias.host.trim() || !validPort(alias.port) || addAlias.isPending}>
-                {addAlias.isPending ? t("添加中…") : t("添加")}
-              </button>
+              <div className="av-actions">
+                <button type="submit" className="av-btn av-btn--secondary" disabled={!alias.host.trim() || !validPort(alias.port) || addAlias.isPending}>
+                  {addAlias.isPending ? t("添加中…") : t("添加")}
+                </button>
+                {!ds.aliases.length ? (
+                  <button type="button" className="av-btn av-btn--ghost" disabled={addAlias.isPending}
+                    onClick={() => { setAddingAlias(false); setAlias({ host: "", port: "" }); }}>
+                    {t("取消")}
+                  </button>
+                ) : null}
+              </div>
             </form> : null}
           </section>
 

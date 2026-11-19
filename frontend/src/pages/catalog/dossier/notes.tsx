@@ -39,7 +39,8 @@ export function NoteEditor({ label, initial, busy, onCancel, onSave }: {
   const submit = () => { if (text.trim() && !busy) onSave(text.trim()); };
   return (
     <div className="av-dossier-editor">
-      <input className="av-input" autoFocus aria-label={label} value={text} placeholder={t("用一句话说清楚")}
+      {/* 行内说明占位符采用规范书面短语 */}
+      <input className="av-input" autoFocus aria-label={label} value={text} placeholder={t("简要说明业务含义或加工逻辑")}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }} />
       <div className="av-actions">

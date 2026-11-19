@@ -1,5 +1,5 @@
 // 字段来源：来源字段 → 本表字段 → 一句人话说明（表达式收起）。说明可由模型起草，负责人确认或改写（ADR 0022）。
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router";
 
 import { api, unwrap } from "../../../api/client";
@@ -87,6 +87,11 @@ export function FieldLineage({ assetId, d }: { assetId: string; d: AssetDossier 
   );
 }
 
+// 限定名在点号后插入零宽折行点，窄列优先按表名与字段名层级断行
+const breakAtDot = (name: string) => name.split(".").map((part, i, arr) => (
+  <Fragment key={i}>{part}{i < arr.length - 1 ? <>.<wbr /></> : null}</Fragment>
+));
+
 function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
   f: Field; canEdit: boolean; editing: boolean; busy: boolean;
   onEdit: () => void; onCancel: () => void; onSave: (column: string, text: string, confirm: boolean) => void;
@@ -101,8 +106,8 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
           <span className="av-dossier-src">{sources.map((s, i) => (
             <span key={`${s.ref}.${s.column ?? ""}-${i}`} className="av-dossier-src__item">
               <i aria-hidden />
-              {s.asset_id ? <Link className="av-mono" to={`/catalog/assets/${s.asset_id}`} title={s.ref}>{sourceLabel(s)}</Link>
-                : <span className="av-mono" title={s.ref}>{sourceLabel(s)}</span>}
+              {s.asset_id ? <Link className="av-mono" to={`/catalog/assets/${s.asset_id}`} title={s.ref}>{breakAtDot(sourceLabel(s))}</Link>
+                : <span className="av-mono" title={s.ref}>{breakAtDot(sourceLabel(s))}</span>}
             </span>
           ))}</span>
         ) : <span className="av-muted">—</span>}
@@ -127,23 +132,23 @@ function FieldRow({ f, canEdit, editing, busy, onEdit, onCancel, onSave }: {
               <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={busy} onClick={() => onSave(f.column, note!.text, true)}
                 aria-label={t("确认 {{name}} 的说明", { name: f.column })}>{t("确认")}</button>
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
-                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
+                aria-label={t("编辑 {{name}} 的说明", { name: f.column })}>{t("编辑")}</button>
             </> : null}
             {canEdit && state === "confirmed" ? (
               <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onEdit}
-                aria-label={t("修改 {{name}} 的说明", { name: f.column })}>{t("修改")}</button>
+                aria-label={t("编辑 {{name}} 的说明", { name: f.column })}>{t("编辑")}</button>
             ) : null}
             {canEdit && state === "none" ? (
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={onEdit}
                 aria-label={t("为 {{name}} 添加说明", { name: f.column })}>{t("添加说明")}</button>
             ) : null}
-            {f.expression ? (
-              <details className="av-dossier-details">
-                <summary>{t("表达式")}</summary>
-                <code className="av-dossier-expr">{f.expression}</code>
-              </details>
-            ) : null}
           </div>
+          {f.expression ? (
+            <details className="av-disclosure av-dossier-lineage__expr">
+              <summary>{t("表达式")}</summary>
+              <code className="av-dossier-expr">{f.expression}</code>
+            </details>
+          ) : null}
         </>}
       </td>
     </tr>

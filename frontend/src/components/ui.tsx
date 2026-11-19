@@ -1,7 +1,7 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
 import type { UseQueryResult } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 
@@ -13,7 +13,7 @@ export { ConfirmDialog, DateInput, Select, SuggestInput } from "./controls";
 
 // --- 状态：状态点 + 两三个字（文字取自语言包 status.*） ----------------------------------
 
-type Tone = "ok" | "warn" | "danger" | "info" | "";
+export type Tone = "ok" | "warn" | "danger" | "info" | "";
 
 const STATUS: Record<string, [Tone, string]> = {
   // 指标版本
@@ -24,7 +24,7 @@ const STATUS: Record<string, [Tone, string]> = {
   error: ["danger", t("出错")],
   // 变更、复核、任务
   open: ["warn", t("待处理")], resolved: ["ok", t("已处理")], queued: ["info", t("排队中")], running: ["info", t("进行中")],
-  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")],
+  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")], stopped: ["", t("已停止")],
   // 同一张表、粒度、指纹
   confirmed: ["ok", t("同一张表")], candidate: ["warn", t("待确认")], mismatch: ["danger", t("列不一致")],
   unresolved: ["", t("未匹配")], verified: ["ok", t("已核验")], unverified: ["warn", t("未核验")], violated: ["danger", t("不唯一")],
@@ -51,24 +51,68 @@ export function Pill({ tone = "", children, title }: { tone?: Tone; children: Re
   return <span className={`av-pill${tone ? ` av-pill--${tone}` : ""}`} title={title}>{children}</span>;
 }
 
-export function Dot({ tone = "" }: { tone?: Tone }) {
-  return <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}`} />;
+// 状态圆点：可选悬浮提示与读屏文字，避免仅靠颜色传达状态
+export function Dot({ tone = "", label, className }: { tone?: Tone; label?: string; className?: string }) {
+  return (
+    <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}${className ? ` ${className}` : ""}`} data-tip={label || undefined}>
+      {label ? <span className="av-sr">{label}</span> : null}
+    </span>
+  );
 }
 
 export function Count({ n }: { n: number }) {
   return <span className="av-count">{n}</span>;
 }
 
-/** 按 offset 翻页：列表按 page + 1 条取数，多出的那条只用来判断有没有下一页（没有总数也能翻）。 */
-export function Pager({ offset, shown, page, hasNext, busy, onChange }: { offset: number; shown: number; page: number; hasNext: boolean;
-  /** 新一页还在加载（仍显示上一页占位）：暂停向后翻，避免连点越过末页 */
-  busy?: boolean; onChange: (offset: number) => void }) {
-  if (offset === 0 && !hasNext) return null;
-  return <div className="av-actions av-webhooks__pager">
-    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={offset === 0} onClick={() => onChange(Math.max(0, offset - page))}>{t("上一页")}</button>
-    <span className="av-caption av-mono">{shown ? `${offset + 1}–${offset + shown}` : "—"}</span>
-    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasNext || busy} onClick={() => onChange(offset + page)}>{t("下一页")}</button>
-  </div>;
+/** 统一分页条：兼容无总数的 hasNext 翻页与已知 total 的范围翻页。 */
+export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, compact, alwaysShow, label, ariaLabel, onChange }: {
+  offset: number; page: number; shown?: number; total?: number; hasNext?: boolean;
+  /** 占位数据加载中：暂停向后翻，避免连点越过末页 */
+  busy?: boolean;
+  /** 整页切换加载中：前后翻页均暂停 */
+  paging?: boolean;
+  align?: "end" | "center";
+  inline?: boolean;
+  compact?: boolean;
+  alwaysShow?: boolean;
+  label?: ReactNode;
+  /** 同页有多个分页条时用于区分的读屏名称 */
+  ariaLabel?: string;
+  onChange: (offset: number) => void;
+}) {
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef<"prev" | "next" | null>(null);
+  const more = hasNext ?? (total !== undefined ? offset + page < total : false);
+  const prevDisabled = !!(paging || offset === 0);
+  const nextDisabled = !!(paging || busy || !more);
+  // 首末页按钮因翻页变为禁用时将焦点移至另一侧可用按钮，避免键盘焦点丢失到 body
+  useEffect(() => {
+    const side = pendingFocus.current;
+    if (!side || paging || busy) return;
+    pendingFocus.current = null;
+    if (side === "prev") {
+      if (!prevDisabled) prevRef.current?.focus();
+      else if (!nextDisabled) nextRef.current?.focus();
+    } else {
+      if (!nextDisabled) nextRef.current?.focus();
+      else if (!prevDisabled) prevRef.current?.focus();
+    }
+  }, [offset, more, paging, busy, prevDisabled, nextDisabled]);
+  if (!alwaysShow && offset === 0 && !more) return null;
+  const range = label ?? (total !== undefined
+    ? (total > 0 ? `${offset + 1}–${Math.min(offset + (shown ?? page), total)}${inline || compact ? "" : ` / ${total}`}` : "0")
+    : (shown ? `${offset + 1}–${offset + shown}` : "—"));
+  const cls = `av-pager${align === "center" ? " av-pager--center" : ""}${inline ? " av-pager--inline" : ""}${compact ? " av-pager--compact" : ""}`;
+  return (
+    <nav className={cls} aria-label={ariaLabel ?? t("分页")}>
+      <button ref={prevRef} type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={prevDisabled}
+        onClick={() => { if (document.activeElement === prevRef.current) pendingFocus.current = "prev"; onChange(Math.max(0, offset - page)); }}>{t("上一页")}</button>
+      <span className={`av-caption${label ? "" : " av-mono"}`}>{range}</span>
+      <button ref={nextRef} type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={nextDisabled}
+        onClick={() => { if (document.activeElement === nextRef.current) pendingFocus.current = "next"; onChange(offset + page); }}>{t("下一页")}</button>
+    </nav>
+  );
 }
 
 const PLAT: Record<string, string> = {
@@ -120,15 +164,30 @@ export function Seg<T extends string>({ value, options, onChange, label }: {
   );
 }
 
+// 共享标签页：支持 roving tabIndex 与左右方向键、Home/End 循环切换
 export function Tabs<T extends string>({ value, options, onChange }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void;
 }) {
   const id = useId();
+  const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const len = options.length;
+    if (!len) return;
+    const next = e.key === "ArrowRight" ? (i + 1) % len
+      : e.key === "ArrowLeft" ? (i + len - 1) % len
+      : e.key === "Home" ? 0 : e.key === "End" ? len - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    onChange(options[next].value);
+    tabsRef.current[next]?.focus();
+  };
   return (
     <div className="av-tabs" role="tablist">
-      {options.map((o) => (
-        <button key={o.value} type="button" className="av-tab" role="tab" aria-selected={o.value === value}
-          onClick={() => onChange(o.value)}>{o.label}
+      {options.map((o, i) => (
+        <button key={o.value} ref={(el) => { tabsRef.current[i] = el; }} type="button" className="av-tab" role="tab"
+          aria-selected={o.value === value} tabIndex={i === activeIndex ? 0 : -1}
+          onClick={() => onChange(o.value)} onKeyDown={(e) => onKeyDown(e, i)}>{o.label}
           {o.value === value ? <motion.span layoutId={`tab${id}`} className="av-tab__bar" aria-hidden /> : null}</button>
       ))}
     </div>
@@ -217,7 +276,8 @@ export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, co
   rows?: number; compact?: boolean; children: (data: T) => ReactNode;
 }) {
   if (query.isPending) return <Skeleton rows={rows} />;
-  if (query.isError) {
+  // 已有数据时后台刷新失败不替换内容（避免卸载正在编辑的输入），只有首次加载失败才显示报错
+  if (query.isError && query.data === undefined) {
     return (
       <div className="av-query-error" role="alert">
         <span className="av-banner av-banner--danger"><Icon name="info" />{query.error instanceof Error ? query.error.message : t("加载失败")}</span>
@@ -268,7 +328,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
     const focusables = () => Array.from(ref.current?.querySelectorAll<HTMLElement>(
       "input, select, textarea, button, a[href], [tabindex]:not([tabindex='-1'])") ?? []).filter((el) => !el.hasAttribute("disabled"));
     (focusables().find((el) => el.tagName !== "BUTTON") ?? focusables()[0])?.focus();
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") setClosing(true);
       if (e.key !== "Tab") return;
       const items = focusables();

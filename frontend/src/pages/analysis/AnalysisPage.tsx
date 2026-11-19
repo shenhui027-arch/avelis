@@ -1,12 +1,12 @@
 // 问数：对话（问题、过程、回答、追问）| 右侧证据（数据集、图表、SQL）；新建、最近对话、经验与定时任务在应用侧边栏。
 // 报告里的数字由后端按引用渲染（ADR 0009）：数字下划线可悬停看来源数据集、取值路径与原值；人机协作见 AnalysisInteractions（ADR 0013）。
 import { useQuery } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useAnalysisTasks, useExampleQuestions, useNumberStyle, useTimeZone, type Answer } from "../../api/hooks";
-import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, Status } from "../../components/ui";
+import { Code, DateInput, Drawer, Empty, Hint, Icon, Pill, QueryState, Seg, Status } from "../../components/ui";
 import { formatTime, lastMonths } from "../../format";
 import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
 import { CandidatesPanel, ClarifyPanel, type ClarifyItem, ConfirmPanel, ExperienceList, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
@@ -16,7 +16,7 @@ import { ChartPanel } from "../../components/charts/ChartPanel";
 import { Insights, Narrative } from "../../components/AnswerInsights";
 import type { ChartSpec } from "../../components/charts/chartOption";
 import { ArchivedConversations } from "../../layout/Conversations";
-import { datasetCell, datasetLabel, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
+import { datasetCell, datasetLabel, datasetNumeric, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
 import { ChipMenu } from "./ComposeOptions";
 import { motion } from "motion/react";
 import { RevealGroup, revealItem } from "../../components/Motion";
@@ -88,9 +88,12 @@ function windowBody(kind: WindowKind, fixed: { start: string; end: string; cs: s
 export function AnalysisPage() {
   const { runId, section } = useParams();
   const view = section === "tasks" || section === "experiences" || section === "archived" ? section : "runs";
-  const evidence = view === "runs" && !!runId;
+  const inRun = view === "runs" && !!runId;
   const dataset = useOpenDataset();
-  const run = useRun(evidence ? runId : undefined);
+  const run = useRun(inRun ? runId : undefined);
+  // 取数类回答且无数据集时不显示右侧证据空栏，让主区占满
+  const lookupEmpty = (run.data?.report as { kind?: string } | null)?.kind === "lookup" && !run.data?.datasets?.length;
+  const evidence = inRun && !!run.data && !lookupEmpty;
   return (
     <div className={`av-analysis${evidence ? " has-evidence" : ""}`}>
       <main className="av-analysis__center">
@@ -101,8 +104,7 @@ export function AnalysisPage() {
         </div> : runId && view === "runs" ? <RunDetail id={runId} /> : <div className="av-analysis__scroll">
           {view === "tasks" ? <div className="av-analysis__page"><PageHead title={t("定时任务")} /><TaskList /></div>
             : view === "archived" ? <div className="av-analysis__page"><PageHead title={t("已归档的对话")} hint={t("归档的对话可以打开查看、恢复到左侧，或永久删除")} /><ArchivedConversations /></div>
-            : view === "experiences" ? <div className="av-analysis__page">
-              <PageHead title={t("个人经验")} hint={t("在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回")} /><ExperienceList /></div>
+            : view === "experiences" ? <ExperiencesPage />
             : <Composer />}
         </div>}
       </main>
@@ -111,8 +113,23 @@ export function AnalysisPage() {
   );
 }
 
-function PageHead({ title, hint }: { title: string; hint?: string }) {
-  return <header className="av-analysis__pagehd"><h1>{title}{hint ? <Hint text={hint} /> : null}</h1></header>;
+function PageHead({ title, hint, children }: { title: string; hint?: string; children?: ReactNode }) {
+  // 页头复用 .av-pagehd 结构，右侧可放分段控件或操作项
+  return <header className="av-pagehd av-analysis__pagehd"><h1>{title}{hint ? <Hint text={hint} /> : null}</h1>{children}</header>;
+}
+
+function ExperiencesPage() {
+  const [all, setAll] = useState(false);
+  // 将个人经验的“有效 / 全部”分段筛选移入页头右侧插槽
+  return (
+    <div className="av-analysis__page">
+      <PageHead title={t("个人经验")} hint={t("在分析中确认、否决或补充后保存；之后的分析按口径与资产自动召回")}>
+        <Seg label={t("显示范围")} value={all ? "all" : "active"} onChange={(v) => setAll(v === "all")}
+          options={[{ value: "active", label: t("有效") }, { value: "all", label: t("全部") }]} />
+      </PageHead>
+      <ExperienceList all={all} />
+    </div>
+  );
 }
 
 /** 状态：一个点加两三个字。 */
@@ -234,11 +251,22 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState(false); // 默认导出给决策者看的简报；勾选后带上依据附录（完整版）
   const ref = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  // 支持点外部或按 Esc 键关闭导出菜单
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent) {
+        if (e.key !== "Escape") return;
+        setOpen(false);
+        if (ref.current?.contains(document.activeElement)) trigger.current?.focus();
+      } else if (!ref.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
     window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
+    window.addEventListener("keydown", close);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); };
   }, [open]);
   const item = (label: string, format: string, ext: string) => (
     <button type="button" role="menuitem" className="av-menu__item" onClick={() => {
@@ -249,11 +277,18 @@ function ExportMenu({ run, onError }: { run: Run; onError: (e: string) => void }
     }}>{label}</button>);
   return (
     <span className="av-analysis__menu" ref={ref}>
-      <button type="button" className="av-btn av-btn--secondary av-btn--sm" aria-haspopup="menu" aria-expanded={open}
+      <button ref={trigger} type="button" className="av-btn av-btn--secondary av-btn--sm" aria-haspopup="menu" aria-expanded={open}
         onClick={() => setOpen(!open)}><Icon name="download" />{t("导出")}<Icon name="chevron" small /></button>
       {open ? <div className="av-menu" role="menu">
-        {item("PDF", "pdf", "pdf")}{item("HTML", "html", "html")}{item("Markdown", "md", "md")}
-        <label className="av-menu__item av-analysis__export-full"><input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} />{t("附带依据（数据来源与查询明细）")}</label>
+        <div className="av-menu__group" role="group" aria-label={t("导出")}>
+          {item("PDF", "pdf", "pdf")}{item("HTML", "html", "html")}{item("Markdown", "md", "md")}
+        </div>
+        {/* 去掉原生复选框，改用与其他菜单项左对齐的 menuitemcheckbox */}
+        <button type="button" role="menuitemcheckbox" aria-checked={full} className="av-menu__item av-analysis__export-full"
+          onClick={() => setFull(!full)}>
+          <span>{t("附带依据（数据来源与查询明细）")}</span>
+          <span className="av-analysis__export-check" aria-hidden>{full ? <Icon name="check" small /> : null}</span>
+        </button>
       </div> : null}
     </span>
   );
@@ -317,7 +352,8 @@ function Figures({ runId, figures }: { runId: string; figures: Figure[] }) {
     {figures.map((f) => <figure key={f.ref} className="av-figure">
       {!f.chart.title && f.title ? <h3 className="av-chartpanel__title">{f.title}</h3> : null}
       <ChartPanel charts={[f.chart]} title={f.chart.title ?? f.title ?? f.ref} />
-      <figcaption className="av-caption">{t("数据")} <EvidenceLink runId={runId} refId={f.ref} /></figcaption>
+      {/* EvidenceLink 已含“数据”文案，去掉前置重复文字 */}
+      <figcaption className="av-caption"><EvidenceLink runId={runId} refId={f.ref} /></figcaption>
     </figure>)}
   </section>;
 }
@@ -340,7 +376,7 @@ function LookupAnswer({ a, onContinue }: { a: Answer; onContinue?: (text: string
       {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={(text) => onContinue?.(text)} disabled={!onContinue} /> : null}
       {!single && result.rows?.length ? <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
         <ResultTable result={result} dimensions={intent.group_by ?? []} /></ChartPanel> : null}
-      <details className="av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><Evidence a={a} /></details>
+      <details className="av-disclosure av-doc__more"><summary>{t("口径、来源与 SQL")}</summary><div className="av-doc__evidence"><Evidence a={a} /></div></details>
     </section>
   );
 }
@@ -359,30 +395,66 @@ function RunDetail({ id }: { id: string }) {
   const focus = useRef<HTMLDivElement>(null);
   const ids = conv.data?.runs.map((t) => t.id) ?? [id];
   const total = ids.length;
-  // 有多轮时定位到地址指向的那一轮（续问后地址换成新一轮，也就滚到新一轮）；
-  // 点某一轮的证据切换地址时，那一轮已在视口里就不跳动
+  // 目标轮挂载后定位到视口顶部；前序轮次由骨架加载为正文撑开高度时，在用户主动滚动前保持对齐
   useEffect(() => {
     const el = focus.current;
-    if (total < 2 || !el) return;
+    const scroller = el?.closest(".av-analysis__scroll");
+    if (total < 2 || !run.isSuccess || !el || !scroller) return;
     const box = el.getBoundingClientRect();
-    const view = el.closest(".av-analysis__scroll")?.getBoundingClientRect();
-    if (view && box.bottom > view.top && box.top < view.bottom) return;
-    el.scrollIntoView({ block: "start" });
-  }, [total, id]);
-  if (!run.data) return run.isError ? <Empty text={errorText(run.error)} /> : <Empty text={t("加载中…")} compact />;
-  const r = latest.data ?? run.data;
-  const live = ["queued", "running", "waiting"].includes(r.status);
-  const done = r.status === "succeeded";
-  const onContinue = done && !continueWith.pending ? (text: string) => continueWith.send(text) : undefined;
+    const view = scroller.getBoundingClientRect();
+    if (!(box.bottom > view.top && box.top < view.bottom)) {
+      el.scrollIntoView({ block: "start" });
+    }
+    const idx = ids.indexOf(id);
+    if (idx <= 0 || typeof ResizeObserver === "undefined") return;
+    const before = Array.from(scroller.querySelectorAll(":scope > .av-turn")).slice(0, idx);
+    if (!before.length) return;
+    let userMoved = false;
+    const stop = () => { userMoved = true; };
+    const heights = new Map(before.map((node) => [node, node.getBoundingClientRect().height]));
+    const ro = new ResizeObserver(() => {
+      if (userMoved) return;
+      let changed = false;
+      for (const node of before) {
+        const h = node.getBoundingClientRect().height;
+        if (Math.abs(h - (heights.get(node) ?? 0)) >= 1) {
+          heights.set(node, h);
+          changed = true;
+        }
+      }
+      if (changed) el.scrollIntoView({ block: "start" });
+    });
+    before.forEach((node) => ro.observe(node));
+    scroller.addEventListener("wheel", stop, { passive: true });
+    scroller.addEventListener("touchmove", stop, { passive: true });
+    scroller.addEventListener("pointerdown", stop, { passive: true });
+    return () => {
+      ro.disconnect();
+      scroller.removeEventListener("wheel", stop);
+      scroller.removeEventListener("touchmove", stop);
+      scroller.removeEventListener("pointerdown", stop);
+    };
+  }, [total, id, run.isSuccess]);
+  // 报告详情加载与出错状态接入 QueryState，避免闪现空态插画
   return (
-    <>
-      <div className="av-analysis__scroll">
-        {ids.map((tid, i) => <div key={tid} ref={tid === id ? focus : undefined} className="av-turn">
-          <TurnById id={tid} turn={i + 1} total={total} onContinue={onContinue} autoFollow={id === latestId} /></div>)}
-        {continueWith.error ? <div className="av-banner av-banner--danger av-turn__error">{continueWith.error}</div> : null}
-      </div>
-      {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
-    </>
+    <QueryState query={run}>
+      {(runData) => {
+        const r = latest.data ?? runData;
+        const live = ["queued", "running", "waiting"].includes(r.status);
+        const done = r.status === "succeeded";
+        const onContinue = done && !continueWith.pending ? (text: string) => continueWith.send(text) : undefined;
+        return (
+          <>
+            <div className="av-analysis__scroll">
+              {ids.map((tid, i) => <div key={tid} ref={tid === id ? focus : undefined} className="av-turn">
+                <TurnById id={tid} turn={i + 1} total={total} onContinue={onContinue} autoFollow={id === latestId} /></div>)}
+              {continueWith.error ? <div className="av-banner av-banner--danger av-turn__error">{continueWith.error}</div> : null}
+            </div>
+            {live || done ? <div className="av-dock">{live ? <Interject run={r} /> : <FollowupForm run={r} />}</div> : null}
+          </>
+        );
+      }}
+    </QueryState>
   );
 }
 
@@ -390,8 +462,12 @@ function RunDetail({ id }: { id: string }) {
 function TurnById({ id, turn, total, onContinue, autoFollow }: { id: string; turn: number; total: number; onContinue?: (text: string) => void;
   autoFollow?: boolean }) {
   const run = useRun(id);
-  if (!run.data) return run.isError ? <Empty text={errorText(run.error)} compact /> : <Empty text={t("加载中…")} compact />;
-  return <RunTurn r={run.data} turn={turn} total={total} onContinue={onContinue} autoFollow={autoFollow} />;
+  // 对话单轮加载与出错状态接入 QueryState
+  return (
+    <QueryState query={run} rows={3}>
+      {(data) => <RunTurn r={data} turn={turn} total={total} onContinue={onContinue} autoFollow={autoFollow} />}
+    </QueryState>
+  );
 }
 
 /** 对话里的一轮：问题、过程、报告。导出与状态按这一轮。 */
@@ -475,7 +551,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
           </div>
         </section>
         {verification.ok === false && verification.unverified ? <div className="av-banner av-banner--danger">{t("有 {{count}} 条事实或计算未通过来源校验，已在“结论依据”里标出", { count: verification.unverified })}</div> : null}
-        {badFields.map((f) => <details key={f.field} className="av-banner av-banner--warn av-fieldcheck">
+        {badFields.map((f) => <details key={f.field} className="av-banner av-banner--warn av-disclosure av-fieldcheck">
           <summary>{t("“{{field}}”里有内容没能核实来源（例如直接写了数字），这部分不算核验通过", { field: FIELD_LABEL[f.field] ?? f.field })}<span className="av-fieldcheck__more">{t("查看原因")}</span></summary>
           <ul>{(f.problems ?? []).map((p, i) => <li key={i}>{p}</li>)}</ul>
         </details>)}
@@ -512,7 +588,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       </> : null}
       {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
         <section className="av-analysis__joins" aria-label={t("关联路径")}>
-          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />{t("你确认的 {{count}} 条关联已提交为关联路径， 负责人审核通过后所有分析都能用。", { count: r.join_candidates.length })}<Link to="/catalog/joins">{t("查看")}</Link></p> : null}
+          {r.join_candidates?.length ? <p className="av-caption"><Icon name="link" small />{t("你确认的 {{count}} 条关联已提交为关联路径，负责人审核通过后所有分析都能用。", { count: r.join_candidates.length })}<Link to="/catalog/joins">{t("查看")}</Link></p> : null}
           {r.checkpoint_warnings?.map((w) => <div key={w} className="av-banner av-banner--warn" role="status"><Icon name="info" />{w}</div>)}
         </section>
       ) : null}
@@ -546,6 +622,8 @@ function Datasets({ id }: { id: string }) {
       {datasets.map((d) => {
         const [label, tone] = KIND_LABEL[d.kind] ?? [d.kind, "info"];
         const isOpen = open.has(d.ref);
+        // 证据预览表数值列右对齐，时间与维度列左对齐
+        const numCols = isOpen && !d.restricted ? d.columns.map((_, j) => datasetNumeric(d, j)) : [];
         return (
           <section key={d.ref} id={`dataset-${d.ref}`} className={`av-dataset${isOpen ? " is-open" : ""}`}>
             <button type="button" className="av-dataset__hd" aria-expanded={isOpen} onClick={() => setOpen((prev) => {
@@ -562,8 +640,8 @@ function Datasets({ id }: { id: string }) {
               : isOpen ? <div className="av-dataset__bd">
               {d.charts?.length ? <ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /> : null}
               <div className="av-table-wrap"><table className="av-table av-dataset__table">
-                <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
-                <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
+                <thead><tr>{d.columns.map((c, j) => <th key={c} className={numCols[j] ? "num" : undefined}>{datasetLabel(d, c)}</th>)}</tr></thead>
+                <tbody>{d.rows.slice(0, 12).map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j} className={numCols[j] ? "av-mono num" : "av-mono"}>{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
               </table></div>
               <div className="av-dataset__ft">
                 <span className="av-caption">{t("{{count}} 行", { count: d.row_count })}{d.inputs?.length ? t(" · 输入 {{v1}}", { v1: d.inputs.join(t("、")) }) : ""}</span>
@@ -573,7 +651,7 @@ function Datasets({ id }: { id: string }) {
                   `/api/analysis/runs/${id}/datasets/${d.seq}/csv`, `analysis-${id}-${d.ref}.csv`).catch((e) => setError(errorText(e)))}>
                   <Icon name="download" />CSV</button>
               </div>
-              {d.sql ? <details><summary className="av-caption">{t("SQL 与口径版本")}</summary><Code sql={d.sql} /></details> : null}
+              {d.sql ? <details className="av-disclosure"><summary>{t("SQL 与口径版本")}</summary><Code sql={d.sql} /></details> : null}
             </div> : null}
           </section>
         );
@@ -590,30 +668,31 @@ function TaskList() {
     params: { path: { task_id: v.id } }, body: { status: v.status } as never })), ["analysis-tasks"]);
   const runNow = useAction((id: string) => unwrap(api.POST("/api/analysis/tasks/{task_id}/run", {
     params: { path: { task_id: id } } })), ["analysis-tasks", "analysis-runs", "notifications"]);
-  const list = tasks.data ?? [];
   return (
     <section className="av-analysis__table">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {tasks.isSuccess && !list.length ? <Empty text={t("暂无定时任务：新建分析时点“定时”保存")} compact /> : null}
-      {list.map((task: Task) => (
-        <div key={task.id} className="av-row av-task">
-          <span className="av-row__main"><span className="av-row__title">{task.title}</span>
-            <span className="av-row__meta">{task.question}</span>
-            <span className="av-caption" title={task.schedule_cron ?? undefined}>{describeCron(task.schedule_cron)}{task.next_run_at ? t(" · 下次 {{v1}}", { v1: formatTime(task.next_run_at, tz) }) : ""}
-              {(task.window as { kind?: string }).kind === "last_month" ? t(" · 上月对比前月") : ""}</span>
-            {task.paused_reason ? <span className="av-caption av-claim__bad">{t("已暂停：")}{task.paused_reason}</span> : null}</span>
-          <Status value={task.status === "active" ? "active" : "paused"} label={task.status === "active" ? t("启用") : t("暂停")} />
-          <span className="av-actions">
-            {task.last_run_id ? <Link className="av-btn av-btn--ghost av-btn--sm" to={`/analysis/runs/${task.last_run_id}`}>{t("最近一次")}</Link> : null}
-            <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={runNow.isPending}
-              onClick={() => runNow.mutate(task.id, { onError: (e) => setError(errorText(e)), onSuccess: () => setError(null) })}>
-              <Icon name="play" />{runNow.isPending ? t("运行中…") : t("立即运行")}</button>
-            <button type="button" className="av-btn av-btn--ghost av-btn--sm"
-              onClick={() => patch.mutate({ id: task.id, status: task.status === "active" ? "paused" : "active" }, { onError: (e) => setError(errorText(e)) })}>
-              {task.status === "active" ? t("暂停") : t("启用")}</button>
-          </span>
-        </div>
-      ))}
+      {/* 定时任务列表接入 QueryState 处理骨架加载与失败重试 */}
+      <QueryState query={tasks} isEmpty={(list) => !list.length} emptyText={t("暂无定时任务：新建分析时点“定时”保存")} compact rows={3}>
+        {(list) => list.map((task: Task) => (
+          <div key={task.id} className="av-row av-task">
+            <span className="av-row__main"><span className="av-row__title">{task.title}</span>
+              <span className="av-row__meta">{task.question}</span>
+              <span className="av-caption" title={task.schedule_cron ?? undefined}>{describeCron(task.schedule_cron)}{task.next_run_at ? t(" · 下次 {{v1}}", { v1: formatTime(task.next_run_at, tz) }) : ""}
+                {(task.window as { kind?: string }).kind === "last_month" ? t(" · 上月对比前月") : ""}</span>
+              {task.paused_reason ? <span className="av-caption av-claim__bad">{t("已暂停：")}{task.paused_reason}</span> : null}</span>
+            <Status value={task.status === "active" ? "active" : "paused"} label={task.status === "active" ? t("启用") : t("暂停")} />
+            <span className="av-actions">
+              {task.last_run_id ? <Link className="av-btn av-btn--ghost av-btn--sm" to={`/analysis/runs/${task.last_run_id}`}>{t("最近一次")}</Link> : null}
+              <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={runNow.isPending}
+                onClick={() => runNow.mutate(task.id, { onError: (e) => setError(errorText(e)), onSuccess: () => setError(null) })}>
+                <Icon name="play" />{runNow.isPending ? t("运行中…") : t("立即运行")}</button>
+              <button type="button" className="av-btn av-btn--ghost av-btn--sm"
+                onClick={() => patch.mutate({ id: task.id, status: task.status === "active" ? "paused" : "active" }, { onError: (e) => setError(errorText(e)) })}>
+                {task.status === "active" ? t("暂停") : t("启用")}</button>
+            </span>
+          </div>
+        ))}
+      </QueryState>
     </section>
   );
 }

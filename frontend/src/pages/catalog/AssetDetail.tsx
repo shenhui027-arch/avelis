@@ -149,7 +149,7 @@ function Definition({ a }: { a: AssetDetailT }) {
   return (
     <>
       <section className="av-panel">
-        <div className="av-panel__hd"><h2 className="av-panel__title">{t("视图定义")} <Hint text={t("（数据库返回的原文）")} /></h2>
+        <div className="av-panel__hd"><h2 className="av-panel__title">{t("视图定义")} <Hint text={t("数据库返回的原文")} /></h2>
           {parse ? <Status value={parse.status} /> : null}</div>
         <div className="av-panel__bd av-asset-stack">
           <Code sql={a.definition?.raw_sql ?? ""} />
@@ -282,7 +282,7 @@ function Links({ a }: { a: AssetDetailT }) {
                 {l.target ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${l.target.id}`}>{t("查看源表")}</Link> : null}
                 <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${a.id}`}>{t("查看血缘")}</Link>
               </div>
-              <details className="av-asset-evidence"><summary>{t("核验依据")}</summary><dl className="av-kv">
+              <details className="av-disclosure av-asset-evidence"><summary>{t("核验依据")}</summary><dl className="av-kv">
                 <dt>{t("端点")}</dt><dd className="av-mono">{String(l.evidence.endpoint ?? t("未提供"))} {l.evidence.via ? `· ${String(l.evidence.via)}` : ""}</dd>
                 <dt>{t("数据源")}</dt><dd>{String(l.evidence.datasource ?? t("未提供"))}</dd>
                 <dt>{t("实例 UUID")}</dt><dd className="av-mono">{String(l.evidence.server_uuid ?? t("未确认"))}</dd>

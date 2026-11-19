@@ -1,11 +1,11 @@
 ﻿// 业务域：固定对象标题，分别浏览指标、资产和成员。
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useAssetSearch, useDomains, useMetrics, useUsers } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Banner, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, useMessage } from "../../components/ui";
+import { Banner, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, Tile, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { OssieExportButton } from "./OssieInterchange";
@@ -17,6 +17,12 @@ type DomainTab = typeof TABS[number]["value"];
 type MemberEditor = { user_id: string; role: string; name?: string };
 
 export function DomainDetail({ domainId }: { domainId: string }) {
+  const navigate = useNavigate();
+  // 整行可点：忽略内部链接、按钮与文本选中态，与目录页交互一致
+  const rowLink = (to: string) => (e: { target: EventTarget }) => {
+    if ((e.target as Element).closest("a, button") || window.getSelection()?.toString()) return;
+    navigate(to);
+  };
   const domains = useDomains();
   const users = useUsers();
   const metrics = useMetrics();
@@ -102,12 +108,12 @@ export function DomainDetail({ domainId }: { domainId: string }) {
             </div>
             {tab === "metrics" ? <QueryState query={metrics} isEmpty={() => filteredMetrics.length === 0} emptyText={query ? t("没有匹配的指标") : t("此业务域暂无指标")} emptyAction={query ? clearSearch : undefined} compact>
               {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("指标")}</th><th>{t("状态")}</th><th>{t("负责人")}</th></tr></thead><tbody>
-                {filteredMetrics.map((m) => <tr key={m.id}><td><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link><span className="av-domain-detail__identifier av-mono">{m.code}</span></td><td>{m.versions[0] ? <Status value={m.versions[0].status} /> : t("暂无版本")}</td><td>{m.owner.display_name}</td></tr>)}
+                {filteredMetrics.map((m) => <tr key={m.id} className="is-link" onClick={rowLink(`/catalog/metrics/${m.id}`)}><td><span className="av-cell"><Tile icon="chart" tone="catalog" /><span className="av-cell__text"><Link to={`/catalog/metrics/${m.id}`}>{m.name}</Link><span>{m.code}</span></span></span></td><td>{m.versions[0] ? <Status value={m.versions[0].status} /> : t("暂无版本")}</td><td>{m.owner.display_name}</td></tr>)}
               </tbody></table></div>}
             </QueryState> : null}
             {tab === "assets" ? <QueryState query={assets} isEmpty={() => filteredAssets.length === 0} emptyText={query ? t("没有匹配的资产") : t("此业务域暂无资产")} emptyAction={query ? clearSearch : undefined} compact>
               {() => <><div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("资产")}</th><th>{t("数据源")}</th></tr></thead><tbody>
-                {filteredAssets.map((a) => <tr key={a.id}><td className="av-mono"><Link to={`/catalog/assets/${a.id}`}>{a.qualified}</Link></td><td>{a.datasource.name}</td></tr>)}
+                {filteredAssets.map((a) => <tr key={a.id} className="is-link" onClick={rowLink(`/catalog/assets/${a.id}`)}><td><span className="av-cell"><Tile icon={a.kind === "view" || a.kind === "materialized_view" ? "view" : "table"} tone="collect" /><span className="av-cell__text"><Link to={`/catalog/assets/${a.id}`}>{a.qualified.split(".").pop()}</Link><span>{a.qualified}</span></span></span></td><td>{a.datasource.name}</td></tr>)}
               </tbody></table></div>
               <Pager offset={assetOffset} shown={filteredAssets.length} page={ASSET_PAGE} hasNext={moreAssets}
                 busy={assets.isPlaceholderData || assets.isFetching} onChange={setAssetOffset} /></>}

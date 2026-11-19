@@ -6,7 +6,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useNumberStyle } from "../../api/hooks";
-import { Code, DateInput, Drawer, Empty, Icon, Pill } from "../../components/ui";
+import { Code, DateInput, Drawer, Empty, Icon, Pager, Pill } from "../../components/ui";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import type { ChartSpec } from "../../components/charts/chartOption";
 import { t } from "../../i18n";
@@ -18,10 +18,22 @@ export const DATASET_KIND: Record<string, [string, "ok" | "warn" | "info"]> = { 
 const PAGE = 100;
 
 type Labelled = { column_roles?: Record<string, { role: string; label?: string }> | null; units?: Record<string, unknown> | null };
+const NUMERIC_ROLES = new Set(["measure", "change", "rate", "share", "contribution", "count", "ratio", "delta", "level", "rate_change"]);
 
 /** 数据集列标题：列契约里的显示名（含“<指标>·本期”这类系统翻译过的期间名），没有时用列名。 */
 export function datasetLabel(d: Labelled, column: string): string {
   return d.column_roles?.[column]?.label ?? column;
+}
+
+// 数值类列判定：时间与维度列保持左对齐，其余带数值角色、量纲或纯数值的列右对齐
+export function datasetNumeric(d: Labelled & { columns: readonly string[]; rows: readonly (readonly unknown[])[] }, index: number): boolean {
+  const column = d.columns[index];
+  const role = d.column_roles?.[column]?.role;
+  if (role === "time" || role === "dimension") return false;
+  if ((role && NUMERIC_ROLES.has(role)) || d.units?.[column] != null) return true;
+  const values = d.rows.map((r) => r[index]).filter((v) => v != null && v !== "");
+  return values.length > 0 && values.every((v) => typeof v === "number"
+    || (typeof v === "string" && /^[+-−]?(?:0|[1-9]\d*)(?:\.\d+)?%?$/.test(v.trim())));
 }
 
 /** 数据集单元格：有量纲的数值列按量纲格式化，其余原样。 */
@@ -77,10 +89,12 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
   const [label, tone]: [string, "ok" | "warn" | "info"] = d ? DATASET_KIND[d.kind] ?? [d.kind, "info"] : ["", "info"];
   const w = (d?.window ?? {}) as { start?: string; end?: string };
   const pages = d ? Math.max(1, Math.ceil(d.total / PAGE)) : 1;
+  // 按列计算是否右对齐数值，表头与单元格共用
+  const numCols = d ? d.columns.map((_, j) => datasetNumeric(d, j)) : [];
   return (
     <div className="av-dsview">
       <header className="av-dsview__hd">
-        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}>{t("← 返回报告")}</button>
+        <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onClose}><Icon name="back" small />{t("返回报告")}</button>
         <div className="av-dsview__title">
           <span className="av-tag av-mono">{refId}</span>
           <h1 title={d?.title}>{d?.title ?? t("数据集")}</h1>
@@ -110,15 +124,13 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
         {d.purpose ? <p className="av-dsview__purpose">{d.purpose}</p> : null}
         {shown === 0 && d.charts?.length ? <div className="av-dsview__chart"><ChartPanel charts={d.charts as ChartSpec[]} title={d.title} /></div> : null}
         <div className="av-table-wrap av-dsview__table" aria-busy={paging}><table className="av-table">
-          <thead><tr>{d.columns.map((c) => <th key={c}>{datasetLabel(d, c)}</th>)}</tr></thead>
-          <tbody>{d.rows.map((row, i) => <tr key={shown + i}>{row.map((v, j) => <td key={j} className="av-mono">{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
+          <thead><tr>{d.columns.map((c, j) => <th key={c} className={numCols[j] ? "num" : undefined}>{datasetLabel(d, c)}</th>)}</tr></thead>
+          <tbody>{d.rows.map((row, i) => <tr key={shown + i}>{row.map((v, j) => <td key={j} className={numCols[j] ? "av-mono num" : "av-mono"}>{datasetCell(d, d.columns[j], v, style)}</td>)}</tr>)}</tbody>
         </table></div>
-        {pages > 1 ? <div className="av-dsview__pager">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown === 0} onClick={() => setOffset(shown - PAGE)}>{t("上一页")}</button>
-          <span className="av-caption">{paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}</span>
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={paging || shown + PAGE >= d.total} onClick={() => setOffset(shown + PAGE)}>{t("下一页")}</button>
-        </div> : null}
-        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
+        <Pager offset={shown} page={PAGE} total={d.total} paging={paging} align="center"
+          label={paging ? t("加载第 {{page}} 页…", { page: offset / PAGE + 1 }) : t("第 {{page}} / {{pages}} 页", { page: shown / PAGE + 1, pages })}
+          onChange={setOffset} />
+        {d.sql ? <details className="av-fold"><summary>{t("SQL 与口径版本")} <span className="av-caption av-fold__aside">{d.metric_version_ids.length ? t("{{count}} 个口径版本", { count: d.metric_version_ids.length }) : t("探索查询")}</span></summary>
           {d.metric_version_ids.length ? <p className="av-caption av-mono">{d.metric_version_ids.join(t("、"))}</p> : null}
           <Code sql={d.sql} /></details> : null}
       </div> : null}

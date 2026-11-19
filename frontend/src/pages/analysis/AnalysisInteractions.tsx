@@ -6,7 +6,7 @@ import { Link, useNavigate } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
-import { Drawer, Empty, Icon, Pill, Seg, Select, shortName, Tile } from "../../components/ui";
+import { Drawer, Icon, Pill, QueryState, Seg, Select, shortName, Tile } from "../../components/ui";
 import { formatTime } from "../../format";
 import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 import { t } from "../../i18n";
@@ -198,8 +198,9 @@ export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
     }}>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <label htmlFor={`fu-${runId}`} className="av-sr">{t("质疑或补充")}</label>
+      {/* 追问框占位文案改为精炼书面短语 */}
       <textarea ref={input} id={`fu-${runId}`} rows={1} maxLength={4000} value={text}
-        placeholder={t("继续追问，或指出哪里不对、补充规则")} onChange={(e) => setText(e.target.value)}
+        placeholder={t("追问、指正或补充规则")} onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
       <div className="av-compose__bar">
         <span className="av-compose__spacer" />
@@ -256,10 +257,9 @@ function CandidateRow({ candidate, saved }: { candidate: Candidate; saved: boole
 }
 
 /** 个人经验：分析时按口径与资产召回；可编辑（生成新版本）或撤销，旧版本留底。 */
-export function ExperienceList() {
+export function ExperienceList({ all = false }: { all?: boolean }) {
   const list = useExperiences();
   const tz = useTimeZone();
-  const [all, setAll] = useState(false);
   const [editing, setEditing] = useState<Experience | null>(null);
   const [error, setError] = useState<string | null>(null);
   const revoke = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/revoke", {
@@ -268,41 +268,41 @@ export function ExperienceList() {
   const [proposed, setProposed] = useState<{ name: string; status: string } | null>(null);
   const toJoin = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/to-join-path", {
     params: { path: { experience_id: id } } })), ["analysis-experiences", "join-paths"]);
-  const rows = (list.data ?? []).filter((e) => all || e.status === "active");
   return (
     <section className="av-analysis__experiences">
-      <div className="av-analysis__experiences-hd">
-        <Seg label={t("显示范围")} value={all ? "all" : "active"} onChange={(v) => setAll(v === "all")}
-          options={[{ value: "active", label: t("有效") }, { value: "all", label: t("全部") }]} />
-      </div>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       {proposed ? <div className="av-banner av-banner--info">
         {proposed.status === "approved" ? t("已有相同的关联路径") : t("已提议为关联路径，等待负责人审核")}：{proposed.name}
         <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{t("查看")}</Link></div> : null}
-      {list.isSuccess && !rows.length ? <Empty text={t("暂无个人经验：在分析中确认或补充后保存")} compact /> : null}
-      <div className="av-analysis__list">
-        {rows.map((e) => (
-          <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
-            <Pill tone="">{EXP_KIND[e.kind] ?? e.kind}</Pill>
-            <span className="av-row__main"><span className="av-row__title av-experience__content">{e.content}</span>
-              <span className="av-row__meta" title={refsTitle(e.refs)}>
-                v{e.version} {t("· 引用 {{count}} 项 ·", { count: e.refs.length })} {formatTime(e.created_at, tz)}
-                {e.status !== "active" ? ` · ${e.status === "revoked" ? t("已撤销") : t("已替代")}` : ""}</span></span>
-            <span className="av-actions">
-              {e.status === "active" ? <>
-                {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
-                  title={t("表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用")}
-                  onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
-                    onSuccess: (out) => setProposed(out as { name: string; status: string }),
-                    onError: (err) => setError(errorText(err)) }); }}>{t("转为关联路径")}</button> : null}
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>{t("编辑")}</button>
-                <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
-                  onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>{t("撤销")}</button>
-              </> : null}
-            </span>
+      {/* 经验列表加载与报错统一走 QueryState，分段筛选已上移至 PageHead */}
+      <QueryState query={list} isEmpty={(data) => !data.some((e) => all || e.status === "active")}
+        emptyText={t("暂无个人经验：在分析中确认或补充后保存")} compact rows={3}>
+        {(data) => (
+          <div className="av-analysis__list">
+            {data.filter((e) => all || e.status === "active").map((e) => (
+              <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
+                <Pill tone="">{EXP_KIND[e.kind] ?? e.kind}</Pill>
+                <span className="av-row__main"><span className="av-row__title av-experience__content">{e.content}</span>
+                  <span className="av-row__meta" title={refsTitle(e.refs)}>
+                    v{e.version} {t("· 引用 {{count}} 项 ·", { count: e.refs.length })} {formatTime(e.created_at, tz)}
+                    {e.status !== "active" ? ` · ${e.status === "revoked" ? t("已撤销") : t("已替代")}` : ""}</span></span>
+                <span className="av-actions">
+                  {e.status === "active" ? <>
+                    {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
+                      title={t("表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用")}
+                      onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
+                        onSuccess: (out) => setProposed(out as { name: string; status: string }),
+                        onError: (err) => setError(errorText(err)) }); }}>{t("转为关联路径")}</button> : null}
+                    <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>{t("编辑")}</button>
+                    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
+                      onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>{t("撤销")}</button>
+                  </> : null}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )}
+      </QueryState>
       {editing ? <EditExperience experience={editing} onClose={() => setEditing(null)} /> : null}
     </section>
   );

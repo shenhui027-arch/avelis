@@ -16,7 +16,7 @@
 
 .av-dossier-node { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md);
   background: var(--bg-surface); box-shadow: var(--shadow-glass); color: inherit; text-decoration: none; }
-.av-dossier-node--link { transition: border-color .15s cubic-bezier(.22, 1, .36, 1); }
+.av-dossier-node--link { transition: border-color var(--dur-fast) var(--ease-out); }
 .av-dossier-node--link:hover { border-color: var(--line-strong); }
 .av-dossier-node--link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
@@ -34,7 +34,7 @@
 .av-dossier-hero__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); font: var(--type-body-compact); opacity: .92; }
 .av-dossier-hero__meta .av-avatar { width: 28px; height: 28px; background: color-mix(in srgb, var(--text-on-accent) 22%, transparent); color: var(--text-on-accent); font-size: 12px; }
 
-/* --- 一排等高卡片与通用列表行 ---------------------------------------------------------------------- */
+/* --- 并排卡片与通用列表行 ------------------------------------------------------------------------- */
 .av-dossier-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); align-items: stretch; }
 .av-dossier-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-4); }
 .av-dossier-card__hd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
@@ -67,23 +67,18 @@
 .av-dossier-src { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .av-dossier-src__item { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .av-dossier-src__item > i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--mod-lineage); }
-.av-dossier-src__item > :last-child { min-width: 0; overflow-wrap: anywhere; }
+/* 来源字段配合点号后零宽折行点优先分段，仅单段超宽时兜底断词 */
+.av-dossier-src__item > :last-child { min-width: 0; overflow-wrap: break-word; }
 .av-dossier-lineage__how p { margin: 0 0 4px; color: var(--text-primary); font: var(--type-body-compact); }
 .av-dossier-lineage__how p.is-stale { color: var(--text-tertiary); }
 .av-dossier-lineage__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font: var(--type-caption); }
 .av-dossier-lineage__more { padding: var(--space-2) 0; }
 
-/* 收起的表达式与脚本 */
-.av-dossier-details > summary { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font: 500 12px/20px var(--font-sans); list-style: none; cursor: pointer; }
-.av-dossier-details > summary::-webkit-details-marker { display: none; }
-.av-dossier-details > summary::before { content: ""; width: 0; height: 0; border-left: 4px solid currentColor; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
-  transition: transform .15s cubic-bezier(.22, 1, .36, 1); }
-.av-dossier-details[open] > summary::before { transform: rotate(90deg); }
-.av-dossier-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
-.av-dossier-lineage__meta .av-dossier-details[open] { flex-basis: 100%; }
-.av-dossier-expr { display: block; margin-top: 4px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-canvas); color: var(--text-secondary);
+/* 收起的表达式（箭头与展开统一复用 .av-disclosure） */
+.av-dossier-lineage__expr { margin-top: var(--space-1); }
+.av-dossier-expr { display: block; margin-top: var(--space-1); padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-canvas); color: var(--text-secondary);
   font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.av-dossier-details > .av-code { margin-top: var(--space-2); }
+.av-disclosure > .av-dossier-expr { margin-top: var(--space-1); }
 
 /* 行内编辑 */
 .av-dossier-editor { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
@@ -95,7 +90,7 @@
 .av-dossier-produced__item > p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); margin: 0; color: var(--text-secondary); font: var(--type-body-compact); overflow-wrap: anywhere; }
 
 @media (prefers-reduced-motion: reduce) {
-  .av-dossier-node--link, .av-dossier-details > summary::before { transition: none; }
+  .av-dossier-node--link { transition: none; }
 }
 
 /* --- 窄页面：流向带纵向堆叠（箭头朝下）；字段血缘表每行改成纵向块 ------------------------------------ */

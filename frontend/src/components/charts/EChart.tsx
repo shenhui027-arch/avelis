@@ -1,5 +1,5 @@
 // ECharts 画布（按需引入、单独分块懒加载）：主题从设计令牌读，深浅切换时重画；导出 PNG 用同一实例。
-import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
+import { BarChart, CustomChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import { DataZoomComponent, GridComponent, LegendComponent, MarkLineComponent, MarkPointComponent, TitleComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -8,8 +8,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { chartHeight, chartOption, type ChartSpec, type ChartTheme } from "./chartOption";
 import type { NumberStyle } from "../../numbers";
 
-// 标注（极值点、平均线）来自 chart 工具的 marks 参数，按需引入也要注册这两个组件
-echarts.use([BarChart, LineChart, PieChart, HeatmapChart, ScatterChart, VisualMapComponent, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent,
+// 标注（极值点、平均线）与稀疏热力图自定义底格均需按需注册
+echarts.use([BarChart, CustomChart, LineChart, PieChart, HeatmapChart, ScatterChart, VisualMapComponent, GridComponent, LegendComponent, TooltipComponent, DataZoomComponent, TitleComponent,
   MarkPointComponent, MarkLineComponent, CanvasRenderer]);
 
 function readTheme(): ChartTheme {
@@ -18,7 +18,7 @@ function readTheme(): ChartTheme {
   return {
     series: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => v(`--viz-${i}`)), neutral: v("--viz-neutral"), good: v("--ok"), bad: v("--danger"),
     grid: v("--viz-grid"), axis: v("--viz-axis"), text: v("--text-secondary"), muted: v("--text-tertiary"),
-    surface: v("--bg-overlay"), font: v("--font-sans"), mono: v("--font-mono"),
+    surface: v("--bg-overlay"), raised: v("--bg-raised"), font: v("--font-sans"), mono: v("--font-mono"),
   };
 }
 
@@ -31,6 +31,24 @@ function useTheme(): ChartTheme {
     return () => observer.disconnect();
   }, []);
   return theme;
+}
+
+/** 跟随系统“减少动态效果”偏好关闭图表动画。 */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
 }
 
 /** note：图上画不出、只在图下以文字给出的标注；下载 PNG 时一并画进图片底部，图片单独拿出去也不丢信息。 */
@@ -70,6 +88,7 @@ const EChart = forwardRef<EChartHandle, { spec: ChartSpec; style: NumberStyle; l
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (!host.current) return;
@@ -81,8 +100,10 @@ const EChart = forwardRef<EChartHandle, { spec: ChartSpec; style: NumberStyle; l
   }, []);
 
   useEffect(() => {
-    chart.current?.setOption(chartOption(spec, style, theme), { notMerge: true });
-  }, [spec, style, theme]);
+    const opt = chartOption(spec, style, theme);
+    if (reducedMotion) opt.animation = false;
+    chart.current?.setOption(opt, { notMerge: true });
+  }, [spec, style, theme, reducedMotion]);
 
   useImperativeHandle(ref, () => ({
     png: async (note?: string) => {

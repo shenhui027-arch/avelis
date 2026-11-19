@@ -5,7 +5,8 @@ import { formatDate } from "../../../format";
 import { t } from "../../../i18n";
 
 const WRITE_MODE_SENTENCE: Record<string, string> = {
-  overwrite: t("每次整表覆盖写入。"), append: t("脚本每次在已有数据后追加。"), create: t("每次删掉重建。"),
+  // 产出方式正文统一使用带句号的完整书面陈述句
+  overwrite: t("每次整表覆盖写入。"), append: t("脚本每次在已有数据后追加。"), create: t("每次重建整表。"),
 };
 
 export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
@@ -23,7 +24,7 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
         <div className="av-dossier-produced__item">
           <p>{t("这是一个视图，内容由定义实时算出")}</p>
           {a.definition?.raw_sql ? (
-            <details className="av-dossier-details">
+            <details className="av-disclosure">
               <summary>{t("视图 SQL")}</summary>
               <Code sql={a.definition.raw_sql} />
             </details>
@@ -40,7 +41,7 @@ export function ProducedBy({ a, d }: { a: AssetDetail; d: AssetDossier }) {
                 <span className="av-caption">{t("导入于 {{date}}", { date: formatDate(s.imported_at, tz) })}</span>
               </p>
               {s.sql ? (
-                <details className="av-dossier-details">
+                <details className="av-disclosure">
                   <summary>{t("脚本")}</summary>
                   <Code sql={s.sql} raw />
                 </details>
