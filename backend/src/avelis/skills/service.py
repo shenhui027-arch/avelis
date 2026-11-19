@@ -226,12 +226,11 @@ def detail(session: Session, actor: User, skill_id: str) -> dict:
 def _visible_version(session: Session, actor: User, skill_id: str, number: int) -> tuple[Skill, SkillVersion]:
     skill = _skill(session, skill_id)
     can_manage = _visible(skill, actor, access.is_admin(session, actor))
-    if not can_manage and number != skill.published_version:
-        raise NotFound(Msg("技能版本不存在"))
     version = session.scalar(
         select(SkillVersion).where(SkillVersion.skill_id == skill.id, SkillVersion.version == number)
     )
-    if version is None or (not can_manage and version.status != "approved"):
+    # 普通用户可访问详情里列出的版本：当前上架版本与被替换的历史版本
+    if version is None or (not can_manage and version.status not in ("approved", "superseded")):
         raise NotFound(Msg("技能版本不存在"))
     return skill, version
 

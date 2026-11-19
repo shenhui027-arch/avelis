@@ -4035,6 +4035,8 @@ class AnalysisToolbox:
             content, size, truncated, binary = skill_storage.read_file(name, skill["version"], path, 64 * 1024)
             if binary:
                 raise Invalid(Msg("技能工具只读取 UTF-8 文本文件"))
+            # 直接读取技能文件也算用到该技能；已有的引用与自动选用来源保持不变
+            self.used_skill_versions.setdefault(name, self._skill_ref(skill, "tool"))
             output = {"name": name, "path": path, "content": content, "size": size, "truncated": truncated}
             if truncated:
                 output["note"] = translate(Msg("文件内容已截断至 64 KB"))
