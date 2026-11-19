@@ -32,7 +32,7 @@ flowchart LR
 - **app**: `python -m avelis.server`. One port serves `/api` (API docs at `/api/docs`) and the built frontend (other paths fall back to `index.html` for client-side routing). On start it migrates the metadata database and creates the first administrator.
 - **worker**: `python -m avelis.jobs`. Runs collection jobs, scheduled collection and scheduled analyses, and purges expired history. Same image and configuration as app, in its own container.
 - **postgres**: the metadata database (only PostgreSQL is supported; it also stores the Ask agent's session state).
-- **redis**: a Redis-protocol service (Valkey 8 image) for job wake-ups, caching, locks and token revocation.
+- **redis**: a Redis-protocol service (Valkey 8 image) for job wake-ups, caching, locks, token revocation and the live progress of running analyses (reasoning text and the tool in progress; display only, expires on its own).
 
 The image is built by the multi-stage `Dockerfile` at the repository root: pnpm builds the frontend → uv installs backend dependencies from the lock file → runtime image (Python 3.12, non-root user `avelis`, UID 10001, with a health check and CJK fonts).
 

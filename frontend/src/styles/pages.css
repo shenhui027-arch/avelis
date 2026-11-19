@@ -848,39 +848,57 @@
 .av-next li:first-child { border-top: none; padding-top: 2px; }
 /* 经验候选折叠卡去掉内边距与行距（基础折叠容器见 kit.css .av-fold） */
 .av-fold.av-analysis__candidates { padding: 0; gap: 0; }
-/* 思考区：标题行可折叠；推理原文是灰色正文，左侧细线，不藏在按钮后面 */
-.av-think__hd { display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-2); height: 32px; padding: 0 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); background: var(--bg-raised); color: var(--text-secondary); font: 500 13px/1 var(--font-sans); cursor: pointer; }
+/* 思考与过程（逐条时间线）：顶部一行摘要可折叠；每段推理、每次工具调用各是一行卡片，运行中那一行转圈并带强调描边 */
+.av-think__hd { display: inline-flex; align-self: flex-start; align-items: center; gap: var(--space-2); max-width: 100%; min-height: 32px; padding: 0 12px 0 10px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); background: var(--bg-raised); color: var(--text-secondary); font: 500 13px/1 var(--font-sans); cursor: pointer; }
 .av-think__hd:hover { color: var(--text-primary); }
-.av-think__hd[aria-expanded="true"] .av-icon:last-child { transform: rotate(180deg); }
-.av-think__ft { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0 0 40px; }
-.av-thought { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--line-default); }
+.av-think__hd .av-caption { overflow: hidden; color: var(--text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
+.av-think__hd > .av-icon:first-child, .av-runlog__toggle > .av-icon:first-child { color: var(--text-tertiary); transform: rotate(-90deg); transition: transform var(--dur-fast) var(--ease-standard); }
+.av-think__hd[aria-expanded="true"] > .av-icon:first-child, .av-runlog__toggle[aria-expanded="true"] > .av-icon:first-child { transform: none; }
+.av-think__ft { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) 0 0 var(--space-6); }
 .av-thought__text { margin: 0; color: var(--text-tertiary); font: 400 13px/22px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
-.av-thought__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-/* 分析过程：任务清单卡片（AI Task List 形态），状态块之间一条引导线 */
-.av-runlog__steps { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: var(--space-2) var(--space-4); list-style: none;
-  border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
-.av-runlog__steps::before { content: ""; position: absolute; top: 24px; bottom: 24px; left: calc(var(--space-4) + 11.5px); width: 1px; background: var(--line-default); }
-.av-runlog__step { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: var(--space-3); padding: 8px 0; }
-.av-runlog__step > .av-tile { z-index: 1; box-shadow: 0 0 0 3px var(--bg-surface); }
-.av-runlog__line > .av-icon { color: var(--text-tertiary); }
-.av-runlog__step .av-tile .av-spinner { width: 12px; height: 12px; border-width: 1.5px; }
-.av-runlog__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 2px; }
-.av-runlog__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); }
-.av-runlog__title { color: var(--text-primary); font: 500 13px/20px var(--font-sans); }
-.av-runlog__reason { color: var(--text-tertiary); font: var(--type-caption); }
-.av-runlog__time { margin-left: auto; color: var(--text-disabled); font: var(--type-mono); }
-.av-runlog__detail { color: var(--text-secondary); font: var(--type-body-compact); overflow-wrap: anywhere; }
-.av-runlog__detail.is-thought { padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--accent-subtle); color: var(--text-primary); white-space: pre-wrap; }
+.av-runlog__steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.av-runlog__item { min-width: 0; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); background: var(--bg-surface); }
+.av-runlog__item.is-run { border-color: color-mix(in srgb, var(--accent) 40%, var(--line-subtle)); box-shadow: 0 0 0 3px var(--accent-subtle); }
+.av-runlog__row { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 0 12px 0 0; }
+.av-runlog__toggle { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 0 0 0 12px; border: none; border-radius: var(--radius-md) 0 0 var(--radius-md); background: none; color: inherit; font: inherit; text-align: left; }
+button.av-runlog__toggle { cursor: pointer; }
+button.av-runlog__toggle:hover .av-runlog__title { color: var(--accent-text); }
+.av-runlog__nochev { width: 14px; flex: none; }
+.av-runlog__mark { display: inline-flex; flex: none; }
+.av-runlog__mark .av-icon { width: 16px; height: 16px; }
+.av-runlog__mark.is-ok { color: var(--ok); }
+.av-runlog__mark.is-bad { color: var(--danger); }
+.av-runlog__mark.is-skip { color: var(--text-disabled); }
+.av-runlog__mark.is-think { color: var(--domain-violet); }
+.av-runlog__item .av-spinner { width: 14px; height: 14px; }
+.av-runlog__title { flex: none; color: var(--text-primary); font: 500 13px/20px var(--font-sans); }
+.av-runlog__detail { min-width: 0; overflow: hidden; color: var(--text-tertiary); font: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; }
+.av-runlog__time { flex: none; margin-left: auto; color: var(--text-disabled); font: var(--type-mono); }
+.av-runlog__body { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: 0 var(--space-4) var(--space-3) 60px; }
 .av-runlog__body .av-code, .av-runlog__body pre { max-height: 220px; overflow: auto; }
-.av-runlog__more { align-self: flex-start; padding: 0; border: none; background: none; color: var(--accent-text); font: var(--type-caption); cursor: pointer; }
+.av-runlog__desc { color: var(--text-secondary); font: var(--type-body-compact); overflow-wrap: anywhere; }
+.av-runlog__desc.is-reason { color: var(--text-tertiary); }
+.av-runlog__said { padding: 2px 0 2px var(--space-3); border-left: 2px solid var(--accent-subtle); color: var(--text-primary); font: var(--type-body-compact); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-runlog__stream { display: flex; flex-direction: column; gap: var(--space-2); max-height: 320px; overflow: auto; overscroll-behavior: contain; }
+.av-runlog__fields { display: flex; flex-direction: column; gap: 4px; }
+.av-runlog__label { color: var(--text-tertiary); font: var(--type-micro); }
+.av-runlog__fields dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px var(--space-3); margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--bg-raised); font: var(--type-mono); }
+.av-runlog__fields dl > div { display: contents; }
+.av-runlog__fields dt { color: var(--text-tertiary); }
+.av-runlog__fields dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
 .av-runlog__err { color: var(--danger); font: var(--type-caption); }
 .av-runlog__user { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; padding: 6px 0; }
 .av-runlog__bubble { max-width: 80%; padding: 10px 14px; border: 1px solid var(--line-subtle); border-radius: 16px 16px 4px 16px; background: var(--accent-subtle); color: var(--text-primary); font: var(--type-body); white-space: pre-wrap; }
 .av-runlog__user.is-question .av-runlog__bubble { font-size: 15px; line-height: 24px; }
-.av-runlog__step.is-pending { align-items: center; grid-template-columns: 24px auto; }
 .av-runlog__composer { display: flex; flex-direction: column; gap: var(--space-2); }
 .av-compose--inline textarea { min-height: 56px; font-size: 14px; }
-.av-runlog.is-live .av-runlog__steps { padding-bottom: var(--space-2); }
+/* 进行中的文字：一道光泽扫过；流式文字末尾一个闪烁的光标（减少动态效果时都静止，见 motion.css） */
+.av-shimmer { background: linear-gradient(90deg, var(--text-secondary) 0%, var(--text-secondary) 40%, var(--text-primary) 50%, var(--text-secondary) 60%, var(--text-secondary) 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: av-shimmer 2s linear infinite; }
+@keyframes av-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.av-caret { display: inline-block; width: 7px; height: 14px; margin-left: 2px; border-radius: 1px; background: var(--accent); vertical-align: -2px; animation: av-caret 1s steps(2) infinite; }
+@keyframes av-caret { 50% { opacity: 0; } }
+@media (max-width: 640px) { .av-runlog__body { padding-left: var(--space-4); } .av-runlog__detail { display: none; } }
 .av-lookup__value { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 .av-lookup__value > span:first-child { color: var(--text-primary); font: 500 32px/40px var(--font-mono); }
 .av-doc__lead { margin: 0; color: var(--text-primary); font: 400 15px/26px var(--font-sans); white-space: pre-wrap; }

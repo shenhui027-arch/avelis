@@ -9531,6 +9531,92 @@
     ],
     "title": "AnalysisFollowupIn"
    },
+   "AnalysisLiveOut": {
+    "properties": {
+     "phase": {
+      "type": "string",
+      "enum": [
+       "model",
+       "tool"
+      ],
+      "title": "Phase"
+     },
+     "after_seq": {
+      "type": "integer",
+      "title": "After Seq",
+      "description": "写入时已有的最后一个步骤序号；出现更大序号的步骤后这条实时状态即已过时"
+     },
+     "started_at": {
+      "type": "string",
+      "title": "Started At"
+     },
+     "thinking": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Thinking"
+     },
+     "text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Text"
+     },
+     "tool": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tool"
+     },
+     "args": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Args"
+     },
+     "elapsed_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Elapsed Ms",
+      "description": "读取时距开始的毫秒数（按服务器时钟计算）"
+     },
+     "restricted": {
+      "type": "boolean",
+      "title": "Restricted",
+      "description": "有来源当前不可读：推理文字与正文不返回，工具参数只保留结构字段",
+      "default": false
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "phase",
+     "after_seq",
+     "started_at"
+    ],
+    "title": "AnalysisLiveOut",
+    "description": "运行中的实时过程：思考中的推理文字与正文，或正在执行的工具（不是事实来源，完成后以步骤记录为准）。"
+   },
    "AnalysisMessageIn": {
     "properties": {
      "text": {
@@ -10069,6 +10155,17 @@
        }
       ],
       "title": "Steps"
+     },
+     "live": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisLiveOut"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "运行中的实时过程（推理文字或正在执行的工具），只在运行中的完整详情里返回"
      },
      "datasets": {
       "anyOf": [

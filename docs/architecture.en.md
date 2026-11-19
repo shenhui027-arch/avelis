@@ -23,7 +23,7 @@ flowchart LR
     ENG[engine adapters]
   end
   PG[(PostgreSQL metadata database<br/>incl. agent sessions avelis_agent)]
-  RD[(Valkey / Redis<br/>locks, token revocation, cache, wake-ups)]
+  RD[(Valkey / Redis<br/>locks, token revocation, cache, wake-ups, live progress)]
   LLM[[Model provider<br/>DeepSeek / OpenAI-compatible / Anthropic]]
   UI[Frontend React SPA] -->|/api| API
   API --> PG

@@ -33,7 +33,7 @@ flowchart LR
 - **worker**：`python -m avelis.jobs`。执行采集任务、定时采集与定时分析、超期历史清理。与 app 同一镜像、同一配置，单独一个容器。
   worker 启动后每轮向 Redis 写入 UTC ISO 时间心跳（`avelis:worker:heartbeat`，TTL 60 秒，正常退出时删除），可通过无需登录的 `GET /api/health/worker` 查询 `alive` 与 `last_seen`；心跳缺失或 Redis 不可用时返回 `false` 与 `null`，HTTP 状态始终为 200。
 - **postgres**：元数据库（只支持 PostgreSQL，也存放问数智能体的会话状态）。
-- **redis**：Redis 协议服务（镜像为 Valkey 8），用于任务唤醒、缓存、锁与令牌吊销。
+- **redis**：Redis 协议服务（镜像为 Valkey 8），用于任务唤醒、缓存、锁、令牌吊销，以及分析运行中的实时过程（推理文字与正在执行的工具，仅用于显示，自动过期）。
 
 镜像由仓库根目录的多阶段 `Dockerfile` 构建：pnpm 构建前端 → uv 按锁文件安装后端依赖 → 运行镜像（Python 3.12，非 root 用户 `avelis`，UID 10001，带健康检查与中文字体）。
 

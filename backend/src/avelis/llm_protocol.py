@@ -4,7 +4,8 @@
 - DeepSeek 思考模式的 reasoning_content（https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/）：官方要求
   “携带了 tools 参数的请求，在后续所有请求中，必须完整回传 reasoning_content 给 API”，否则返回 400。
   langchain_openai.ChatOpenAI 只按 OpenAI 规范解析，既不读取也不回传这个字段，这里补上受控的原样往返：
-  响应里的 reasoning_content 放进 AIMessage.additional_kwargs（不进入 content，不展示给用户，不写步骤记录与普通日志），
+  响应里的 reasoning_content 放进 AIMessage.additional_kwargs（不进入 content、不写普通日志；
+  问数页的过程展示读取 model 步骤里保存的推理文字），
   之后的请求把同一条助手消息的 reasoning_content 原样带回。消息对象可以按 LangChain 的序列化保存与恢复，字段随之保留。
 - DeepSeek 官方 Chat Completions 的输出上限字段是 max_tokens；langchain_openai 1.7.1 改发的 max_completion_tokens
   经实测被忽略（上限 8，实际输出 141 token），因此请求时改回 max_tokens。
@@ -12,14 +13,26 @@
     """按基础设施错误处理（ModelProtocolError），
   不把截断的工具参数当作模型写错的内容去修复或重交。
 - 工具调用编号：同一条回复里的工具调用必须各有编号且互不重复，否则无法逐个回复（下一次请求会被拒），也按协议错误处理。
+- 流式（stream_reply）：只对核实过思考协议的提供方（ReasoningRoundTripChatOpenAI）使用，边收边把累计的推理文字与正文
+  交给回调（问数页的“思考中”实时显示）；流式增量里的 reasoning_content 同样放进
+  additional_kwargs，合并后与非流式回复一致。
+  流式请求按 OpenAI 规范请求用量（stream_options.include_usage），原始用量放进 response_metadata.token_usage，
+  缓存命中等字段与非流式一致。读取超时只限制单次等待，整体截止时间由调用方传入的 deadline 控制；
+  没有收到带 finish_reason 的终止块就结束的流按传输层错误处理（与连接中断一致），不当作完整回复。
 """
 )
 
 from __future__ import annotations
 
-from typing import Any
+import contextvars
+import queue
+import threading
+import time
+from typing import Any, Callable
 
-from langchain_core.messages import AIMessage
+import httpx
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages.utils import message_chunk_to_message
 from langchain_openai import ChatOpenAI
 
 REASONING_FIELD = "reasoning_content"
@@ -91,3 +104,110 @@ class ReasoningRoundTripChatOpenAI(ChatOpenAI):
             if isinstance(message, AIMessage) and REASONING_FIELD in message.additional_kwargs:
                 out[REASONING_FIELD] = message.additional_kwargs[REASONING_FIELD]
         return payload
+
+    def _convert_chunk_to_generation_chunk(
+        self, chunk: dict, default_chunk_class: type, base_generation_info: dict | None
+    ):
+        result = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
+        if result is None or not isinstance(result.message, AIMessageChunk):
+            return result
+        choices = chunk.get("choices") or []
+        reasoning = ((choices[0] if choices else {}).get("delta") or {}).get(REASONING_FIELD)
+        if isinstance(reasoning, str) and reasoning:
+            result.message.additional_kwargs[REASONING_FIELD] = reasoning
+        if chunk.get("usage"):
+            result.message.response_metadata["token_usage"] = chunk["usage"]
+        return result
+
+
+def streams_live(bound: Any) -> bool:
+    """这次请求是否走流式：只对核实过思考协议的提供方（bind_tools 之后取被绑定的模型判断）。"""
+    return isinstance(getattr(bound, "bound", bound), ReasoningRoundTripChatOpenAI)
+
+
+def _text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(
+        block if isinstance(block, str) else block.get("text", "")
+        for block in content or []
+        if isinstance(block, str) or isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def _pump(bound: Any, messages: list, out: queue.Queue, stop: threading.Event) -> None:
+    """在单独线程里读流：把每个增量放进队列，结束放 done，出错放 error。stop 置位后在下一个增量处停止并关闭流。"""
+    stream = None
+    try:
+        stream = iter(bound.stream(messages, stream_usage=True))
+        for chunk in stream:
+            if stop.is_set():
+                return
+            out.put(("chunk", chunk))
+        out.put(("done", None))
+    except BaseException as exc:  # noqa: BLE001 - 交回调用线程按原样抛出
+        out.put(("error", exc))
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
+
+
+def stream_reply(
+    bound: Any,
+    messages: list,
+    on_delta: Callable[[str, str], None],
+    *,
+    deadline: float | None = None,
+    interval: float = 0.25,
+) -> AIMessage:
+    """流式请求一次模型并合并为完整回复；收到增量时把累计的推理文字与正文交给 on_delta（至多每 interval 秒一次）。
+    超过 deadline（time.monotonic）时中止并抛出 TimeoutError（与非流式的请求超时同样按传输层临时错误处理）。
+    读流放在单独的线程里，调用方按剩余时间等待下一个增量：提供方在两个增量之间停住时，等待同样受 deadline 约束，
+    不会再多等一个读取超时。放弃的读取线程在下一个增量或读取超时时自行结束，其结果不再使用。"""
+    chunks: list[AIMessageChunk] = []
+    thinking: list[str] = []
+    text: list[str] = []
+    notified = 0.0
+    out: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    reader = threading.Thread(
+        target=contextvars.copy_context().run, args=(_pump, bound, messages, out, stop), daemon=True
+    )
+    reader.start()
+    try:
+        while True:
+            wait = None if deadline is None else deadline - time.monotonic()
+            if wait is not None and wait <= 0:
+                raise TimeoutError("模型流式回复超过剩余时间")
+            try:
+                kind, value = out.get(timeout=wait)
+            except queue.Empty:
+                raise TimeoutError("模型流式回复超过剩余时间") from None
+            if kind == "done":
+                break
+            if kind == "error":
+                raise value
+            if not isinstance(value, AIMessageChunk):
+                continue
+            chunks.append(value)
+            piece = (value.additional_kwargs or {}).get(REASONING_FIELD)
+            if isinstance(piece, str):
+                thinking.append(piece)
+            if value.content:
+                text.append(_text(value.content))
+            now = time.monotonic()
+            if (piece or value.content) and now - notified >= interval:
+                notified = now
+                on_delta("".join(thinking), "".join(text))
+    finally:
+        stop.set()
+    if not chunks:
+        raise ModelProtocolError("model_protocol", "模型流式回复没有任何内容")
+    merged = chunks[0] + chunks[1:] if len(chunks) > 1 else chunks[0]
+    reply = message_chunk_to_message(merged)
+    assert isinstance(reply, AIMessage)
+    if response_finish_reason(reply) is None:
+        # 连接在终止块之前被干净地关闭（提供方或代理中断）：回复不完整，按传输层错误处理（可重试），不执行其中的工具调用
+        raise httpx.RemoteProtocolError("模型流式回复在终止块之前结束")
+    return reply
