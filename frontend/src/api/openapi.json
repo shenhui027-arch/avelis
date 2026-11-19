@@ -7519,6 +7519,752 @@
     }
    }
   },
+  "/api/skills/summary": {
+   "get": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Summary",
+    "operationId": "summary_api_skills_summary_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillSummaryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         },
+         "type": "object",
+         "required": [
+          "detail"
+         ]
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/skills": {
+   "get": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "List Skills",
+    "operationId": "list_skills_api_skills_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "view",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "market",
+        "enabled",
+        "mine",
+        "review"
+       ],
+       "type": "string",
+       "default": "market",
+       "title": "View"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/SkillOut"
+         },
+         "title": "Response List Skills Api Skills Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/{skill_id}": {
+   "get": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Detail",
+    "operationId": "detail_api_skills__skill_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "skill_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Skill Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/{skill_id}/versions/{version}/files": {
+   "get": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "File Content",
+    "operationId": "file_content_api_skills__skill_id__versions__version__files_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "skill_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Skill Id"
+      }
+     },
+     {
+      "name": "version",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Version"
+      }
+     },
+     {
+      "name": "path",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Path"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillFileContentOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/{skill_id}/versions/{version}/download": {
+   "get": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Download",
+    "operationId": "download_api_skills__skill_id__versions__version__download_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "skill_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Skill Id"
+      }
+     },
+     {
+      "name": "version",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Version"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/zip": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/validate": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Validate",
+    "operationId": "validate_api_skills_validate_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "properties": {
+         "file": {
+          "type": "string",
+          "format": "binary"
+         }
+        },
+        "type": "object",
+        "required": [
+         "file"
+        ]
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillValidationOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         },
+         "type": "object",
+         "required": [
+          "detail"
+         ]
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/skills/upload": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Upload",
+    "operationId": "upload_api_skills_upload_post",
+    "requestBody": {
+     "content": {
+      "multipart/form-data": {
+       "schema": {
+        "properties": {
+         "file": {
+          "type": "string",
+          "format": "binary"
+         },
+         "mode": {
+          "type": "string",
+          "enum": [
+           "new",
+           "overwrite"
+          ],
+          "default": "new"
+         },
+         "note": {
+          "type": "string",
+          "maxLength": 500
+         }
+        },
+        "type": "object",
+        "required": [
+         "file"
+        ]
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillVersionOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         },
+         "type": "object",
+         "required": [
+          "detail"
+         ]
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/skills/{skill_id}/enabled": {
+   "put": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Set Enabled",
+    "operationId": "set_enabled_api_skills__skill_id__enabled_put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "skill_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Skill Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SkillEnabledIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/versions/{version_id}/approve": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Approve",
+    "operationId": "approve_api_skills_versions__version_id__approve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/versions/{version_id}/reject": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Reject",
+    "operationId": "reject_api_skills_versions__version_id__reject_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SkillRejectIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillVersionOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/versions/{version_id}/withdraw": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Withdraw",
+    "operationId": "withdraw_api_skills_versions__version_id__withdraw_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "version_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Version Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillVersionOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/skills/{skill_id}/delist": {
+   "post": {
+    "tags": [
+     "技能"
+    ],
+    "summary": "Delist",
+    "operationId": "delist_api_skills__skill_id__delist_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "skill_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Skill Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SkillOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "技能请求或技能包无效",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "required": [
+          "detail"
+         ],
+         "properties": {
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/workbench": {
    "get": {
     "tags": [
@@ -8734,6 +9480,20 @@
       "pattern": "\\S",
       "title": "Text"
      },
+     "skills": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skills"
+     },
      "confirmation_mode": {
       "type": "string",
       "enum": [
@@ -9128,6 +9888,27 @@
     "type": "object",
     "title": "AnalysisProposalOut"
    },
+   "AnalysisReportOut": {
+    "properties": {
+     "skill_versions": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/SkillVersionRefOut"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skill Versions"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "AnalysisReportOut"
+   },
    "AnalysisResumeIn": {
     "properties": {
      "answer": {
@@ -9184,6 +9965,13 @@
      "question": {
       "type": "string",
       "title": "Question"
+     },
+     "skills": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Skills"
      },
      "status": {
       "type": "string",
@@ -9309,14 +10097,12 @@
      "report": {
       "anyOf": [
        {
-        "additionalProperties": true,
-        "type": "object"
+        "$ref": "#/components/schemas/AnalysisReportOut"
        },
        {
         "type": "null"
        }
-      ],
-      "title": "Report"
+      ]
      },
      "figures": {
       "items": {
@@ -18019,6 +18805,20 @@
       "minLength": 2,
       "title": "Question"
      },
+     "skills": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skills"
+     },
      "window": {
       "anyOf": [
        {
@@ -18207,6 +19007,784 @@
      "note"
     ],
     "title": "SettingsOut"
+   },
+   "SkillCheck": {
+    "properties": {
+     "level": {
+      "type": "string",
+      "enum": [
+       "ok",
+       "warn",
+       "error"
+      ],
+      "title": "Level"
+     },
+     "message": {
+      "type": "string",
+      "title": "Message"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "level",
+     "message"
+    ],
+    "title": "SkillCheck"
+   },
+   "SkillConflictOut": {
+    "properties": {
+     "skill_id": {
+      "type": "string",
+      "title": "Skill Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "enabled_users": {
+      "type": "integer",
+      "title": "Enabled Users"
+     },
+     "can_overwrite": {
+      "type": "boolean",
+      "title": "Can Overwrite"
+     },
+     "has_pending": {
+      "type": "boolean",
+      "title": "Has Pending"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "skill_id",
+     "name",
+     "version",
+     "status",
+     "owner",
+     "enabled_users",
+     "can_overwrite",
+     "has_pending"
+    ],
+    "title": "SkillConflictOut"
+   },
+   "SkillDetailOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "listed",
+       "delisted"
+      ],
+      "title": "Status"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "latest_version": {
+      "type": "integer",
+      "title": "Latest Version"
+     },
+     "latest_status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "approved",
+       "rejected",
+       "superseded",
+       "withdrawn"
+      ],
+      "title": "Latest Status"
+     },
+     "latest_version_id": {
+      "type": "string",
+      "title": "Latest Version Id"
+     },
+     "latest_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest Note"
+     },
+     "latest_uploaded_by": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "latest_has_scripts": {
+      "type": "boolean",
+      "title": "Latest Has Scripts"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "enabled_users": {
+      "type": "integer",
+      "title": "Enabled Users"
+     },
+     "has_scripts": {
+      "type": "boolean",
+      "title": "Has Scripts"
+     },
+     "file_count": {
+      "type": "integer",
+      "title": "File Count"
+     },
+     "can_manage": {
+      "type": "boolean",
+      "title": "Can Manage"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "versions": {
+      "items": {
+       "$ref": "#/components/schemas/SkillVersionOut"
+      },
+      "type": "array",
+      "title": "Versions"
+     },
+     "shown_version": {
+      "$ref": "#/components/schemas/SkillVersionOut"
+     },
+     "body": {
+      "type": "string",
+      "title": "Body"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "description",
+     "status",
+     "owner",
+     "version",
+     "latest_version",
+     "latest_status",
+     "latest_version_id",
+     "latest_note",
+     "latest_uploaded_by",
+     "latest_has_scripts",
+     "review_note",
+     "enabled",
+     "enabled_users",
+     "has_scripts",
+     "file_count",
+     "can_manage",
+     "updated_at",
+     "versions",
+     "shown_version",
+     "body"
+    ],
+    "title": "SkillDetailOut"
+   },
+   "SkillEnabledIn": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "enabled"
+    ],
+    "title": "SkillEnabledIn"
+   },
+   "SkillFileContentOut": {
+    "properties": {
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "size": {
+      "type": "integer",
+      "title": "Size"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "skill_md",
+       "script",
+       "reference",
+       "asset",
+       "other"
+      ],
+      "title": "Kind"
+     },
+     "content": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Content"
+     },
+     "truncated": {
+      "type": "boolean",
+      "title": "Truncated"
+     },
+     "binary": {
+      "type": "boolean",
+      "title": "Binary"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "path",
+     "size",
+     "kind",
+     "content",
+     "truncated",
+     "binary"
+    ],
+    "title": "SkillFileContentOut"
+   },
+   "SkillFileOut": {
+    "properties": {
+     "path": {
+      "type": "string",
+      "title": "Path"
+     },
+     "size": {
+      "type": "integer",
+      "title": "Size"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "skill_md",
+       "script",
+       "reference",
+       "asset",
+       "other"
+      ],
+      "title": "Kind"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "path",
+     "size",
+     "kind"
+    ],
+    "title": "SkillFileOut"
+   },
+   "SkillOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "listed",
+       "delisted"
+      ],
+      "title": "Status"
+     },
+     "owner": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     },
+     "latest_version": {
+      "type": "integer",
+      "title": "Latest Version"
+     },
+     "latest_status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "approved",
+       "rejected",
+       "superseded",
+       "withdrawn"
+      ],
+      "title": "Latest Status"
+     },
+     "latest_version_id": {
+      "type": "string",
+      "title": "Latest Version Id"
+     },
+     "latest_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latest Note"
+     },
+     "latest_uploaded_by": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "latest_has_scripts": {
+      "type": "boolean",
+      "title": "Latest Has Scripts"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "enabled_users": {
+      "type": "integer",
+      "title": "Enabled Users"
+     },
+     "has_scripts": {
+      "type": "boolean",
+      "title": "Has Scripts"
+     },
+     "file_count": {
+      "type": "integer",
+      "title": "File Count"
+     },
+     "can_manage": {
+      "type": "boolean",
+      "title": "Can Manage"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "description",
+     "status",
+     "owner",
+     "version",
+     "latest_version",
+     "latest_status",
+     "latest_version_id",
+     "latest_note",
+     "latest_uploaded_by",
+     "latest_has_scripts",
+     "review_note",
+     "enabled",
+     "enabled_users",
+     "has_scripts",
+     "file_count",
+     "can_manage",
+     "updated_at"
+    ],
+    "title": "SkillOut"
+   },
+   "SkillRejectIn": {
+    "properties": {
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "reason"
+    ],
+    "title": "SkillRejectIn"
+   },
+   "SkillSummaryOut": {
+    "properties": {
+     "market": {
+      "type": "integer",
+      "title": "Market"
+     },
+     "enabled": {
+      "type": "integer",
+      "title": "Enabled"
+     },
+     "mine": {
+      "type": "integer",
+      "title": "Mine"
+     },
+     "review": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "market",
+     "enabled",
+     "mine",
+     "review"
+    ],
+    "title": "SkillSummaryOut"
+   },
+   "SkillValidationOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "description": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "files": {
+      "items": {
+       "$ref": "#/components/schemas/SkillFileOut"
+      },
+      "type": "array",
+      "title": "Files"
+     },
+     "has_scripts": {
+      "type": "boolean",
+      "title": "Has Scripts"
+     },
+     "line_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Line Count"
+     },
+     "zip_bytes": {
+      "type": "integer",
+      "title": "Zip Bytes"
+     },
+     "checks": {
+      "items": {
+       "$ref": "#/components/schemas/SkillCheck"
+      },
+      "type": "array",
+      "title": "Checks"
+     },
+     "conflict": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SkillConflictOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "next_version": {
+      "type": "integer",
+      "title": "Next Version"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ok",
+     "name",
+     "description",
+     "files",
+     "has_scripts",
+     "line_count",
+     "zip_bytes",
+     "checks",
+     "conflict",
+     "next_version"
+    ],
+    "title": "SkillValidationOut"
+   },
+   "SkillVersionOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "skill_id": {
+      "type": "string",
+      "title": "Skill Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "approved",
+       "rejected",
+       "superseded",
+       "withdrawn"
+      ],
+      "title": "Status"
+     },
+     "description": {
+      "type": "string",
+      "title": "Description"
+     },
+     "frontmatter": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Frontmatter"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     },
+     "files": {
+      "items": {
+       "$ref": "#/components/schemas/SkillFileOut"
+      },
+      "type": "array",
+      "title": "Files"
+     },
+     "has_scripts": {
+      "type": "boolean",
+      "title": "Has Scripts"
+     },
+     "line_count": {
+      "type": "integer",
+      "title": "Line Count"
+     },
+     "zip_bytes": {
+      "type": "integer",
+      "title": "Zip Bytes"
+     },
+     "uploaded_by": {
+      "$ref": "#/components/schemas/UserRefOut"
+     },
+     "uploaded_at": {
+      "type": "string",
+      "title": "Uploaded At"
+     },
+     "reviewed_by": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/UserRefOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reviewed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed At"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "skill_id",
+     "name",
+     "version",
+     "status",
+     "description",
+     "frontmatter",
+     "note",
+     "files",
+     "has_scripts",
+     "line_count",
+     "zip_bytes",
+     "uploaded_by",
+     "uploaded_at",
+     "reviewed_by",
+     "reviewed_at",
+     "review_note"
+    ],
+    "title": "SkillVersionOut"
+   },
+   "SkillVersionRefOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "version": {
+      "type": "integer",
+      "title": "Version"
+     },
+     "version_id": {
+      "type": "string",
+      "title": "Version Id"
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "explicit",
+       "auto",
+       "tool"
+      ],
+      "title": "Source",
+      "default": "tool"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "version",
+     "version_id"
+    ],
+    "title": "SkillVersionRefOut"
    },
    "SqlFunction": {
     "properties": {
@@ -19256,6 +20834,25 @@
      "domains"
     ],
     "title": "UserOut"
+   },
+   "UserRefOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "display_name": {
+      "type": "string",
+      "title": "Display Name"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "display_name"
+    ],
+    "title": "UserRefOut"
    },
    "UserUpdate": {
     "properties": {

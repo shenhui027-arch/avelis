@@ -18,6 +18,135 @@ class Out(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+# --- 技能市场 ---------------------------------------------------------------------
+
+
+class UserRefOut(Out):
+    id: str
+    display_name: str
+
+
+class SkillSummaryOut(Out):
+    market: int
+    enabled: int
+    mine: int
+    review: int | None
+
+
+_SkillStatus = Literal["pending", "listed", "delisted"]
+_SkillVersionStatus = Literal["pending", "approved", "rejected", "superseded", "withdrawn"]
+_SkillFileKind = Literal["skill_md", "script", "reference", "asset", "other"]
+
+
+class SkillOut(Out):
+    id: str
+    name: str
+    description: str
+    status: _SkillStatus
+    owner: UserRefOut
+    version: int | None
+    latest_version: int
+    latest_status: _SkillVersionStatus
+    latest_version_id: str
+    latest_note: str | None
+    latest_uploaded_by: UserRefOut
+    latest_has_scripts: bool
+    review_note: str | None
+    enabled: bool
+    enabled_users: int
+    has_scripts: bool
+    file_count: int
+    can_manage: bool
+    updated_at: str
+
+
+class SkillFileOut(Out):
+    path: str
+    size: int
+    kind: _SkillFileKind
+
+
+class SkillVersionOut(Out):
+    id: str
+    skill_id: str
+    name: str
+    version: int
+    status: _SkillVersionStatus
+    description: str
+    frontmatter: Json
+    note: str | None
+    files: list[SkillFileOut]
+    has_scripts: bool
+    line_count: int
+    zip_bytes: int
+    uploaded_by: UserRefOut
+    uploaded_at: str
+    reviewed_by: UserRefOut | None
+    reviewed_at: str | None
+    review_note: str | None
+
+
+class SkillDetailOut(SkillOut):
+    versions: list[SkillVersionOut]
+    shown_version: SkillVersionOut
+    body: str
+
+
+class SkillFileContentOut(SkillFileOut):
+    content: str | None
+    truncated: bool
+    binary: bool
+
+
+class SkillCheck(Out):
+    level: Literal["ok", "warn", "error"]
+    message: str
+
+
+class SkillConflictOut(Out):
+    skill_id: str
+    name: str
+    version: int | None
+    status: str
+    owner: UserRefOut
+    enabled_users: int
+    can_overwrite: bool
+    has_pending: bool
+
+
+class SkillValidationOut(Out):
+    ok: bool
+    name: str | None
+    description: str | None
+    files: list[SkillFileOut]
+    has_scripts: bool
+    line_count: int | None
+    zip_bytes: int
+    checks: list[SkillCheck]
+    conflict: SkillConflictOut | None
+    next_version: int
+
+
+class SkillEnabledIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(strict=True)
+
+
+class SkillRejectIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class SkillVersionRefOut(Out):
+    id: str
+    name: str
+    version: int
+    version_id: str
+    source: Literal["explicit", "auto", "tool"] = "tool"
+
+
 # --- 系统设置 ---------------------------------------------------------------------
 
 BusinessCalendarWeekday = Annotated[int, Field(strict=True, ge=0, le=6)]
@@ -914,6 +1043,7 @@ class AnalysisModelsOut(BaseModel):
 
 class AnalysisFollowupIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    skills: list[str] | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
     model: AnalysisModelIn | None = None
     reasoning_effort: str | None = None
@@ -1228,11 +1358,16 @@ class AnalysisDatasetRerunIn(BaseModel):
     window: AnalysisDatasetRerunWindow
 
 
+class AnalysisReportOut(Out):
+    skill_versions: list[SkillVersionRefOut] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
 class AnalysisRunOut(Out):
     id: str
     conversation_id: str
     turn: int
     question: str
+    skills: list[str] = Field(default_factory=list)
     status: str
     trigger: str
     title: str | None = None
@@ -1247,7 +1382,7 @@ class AnalysisRunOut(Out):
     finished_at: str | None = None
     task_id: str | None = None
     plan: Json | None = None
-    report: Json | None = None
+    report: AnalysisReportOut | None = None
     figures: list[ReportFigure] = Field(default_factory=list)
     answer: Json | None = None
     filter_alignment: list[FilterAlignmentOut] = Field(default_factory=list)

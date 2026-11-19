@@ -110,6 +110,10 @@ CONFIG_KEYS = {
     "model.send_results": ConfigKey("AVELIS_MODEL_SEND_RESULTS", bool, False),
     "import.max_bytes": ConfigKey("AVELIS_IMPORT_MAX_BYTES", int, 20 * 1024**2),  # 单文件或粘贴内容，20 MB
     "import.max_batch_bytes": ConfigKey("AVELIS_IMPORT_MAX_BATCH_BYTES", int, 100 * 1024**2),
+    "skills.dir": ConfigKey("AVELIS_SKILLS_DIR", str, "/var/lib/avelis/skills"),
+    "skills.max_zip_bytes": ConfigKey("AVELIS_SKILLS_MAX_ZIP_BYTES", int, 10 * 1024**2),
+    "skills.max_unpacked_bytes": ConfigKey("AVELIS_SKILLS_MAX_UNPACKED_BYTES", int, 50 * 1024**2),
+    "skills.max_files": ConfigKey("AVELIS_SKILLS_MAX_FILES", int, 500),
 }
 ENV_KEYS = {spec.env: path for path, spec in CONFIG_KEYS.items()}
 SENSITIVE_KEYS = frozenset(

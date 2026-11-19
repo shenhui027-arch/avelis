@@ -1,0 +1,587 @@
+/* 技能市场（卡片货架、详情抽屉、上传抽屉、待审核与我上传的表格、分析依据技能标签）。全部采用 tokens.css 令牌，适配深浅双主题。 */
+
+.av-skills { height: 100%; min-height: 0; }
+.av-skills .av-seg { flex-wrap: wrap; max-width: 100%; }
+.av-skills__seg-count { margin-left: var(--space-1); color: var(--text-tertiary); font: var(--type-mono); font-variant-numeric: tabular-nums; }
+.av-skills__search { width: calc(var(--space-8) * 7); }
+.av-skills__spacer { flex: 1; }
+.av-drawer__ft:has(> .av-skills__spacer) { align-items: center; flex-wrap: wrap; }
+
+/* --- 卡片货架：同一排卡片整行等高 ------------------------------------------------------------------ */
+.av-skills__scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: var(--space-4); }
+.av-skills__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-3); align-items: stretch; }
+
+.av-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  height: 100%;
+  padding: var(--space-4);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-glass);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.av-skill-card:hover { border-color: var(--line-strong); }
+.av-skill-card.is-selected { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: var(--shadow-glass), 0 0 0 3px var(--accent-subtle); }
+
+.av-skill-card__hd { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.av-skill-card__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: var(--type-mono-strong);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.av-skill-card__name:hover { color: var(--accent-text); }
+.av-skill-card__name:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.av-skill-card__sw { display: inline-flex; flex: none; }
+
+.av-skill-card__desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--type-body-compact);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(var(--space-5) * 3);
+  overflow-wrap: anywhere;
+}
+
+.av-skill-card__ft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line-subtle);
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+.av-skill-card__owner { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(var(--space-8) * 4); }
+.av-skill-card__meta { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.av-skill-card__meta .av-icon { width: 12px; height: 12px; }
+
+.av-avatar.av-skill-avatar {
+  width: var(--space-5);
+  height: var(--space-5);
+  background: var(--mod-ask-subtle);
+  color: var(--mod-ask-text);
+  font: var(--type-micro);
+}
+.av-tag.av-skill-script-tag { gap: var(--space-1); font-family: var(--font-sans); }
+.av-tag.av-skill-script-tag .av-icon { width: 12px; height: 12px; color: var(--text-tertiary); }
+
+/* --- 我上传的 / 待审核表格 ------------------------------------------------------------------------ */
+.av-skills__boxed {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-glass);
+}
+.av-skills__table th:first-child, .av-skills__table td:first-child { padding-left: var(--space-5); }
+.av-skills__table th:last-child, .av-skills__table td:last-child { padding-right: var(--space-5); }
+.av-skills__table td { padding-block: var(--space-3); vertical-align: middle; }
+.av-skills__cell-wrap { white-space: normal; overflow-wrap: anywhere; max-width: calc(var(--space-8) * 15); }
+.av-skills__row-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: var(--type-mono-strong);
+  text-align: left;
+  cursor: pointer;
+}
+.av-table tr.is-link:hover .av-skills__row-link { color: var(--accent-text); }
+.av-skills__row-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.av-skills__subdesc { margin-top: 2px; color: var(--text-tertiary); font: var(--type-caption); }
+
+/* --- 详情抽屉 ------------------------------------------------------------------------------------- */
+.av-skill-dhead { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-skill-dhead__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.av-skill-dhead__name { color: var(--text-primary); font: 600 18px/26px var(--font-mono); overflow-wrap: anywhere; }
+
+.av-skill-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); color: var(--text-secondary); font: var(--type-caption); }
+.av-skill-stats b { color: var(--text-primary); font-weight: 500; }
+.av-skill-stats__user { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+.av-skill-enable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font: var(--type-body-compact);
+}
+.av-skill-enable__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-skill-enable__text > span { color: var(--text-primary); font-weight: 500; }
+.av-skill-enable__text > small { color: var(--text-tertiary); font: var(--type-caption); }
+
+.av-skill-ver-bar { display: flex; align-items: center; gap: var(--space-2); }
+.av-skill-delist-btn:hover:not(:disabled) { color: var(--danger); background: var(--danger-subtle); }
+.av-skill-tip-wrap { display: inline-flex; border-radius: var(--radius-full); }
+.av-skill-tip-wrap:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av-skill-tip-wrap > button:disabled { pointer-events: none; }
+
+/* 说明：frontmatter 键值块 + Markdown 正文 */
+.av-skill-readme { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.av-skill-front {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font: var(--type-caption);
+}
+.av-skill-front__row { display: grid; grid-template-columns: calc(var(--space-8) * 3) minmax(0, 1fr); gap: var(--space-3); align-items: baseline; }
+.av-skill-front dt { color: var(--text-tertiary); font-family: var(--font-mono); }
+.av-skill-front dd { margin: 0; color: var(--text-secondary); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-skill-front dd.is-prose { font-family: var(--font-sans); color: var(--text-primary); }
+
+.av-skill-md { color: var(--text-primary); font: var(--type-body-compact); line-height: 22px; overflow-wrap: anywhere; }
+.av-skill-md > :first-child { margin-top: 0; }
+.av-skill-md > :last-child { margin-bottom: 0; }
+.av-skill-md h1, .av-skill-md h2, .av-skill-md h3, .av-skill-md h4, .av-skill-md h5, .av-skill-md h6 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text-primary);
+  font: var(--type-body-strong);
+}
+.av-skill-md h1 { font-size: 16px; line-height: 24px; }
+.av-skill-md h2 { font-size: 15px; line-height: 22px; }
+.av-skill-md h3, .av-skill-md h4 { font-size: 13px; line-height: 20px; }
+.av-skill-md p { margin: 0 0 var(--space-2); }
+.av-skill-md ul, .av-skill-md ol { margin: 0 0 var(--space-2); padding-left: var(--space-5); }
+.av-skill-md li + li { margin-top: 2px; }
+.av-skill-md code {
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  font: var(--type-mono);
+}
+.av-skill-md pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+}
+.av-skill-md pre code { padding: 0; background: none; color: var(--text-secondary); }
+.av-skill-md blockquote {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) 0 var(--space-1) var(--space-3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-secondary);
+}
+.av-skill-md hr { margin: var(--space-4) 0; border: 0; border-top: 1px solid var(--line-subtle); }
+.av-skill-md table { width: 100%; margin: 0 0 var(--space-3); border-collapse: collapse; font: var(--type-caption); }
+.av-skill-md th, .av-skill-md td { padding: var(--space-2) var(--space-3); border: 1px solid var(--line-subtle); text-align: left; }
+.av-skill-md th { background: var(--bg-raised); color: var(--text-secondary); font-weight: 500; }
+.av-skill-md__img-alt {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border: 1px dashed var(--line-default);
+  border-radius: var(--radius-xs);
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
+/* 文件树与文件预览 */
+.av-skill-files-pane { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.av-skill-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.av-skill-tree__dir > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-control-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font: var(--type-mono);
+}
+.av-skill-tree__dir > summary:hover { background: var(--bg-surface); color: var(--text-primary); }
+.av-skill-tree__dir > .av-skill-tree__children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  margin-left: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--line-subtle);
+}
+.av-skill-tree__file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--size-control-sm);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--type-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.av-skill-tree__file .av-icon { color: var(--text-tertiary); }
+.av-skill-tree__file:hover { background: var(--bg-surface); color: var(--text-primary); }
+.av-skill-tree__file.is-active { background: var(--bg-active); color: var(--text-primary); }
+.av-skill-tree__file:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.av-skill-tree__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-skill-tree__size { flex: none; color: var(--text-tertiary); font: var(--type-caption); font-variant-numeric: tabular-nums; }
+
+.av-skill-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.av-skill-preview__hd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.av-skill-preview__path { color: var(--text-primary); font: var(--type-mono-strong); overflow-wrap: anywhere; }
+.av-skill-preview__binary { padding: var(--space-4); border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-tertiary); font: var(--type-caption); text-align: center; }
+.av-skill-preview__code { max-height: calc(var(--space-8) * 11); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 版本列表 */
+.av-skill-versions { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-skill-ver {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+}
+.av-skill-ver.is-current { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-default)); background: color-mix(in srgb, var(--accent) 5%, var(--bg-surface)); }
+.av-skill-ver__hd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.av-skill-ver__note { margin: 0; color: var(--text-primary); font: var(--type-body-compact); white-space: pre-wrap; overflow-wrap: anywhere; }
+.av-skill-ver__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); color: var(--text-tertiary); font: var(--type-caption); }
+.av-skill-ver__reject {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--danger-subtle);
+  color: var(--danger);
+  font: var(--type-caption);
+  overflow-wrap: anywhere;
+}
+
+/* --- 上传抽屉 ------------------------------------------------------------------------------------- */
+.av-skill-drop {
+  display: grid;
+  place-items: center;
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-4);
+  border: 1.5px dashed var(--line-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.av-skill-drop:hover, .av-skill-drop.is-dragging { border-color: var(--accent); background: var(--accent-subtle); }
+.av-skill-drop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av-skill-drop .av-icon { width: 22px; height: 22px; color: var(--accent); margin-bottom: 2px; }
+.av-skill-drop strong { color: var(--text-primary); font: var(--type-body-compact); font-weight: 500; }
+
+.av-skill-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.av-skill-file__body { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.av-skill-file__name { color: var(--text-primary); font: var(--type-mono-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-skill-file__body > small { color: var(--text-tertiary); font: var(--type-caption); }
+
+.av-skill-sec { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-skill-sec h3 { margin: 0; color: var(--text-tertiary); font: var(--type-caption); font-weight: 500; }
+.av-skill-checks { display: flex; flex-direction: column; gap: var(--space-2); font: var(--type-body-compact); color: var(--text-secondary); }
+.av-skill-check { display: flex; align-items: flex-start; gap: var(--space-2); }
+.av-skill-check .av-icon { margin-top: 3px; flex: none; }
+.av-skill-check.is-ok .av-icon { color: var(--ok); }
+.av-skill-check.is-warn .av-icon { color: var(--warn); }
+.av-skill-check.is-error { color: var(--danger); }
+.av-skill-check.is-error .av-icon { color: var(--danger); }
+
+.av-skill-choices { display: flex; flex-direction: column; gap: var(--space-2); }
+.av-skill-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: var(--type-body-compact);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.av-skill-opt:hover:not([aria-disabled="true"]) { border-color: var(--line-strong); }
+.av-skill-opt[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--bg-surface)); }
+.av-skill-opt[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.av-skill-opt:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av-skill-opt > i {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+}
+.av-skill-opt[aria-checked="true"] > i { border: 4px solid var(--accent); }
+.av-skill-opt > span { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.av-skill-opt strong { font-weight: 500; color: var(--text-primary); }
+.av-skill-opt small { color: var(--text-tertiary); font: var(--type-caption); }
+
+.av-skill-foot-note { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; color: var(--text-tertiary); font: var(--type-caption); }
+
+/* --- 分析页：输入框引用技能、问题气泡技能标签、分析依据里的技能行 ---------------------------------- */
+.av-compose__skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+}
+.av-tag.av-compose__skill-tag {
+  gap: var(--space-1);
+  height: 24px;
+  max-width: 100%;
+  padding: 0 2px 0 var(--space-2);
+  color: var(--text-primary);
+}
+.av-tag.av-compose__skill-tag > .av-icon { width: 12px; height: 12px; color: var(--mod-ask-text); }
+.av-tag.av-compose__skill-tag > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.av-compose__skill-rm {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.av-compose__skill-rm:hover { background: var(--bg-active); color: var(--text-primary); }
+.av-compose__skill-rm:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.av-compose__skill-rm .av-icon { width: 11px; height: 11px; }
+
+.av-compose__row { display: flex; align-items: flex-start; gap: var(--space-1); padding-left: var(--space-3); min-width: 0; }
+.av-compose__row > textarea { flex: 1; min-width: 0; width: 100%; padding-left: var(--space-1); }
+.av-compose__plus-btn { flex: none; margin-top: var(--space-3); color: var(--text-tertiary); }
+.av-compose__plus-btn[aria-expanded="true"] { background: var(--bg-active); color: var(--text-primary); }
+.av-compose__row--followup .av-compose__plus-btn { margin-top: var(--space-2); }
+.av-analysis__followup .av-compose__row--followup > textarea { padding-left: var(--space-1); }
+.av-compose__skills + .av-compose__row > textarea { padding-top: var(--space-2); }
+.av-compose__skills + .av-compose__row .av-compose__plus-btn { margin-top: var(--space-1); }
+
+/* 技能弹出菜单（“+” 与 “/” 共用，顶栏筛选与底栏“管理技能”固定，中间列表滚动） */
+.av-menu.av-popover.av-skill-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.av-skill-picker__search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line-subtle);
+  color: var(--text-tertiary);
+}
+.av-skill-picker__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: var(--type-body-compact);
+  outline: none;
+}
+.av-skill-picker__search input::placeholder { color: var(--text-tertiary); }
+.av-skill-picker__limit {
+  flex: none;
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--line-subtle);
+  background: var(--warn-subtle);
+  color: var(--warn);
+  font: var(--type-caption);
+}
+.av-skill-picker__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+}
+.av-skill-picker__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  text-align: center;
+}
+.av-skill-picker__err { color: var(--danger); overflow-wrap: anywhere; }
+.av-skill-picker__opt {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.av-skill-picker__opt.is-active:not(.is-disabled) { background: var(--bg-active); }
+.av-skill-picker__opt.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.av-skill-picker__opt.is-selected { opacity: 0.72; }
+.av-skill-picker__check { display: inline-flex; padding-top: 2px; color: var(--text-tertiary); }
+.av-skill-picker__opt.is-selected .av-skill-picker__check { color: var(--ok); }
+.av-skill-picker__opt:not(.is-selected) .av-skill-picker__check { color: var(--mod-ask-text); }
+.av-skill-picker__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.av-skill-picker__name {
+  color: var(--text-primary);
+  font: var(--type-mono-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-skill-picker__desc {
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-skill-picker__ft {
+  display: flex;
+  flex: none;
+  border-top: 1px solid var(--line-subtle);
+  padding: var(--space-1);
+}
+.av-skill-picker__manage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  font-weight: 500;
+  text-decoration: none;
+}
+.av-skill-picker__manage:hover { background: var(--bg-active); color: var(--text-primary); text-decoration: none; }
+.av-skill-picker__manage:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* 问题气泡下方的显式技能标签 */
+.av-runlog__skills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  max-width: 80%;
+}
+.av-tag.av-runlog__skill-tag { gap: var(--space-1); color: var(--text-secondary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.av-tag.av-runlog__skill-tag .av-icon { width: 12px; height: 12px; color: var(--mod-ask-text); }
+
+/* 分析依据：用到技能与来源小字 */
+.av-analysis__skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-2);
+}
+.av-analysis__skill-list { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.av-tag.av-analysis__skill-link {
+  gap: var(--space-1);
+  height: auto;
+  min-height: 22px;
+  padding: 1px var(--space-2);
+  color: var(--text-primary);
+  text-decoration: none;
+  max-width: 100%;
+}
+.av-tag.av-analysis__skill-link .av-icon { width: 12px; height: 12px; color: var(--mod-ask-text); }
+.av-tag.av-analysis__skill-link:hover { border-color: var(--accent); color: var(--accent-text); text-decoration: none; }
+.av-analysis__skill-src {
+  margin-left: 2px;
+  padding-left: var(--space-1);
+  border-left: 1px solid var(--line-default);
+  color: var(--text-tertiary);
+  font: var(--type-micro);
+}
+
+/* --- 窄屏适配（≤ 900px 整页纵向滚动、网格单列、页头与分段导航换行） -------------------------------- */
+@media (max-width: 900px) {
+  .av-skills { height: 100%; overflow-y: auto; }
+  .av-skills__scroll { flex: none; overflow: visible; }
+  .av-skills__boxed { flex: none; }
+  .av-skills__boxed > .av-scroll { flex: none; overflow: visible; }
+  .av-skills .av-pagehd { flex-wrap: wrap; }
+  .av-skills .av-pagehd__title { max-width: 100%; }
+  .av-skills .av-pagehd > .av-actions { flex-wrap: wrap; width: 100%; }
+  .av-skills__search { flex: 1 1 180px; width: auto; }
+  .av-skills__grid { grid-template-columns: minmax(0, 1fr); }
+  .av-skill-front__row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .av-compose__skills { padding-inline: var(--space-3); }
+  .av-compose__row { padding-left: var(--space-2); }
+  .av-runlog__skills { max-width: 100%; }
+}

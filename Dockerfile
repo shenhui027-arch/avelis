@@ -50,7 +50,7 @@ RUN apt-get -o Acquire::Retries=5 update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 avelis \
     && useradd --system --uid 10001 --gid avelis --home-dir /app --shell /usr/sbin/nologin avelis \
-    && install -d -o avelis -g avelis -m 0755 /run/avelis-secrets /etc/avelis
+    && install -d -o avelis -g avelis -m 0755 /run/avelis-secrets /etc/avelis /var/lib/avelis/skills
 WORKDIR /app
 COPY --from=backend --chown=avelis:avelis /app /app
 COPY --from=frontend --chown=avelis:avelis /src/frontend/dist /app/frontend/dist

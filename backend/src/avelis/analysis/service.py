@@ -37,7 +37,7 @@ from avelis.config import get_settings
 from avelis.db import session_scope, utcnow
 from avelis.governance import access, experiences, joins
 from avelis.governance.errors import Conflict, Forbidden, GovernanceError, Invalid, NotFound
-from avelis.i18n import Msg, current_locale, gettext, locale_context
+from avelis.i18n import Msg, current_locale, gettext, locale_context, translate
 from avelis.models import (
     AnalysisDataset,
     AnalysisMessage,
@@ -48,6 +48,8 @@ from avelis.models import (
     Notification,
     User,
 )
+from avelis.skills import service as skill_service
+from avelis.skills.storage import SkillStorageError
 
 log = logging.getLogger("avelis.analysis")
 _GRAPH: dict[str, Any] = {}
@@ -197,10 +199,19 @@ def create_run(
     model: dict | None = None,
     reasoning_effort: str | None = None,
     _model_choice: dict | None = None,
+    skills: list[str] | None = None,
 ) -> AnalysisRun:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     if not question.strip():
         raise Invalid("请输入要分析的问题")
+    explicit_skills = list(dict.fromkeys(skills or []))
+    if len(explicit_skills) > 5:
+        raise Invalid(Msg("最多引用 5 个技能"))
+    if explicit_skills:
+        enabled = {skill["name"] for skill in skill_service.enabled_catalog(session, user, names=explicit_skills)}
+        for name in explicit_skills:
+            if name not in enabled:
+                raise Invalid(Msg("技能 {name} 未启用或未上架", name=name))
     choice = _model_choice
     if choice is not None:
         choice = {
@@ -223,7 +234,7 @@ def create_run(
         window=resolve_window(window, business_today(tz)),
         budget=Budget().view(),
         confirmation_mode=confirmation_mode,
-        checkpoint={"request_locale": current_locale()},
+        checkpoint={"request_locale": current_locale(), "explicit_skills": explicit_skills},
         model_choice=choice,
     )
     session.add(run)
@@ -354,7 +365,15 @@ def _execute(
         )
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
         toolbox = AnalysisToolbox(
-            session, user, run, ask_service.Catalog([], {}), budget, executor=token, adapter=adapter
+            session,
+            user,
+            run,
+            ask_service.Catalog([], {}),
+            budget,
+            executor=token,
+            adapter=adapter,
+            explicit_skills=checkpoint.get("explicit_skills"),
+            skill_catalog=None if checkpoint.get("resume_pending") else skill_service.enabled_catalog(session, user),
         )
         if checkpoint.get("resume_pending"):
             toolbox.restore(saved)
@@ -428,6 +447,8 @@ def _execute(
     except PermissionLost as exc:
         error = f"发起人权限不足：{exc.message}"
         report = {"permission": {"lost": exc.message, "denials": []}}
+    except SkillStorageError as exc:
+        error = translate(exc.message)
     except Exception as exc:  # noqa: BLE001 - 模型、网络或治理错误如实记录
         log.exception("分析 %s 失败", run_id)
         error = f"{type(exc).__name__}: {str(exc)[:500]}"
@@ -435,6 +456,8 @@ def _execute(
     if toolbox is not None and (toolbox.permission_lost or toolbox.denials):
         report = {**report, "permission": {"lost": toolbox.permission_lost, "denials": toolbox.denials}}
     if toolbox is not None:
+        if refs := toolbox.skill_version_refs():
+            report["skill_versions"] = refs
         report["evidence"] = {
             **(report.get("evidence") or {}),
             "filter_alignment": list(toolbox.filter_alignment),
@@ -583,6 +606,8 @@ def _stopped_report(toolbox: AnalysisToolbox, *, notes: list[str] | None = None)
     if "分析停止：用户停止" not in stop_notes:
         stop_notes.append("分析停止：用户停止")
     report = {**toolbox.report, "notes": stop_notes}
+    if refs := toolbox.skill_version_refs():
+        report["skill_versions"] = refs
     if toolbox.permission_lost or toolbox.denials:
         report["permission"] = {"lost": toolbox.permission_lost, "denials": toolbox.denials}
     return report, dict(toolbox.verification or {})
@@ -775,6 +800,7 @@ def followup_run(
     *,
     model: dict | None = None,
     reasoning_effort: str | None = None,
+    skills: list[str] | None = None,
 ) -> AnalysisRun:
     parent = visible_run(session, user, run_id)
     if parent.user_id != user.id:
@@ -808,6 +834,7 @@ def followup_run(
         model=model,
         reasoning_effort=reasoning_effort,
         _model_choice=inherited_choice,
+        skills=skills,
     )
     run.parent_run_id = parent.id
     run.conversation_id = parent.conversation_id or parent.id
@@ -1238,6 +1265,7 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
         "turn": turn,
         "confirmation_mode": run.confirmation_mode,
         "question": run.question,
+        "skills": checkpoint.get("explicit_skills") or [],
         "trigger": run.trigger,
         "status": run.status,
         "window": run.window,

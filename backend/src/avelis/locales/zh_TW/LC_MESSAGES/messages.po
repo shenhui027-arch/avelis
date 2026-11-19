@@ -2416,3 +2416,153 @@ msgstr "欄位「{column}」的來源或加工方式已經變了，請重新整�
 
 msgid "这条说明已被其他人修改，请刷新后再确认"
 msgstr "這條說明已被其他人修改，請重新整理後再確認"
+
+msgid "技能包不是有效的 zip 文件"
+msgstr "技能套件不是有效的 ZIP 檔案"
+
+msgid "技能包解压后总大小不能超过 {limit} 字节"
+msgstr "技能套件解壓縮後的總大小不得超過 {limit} 位元組"
+
+msgid "技能包包含不支持的条目：{name}"
+msgstr "技能套件包含不支援的項目：{name}"
+
+msgid "技能包包含不支持的压缩方式：{name}"
+msgstr "技能套件項目使用不支援的壓縮方式：{name}"
+
+msgid "技能包内文件路径冲突：{name}"
+msgstr "技能套件內的檔案路徑衝突：{name}"
+
+msgid "SKILL.md 的 frontmatter 必须是有效的 YAML 映射"
+msgstr "SKILL.md 的 frontmatter 必須是有效的 YAML 映射"
+
+msgid "包内需要恰好一个技能目录，且包含 SKILL.md"
+msgstr "套件內必須正好有一個包含 SKILL.md 的技能目錄"
+
+msgid "SKILL.md 必须是 UTF-8 文本"
+msgstr "SKILL.md 必須是 UTF-8 文字"
+
+msgid "技能名称须为 1 到 64 个小写字母、数字或单连字符，且以字母或数字开头和结尾"
+msgstr "技能名稱須為 1 到 64 個小寫字母、數字或單連字號，且以字母或數字開頭和結尾"
+
+msgid "技能名称必须与包内目录名一致"
+msgstr "技能名稱必須與套件內的目錄名稱一致"
+
+msgid "技能描述不能为空，且不能超过 1024 字"
+msgstr "技能描述不得為空，且不得超過 1024 個字元"
+
+msgid "compatibility 必须是 1 到 500 个字符的文本"
+msgstr "compatibility 必須是 1 到 500 個字元的文字"
+
+msgid "metadata 的键和值都必须是字符串"
+msgstr "metadata 的鍵和值都必須是字串"
+
+msgid "建议不超过 500 行"
+msgstr "建議不超過 500 行"
+
+msgid "建议正文不超过 5000 个估算 token"
+msgstr "建議正文不超過約 5000 個 token"
+
+msgid "包含 {count} 个脚本：只保存，不会执行"
+msgstr "包含 {count} 個指令碼，僅儲存，不會執行"
+
+msgid "allowed-tools 不生效"
+msgstr "allowed-tools 不會生效"
+
+msgid "通过技能校验"
+msgstr "通過技能驗證"
+
+msgid "技能文件路径不能包含符号链接"
+msgstr "技能檔案路徑不得包含符號連結"
+
+msgid "技能版本文件已存在"
+msgstr "這個技能版本的檔案已存在"
+
+msgid "技能文件不存在"
+msgstr "找不到技能檔案"
+
+msgid "技能不存在"
+msgstr "找不到技能"
+
+msgid "只有管理员可以审核技能"
+msgstr "只有管理員可以審核技能"
+
+msgid "技能请求参数无效"
+msgstr "技能請求參數無效"
+
+msgid "技能版本不存在"
+msgstr "找不到技能版本"
+
+msgid "技能包不存在"
+msgstr "找不到技能套件"
+
+msgid "已存在同名技能 {name}，请修改名称后重新上传，或选择覆盖"
+msgstr "已存在同名技能 {name}，請變更名稱後重新上傳，或選擇覆寫"
+
+msgid "不存在可覆盖的同名技能"
+msgstr "沒有可覆寫的同名技能"
+
+msgid "只有技能上传人或管理员可以覆盖技能"
+msgstr "只有技能上傳者或管理員可以覆寫技能"
+
+msgid "该技能已有待审核的版本"
+msgstr "這個技能已有待審核的版本"
+
+msgid "只能设置已上架技能的启用状态"
+msgstr "只有已上架的技能可以啟用或停用"
+
+msgid "只有待审核版本可以执行此操作"
+msgstr "只有待審核的版本可以執行此操作"
+
+msgid "只有该版本的上传人可以撤回"
+msgstr "只有這個版本的上傳者可以撤回"
+
+msgid "只有技能上传人或管理员可以下架技能"
+msgstr "只有技能上傳者或管理員可以下架技能"
+
+msgid "只有已上架技能可以下架"
+msgstr "只有已上架的技能可以下架"
+
+msgid "技能包不能超过 {limit} 字节"
+msgstr "技能套件不得超過 {limit} 位元組"
+
+msgid "技能不在本次分析的可用目录中"
+msgstr "此技能不在本次分析的可用目錄中"
+
+msgid "技能已加载"
+msgstr "技能已載入"
+
+msgid "脚本只读，不执行"
+msgstr "指令碼唯讀，不會執行"
+
+msgid "技能工具只读取 UTF-8 文本文件"
+msgstr "技能工具僅讀取 UTF-8 文字檔"
+
+msgid "文件内容已截断至 64 KB"
+msgstr "檔案內容已截斷至 64 KB"
+
+msgid "技能 {name} 未启用或未上架"
+msgstr "技能 {name} 尚未啟用或上架"
+
+msgid "技能 {name} 的正文已截断"
+msgstr "技能 {name} 的正文已截斷"
+
+msgid "最多引用 5 个技能"
+msgstr "最多可引用 5 個技能"
+
+msgid "技能文件不可用：{name}"
+msgstr "技能檔案無法使用：{name}"
+
+msgid "frontmatter 不能超过 16 KB"
+msgstr "frontmatter 不得超過 16 KB"
+
+msgid "SKILL.md 不能超过 256 KB"
+msgstr "SKILL.md 不得超過 256 KB"
+
+msgid "文件路径分段不能超过 255 字节：{name}"
+msgstr "檔案路徑區段不得超過 255 位元組：{name}"
+
+msgid "技能 {name} 的正文超出预算，未注入"
+msgstr "技能 {name} 的正文超出預算，未加入"
+
+msgid "技能文件清单仅显示前 200 项"
+msgstr "技能檔案清單只顯示前 200 項"

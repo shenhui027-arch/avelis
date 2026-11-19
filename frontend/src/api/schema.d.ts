@@ -2080,6 +2080,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/skills/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Summary */
+        get: operations["summary_api_skills_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Skills */
+        get: operations["list_skills_api_skills_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{skill_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_skills__skill_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{skill_id}/versions/{version}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** File Content */
+        get: operations["file_content_api_skills__skill_id__versions__version__files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{skill_id}/versions/{version}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download */
+        get: operations["download_api_skills__skill_id__versions__version__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate */
+        post: operations["validate_api_skills_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload */
+        post: operations["upload_api_skills_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{skill_id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Enabled */
+        put: operations["set_enabled_api_skills__skill_id__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/versions/{version_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_api_skills_versions__version_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/versions/{version_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject */
+        post: operations["reject_api_skills_versions__version_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/versions/{version_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw */
+        post: operations["withdraw_api_skills_versions__version_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/skills/{skill_id}/delist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delist */
+        post: operations["delist_api_skills__skill_id__delist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workbench": {
         parameters: {
             query?: never;
@@ -2528,6 +2732,8 @@ export interface components {
         AnalysisFollowupIn: {
             /** Text */
             text: string;
+            /** Skills */
+            skills?: string[] | null;
             /**
              * Confirmation Mode
              * @default auto
@@ -2672,6 +2878,13 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AnalysisReportOut */
+        AnalysisReportOut: {
+            /** Skill Versions */
+            skill_versions?: components["schemas"]["SkillVersionRefOut"][] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AnalysisResumeIn */
         AnalysisResumeIn: {
             /**
@@ -2698,6 +2911,8 @@ export interface components {
             turn: number;
             /** Question */
             question: string;
+            /** Skills */
+            skills?: string[];
             /** Status */
             status: string;
             /** Trigger */
@@ -2731,10 +2946,7 @@ export interface components {
             plan?: {
                 [key: string]: unknown;
             } | null;
-            /** Report */
-            report?: {
-                [key: string]: unknown;
-            } | null;
+            report?: components["schemas"]["AnalysisReportOut"] | null;
             /** Figures */
             figures?: components["schemas"]["ReportFigure"][];
             /** Answer */
@@ -5742,6 +5954,8 @@ export interface components {
         RunCreate: {
             /** Question */
             question: string;
+            /** Skills */
+            skills?: string[] | null;
             window?: components["schemas"]["Window"] | null;
             /**
              * Confirmation Mode
@@ -5801,6 +6015,279 @@ export interface components {
             mode: "configured" | "demo";
             /** Note */
             note: string | null;
+        };
+        /** SkillCheck */
+        SkillCheck: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "ok" | "warn" | "error";
+            /** Message */
+            message: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillConflictOut */
+        SkillConflictOut: {
+            /** Skill Id */
+            skill_id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: number | null;
+            /** Status */
+            status: string;
+            owner: components["schemas"]["UserRefOut"];
+            /** Enabled Users */
+            enabled_users: number;
+            /** Can Overwrite */
+            can_overwrite: boolean;
+            /** Has Pending */
+            has_pending: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillDetailOut */
+        SkillDetailOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "listed" | "delisted";
+            owner: components["schemas"]["UserRefOut"];
+            /** Version */
+            version: number | null;
+            /** Latest Version */
+            latest_version: number;
+            /**
+             * Latest Status
+             * @enum {string}
+             */
+            latest_status: "pending" | "approved" | "rejected" | "superseded" | "withdrawn";
+            /** Latest Version Id */
+            latest_version_id: string;
+            /** Latest Note */
+            latest_note: string | null;
+            latest_uploaded_by: components["schemas"]["UserRefOut"];
+            /** Latest Has Scripts */
+            latest_has_scripts: boolean;
+            /** Review Note */
+            review_note: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled Users */
+            enabled_users: number;
+            /** Has Scripts */
+            has_scripts: boolean;
+            /** File Count */
+            file_count: number;
+            /** Can Manage */
+            can_manage: boolean;
+            /** Updated At */
+            updated_at: string;
+            /** Versions */
+            versions: components["schemas"]["SkillVersionOut"][];
+            shown_version: components["schemas"]["SkillVersionOut"];
+            /** Body */
+            body: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillEnabledIn */
+        SkillEnabledIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** SkillFileContentOut */
+        SkillFileContentOut: {
+            /** Path */
+            path: string;
+            /** Size */
+            size: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "skill_md" | "script" | "reference" | "asset" | "other";
+            /** Content */
+            content: string | null;
+            /** Truncated */
+            truncated: boolean;
+            /** Binary */
+            binary: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillFileOut */
+        SkillFileOut: {
+            /** Path */
+            path: string;
+            /** Size */
+            size: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "skill_md" | "script" | "reference" | "asset" | "other";
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillOut */
+        SkillOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "listed" | "delisted";
+            owner: components["schemas"]["UserRefOut"];
+            /** Version */
+            version: number | null;
+            /** Latest Version */
+            latest_version: number;
+            /**
+             * Latest Status
+             * @enum {string}
+             */
+            latest_status: "pending" | "approved" | "rejected" | "superseded" | "withdrawn";
+            /** Latest Version Id */
+            latest_version_id: string;
+            /** Latest Note */
+            latest_note: string | null;
+            latest_uploaded_by: components["schemas"]["UserRefOut"];
+            /** Latest Has Scripts */
+            latest_has_scripts: boolean;
+            /** Review Note */
+            review_note: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled Users */
+            enabled_users: number;
+            /** Has Scripts */
+            has_scripts: boolean;
+            /** File Count */
+            file_count: number;
+            /** Can Manage */
+            can_manage: boolean;
+            /** Updated At */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillRejectIn */
+        SkillRejectIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** SkillSummaryOut */
+        SkillSummaryOut: {
+            /** Market */
+            market: number;
+            /** Enabled */
+            enabled: number;
+            /** Mine */
+            mine: number;
+            /** Review */
+            review: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillValidationOut */
+        SkillValidationOut: {
+            /** Ok */
+            ok: boolean;
+            /** Name */
+            name: string | null;
+            /** Description */
+            description: string | null;
+            /** Files */
+            files: components["schemas"]["SkillFileOut"][];
+            /** Has Scripts */
+            has_scripts: boolean;
+            /** Line Count */
+            line_count: number | null;
+            /** Zip Bytes */
+            zip_bytes: number;
+            /** Checks */
+            checks: components["schemas"]["SkillCheck"][];
+            conflict: components["schemas"]["SkillConflictOut"] | null;
+            /** Next Version */
+            next_version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillVersionOut */
+        SkillVersionOut: {
+            /** Id */
+            id: string;
+            /** Skill Id */
+            skill_id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "approved" | "rejected" | "superseded" | "withdrawn";
+            /** Description */
+            description: string;
+            /** Frontmatter */
+            frontmatter: {
+                [key: string]: unknown;
+            };
+            /** Note */
+            note: string | null;
+            /** Files */
+            files: components["schemas"]["SkillFileOut"][];
+            /** Has Scripts */
+            has_scripts: boolean;
+            /** Line Count */
+            line_count: number;
+            /** Zip Bytes */
+            zip_bytes: number;
+            uploaded_by: components["schemas"]["UserRefOut"];
+            /** Uploaded At */
+            uploaded_at: string;
+            reviewed_by: components["schemas"]["UserRefOut"] | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Review Note */
+            review_note: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SkillVersionRefOut */
+        SkillVersionRefOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+            /**
+             * Source
+             * @default tool
+             * @enum {string}
+             */
+            source?: "explicit" | "auto" | "tool";
+        } & {
+            [key: string]: unknown;
         };
         /** SqlFunction */
         SqlFunction: {
@@ -6139,6 +6626,15 @@ export interface components {
             last_login_at?: string | null;
             /** Created At */
             created_at?: string | null;
+        };
+        /** UserRefOut */
+        UserRefOut: {
+            /** Id */
+            id: string;
+            /** Display Name */
+            display_name: string;
+        } & {
+            [key: string]: unknown;
         };
         /** UserUpdate */
         UserUpdate: {
@@ -10593,6 +11089,429 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    summary_api_skills_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillSummaryOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    list_skills_api_skills_get: {
+        parameters: {
+            query?: {
+                view?: "market" | "enabled" | "mine" | "review";
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillOut"][];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    detail_api_skills__skill_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetailOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    file_content_api_skills__skill_id__versions__version__files_get: {
+        parameters: {
+            query: {
+                path: string;
+            };
+            header?: never;
+            path: {
+                skill_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillFileContentOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    download_api_skills__skill_id__versions__version__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    validate_api_skills_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillValidationOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    upload_api_skills_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /**
+                     * @default new
+                     * @enum {string}
+                     */
+                    mode?: "new" | "overwrite";
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    set_enabled_api_skills__skill_id__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillEnabledIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    approve_api_skills_versions__version_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDetailOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    reject_api_skills_versions__version_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillRejectIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    withdraw_api_skills_versions__version_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersionOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
+                };
+            };
+        };
+    };
+    delist_api_skills__skill_id__delist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillOut"];
+                };
+            };
+            /** @description 技能请求或技能包无效 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail: string;
+                    };
                 };
             };
         };

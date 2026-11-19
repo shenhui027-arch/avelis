@@ -52,6 +52,13 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
         (a.group_by as string[])?.length ? t("按 {{v1}}", { v1: (a.group_by as string[]).join(t("、")) }) : "", a.time_grain ? t("按{{v1}}", { v1: a.time_grain === "day" ? t("日") : a.time_grain }) : "",
         period(a)) };
     case "query_sql": return { icon: "db", title: t("探索查询"), code: a.sql as string };
+    case "load_skill":
+      return { icon: "skill", title: t("加载技能"), detail: String(a.name ?? o.name ?? "") || undefined };
+    case "read_skill_file": {
+      const name = String(a.name ?? o.name ?? "");
+      const path = String(a.path ?? o.path ?? "");
+      return { icon: "skill", title: t("读取技能文件"), detail: name && path ? `${name} / ${path}` : (name || path || undefined) };
+    }
     case "submit_proposal": {
       const items = ((o.items as { source: string }[]) ?? []);
       return { icon: "check", title: t("提出 {{count}} 项分析依据", { count: items.length }),
@@ -88,7 +95,7 @@ function describe(s: Step): { icon: string; title: string; detail?: string; code
 
 const TOOL_NAME: Record<string, string> = { query_metric: t("受治理查询"), query_sql: t("探索查询"), explain_change: t("自动归因"),
   describe_asset: t("查看表结构"), search_assets: t("检索表"), search_metrics: t("检索口径"), lineage: t("查看血缘"), submit_report: t("提交报告"),
-  submit_proposal: t("提出依据"), submit_scope: t("理解问题"), ...CALC };
+  submit_proposal: t("提出依据"), submit_scope: t("理解问题"), load_skill: t("加载技能"), read_skill_file: t("读取技能文件"), ...CALC };
 
 type Live = Schemas["AnalysisLiveOut"];
 type Dataset = NonNullable<Run["datasets"]>[number];

@@ -147,13 +147,16 @@ docker compose down                                                # 停止（�
 docker build -t avelis:1.0.10 .                       # 在仓库根目录构建
 docker run -d --name avelis -p 8080:8000 \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10
 docker run -d --name avelis-worker --no-healthcheck \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10 python -m avelis.jobs
 ```
 
 镜像默认读取 `/etc/avelis/avelis.toml`；镜像自带的健康检查针对 API，worker 容器用 `--no-healthcheck` 关闭。`[database]`、`[redis]` 写外部服务的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 默认均为 `true`，可省略。也可以不挂载配置文件，全部用 `-e AVELIS_*` 环境变量传入。
+技能包保存在 `[skills] dir`（默认 `/var/lib/avelis/skills`）。Compose 将命名卷 `skills` 同时挂载到 `app` 与 `worker`。多实例部署须让所有 app 和 worker 共享同一存储目录，并确保它们拥有读写权限。若更改存储路径，挂载位置也须同步调整。
 
 ## 5. 反向代理与 HTTPS
 
@@ -227,11 +230,15 @@ cd deploy/docker
 docker compose up -d --build
 ```
 
-`auto_migrate = true` 时，新版本的 app 启动时自动迁移元数据库（多副本时用 PostgreSQL 咨询锁串行执行）；迁移完成并就绪后 worker 才会重启。升级前先备份元数据库。
+`auto_migrate = true` 时，新版本的 app 启动时自动迁移元数据库（多副本时用 PostgreSQL 咨询锁串行执行）；迁移完成并就绪后 worker 才会重启。升级前先成对备份元数据库和技能卷。
 
 ## 9. 备份与恢复
 
-需要备份的是元数据库与 `avelis.toml`（数据源口令与模型密钥以加密形式存在库里，恢复时需要同一个 `[security] secret`）。Redis 只放可重建的缓存与唤醒信号。
+备份元数据库、技能卷和 `avelis.toml`。数据源口令与模型密钥以加密形式存在库里，恢复时需要同一个 `[security] secret`。Redis 只放可重建的缓存与唤醒信号。
+
+数据库与技能卷必须成对备份、成对恢复。备份前先暂停所有 app 和 worker 的写入，备份完整技能卷（含隐藏的 `.versions`）。恢复时使用同一批次的数据库和技能卷备份，两者都恢复后再启动 app 和 worker。
+
+只有确认数据库已回到迁移 `0026` 之前且技能表均已不存在时，才可将旧技能卷移出使用路径，并另行保留整个卷。
 
 ```bash
 # 备份
@@ -239,6 +246,7 @@ docker compose exec -T postgres pg_dump -U avelis -d avelis -Fc > avelis-$(date 
 # 恢复到空库（先停 app 与 worker）
 docker compose stop app worker
 docker compose exec -T postgres pg_restore -U avelis -d avelis --clean --if-exists < avelis-2026-10-31.dump
+# 恢复技能目录后再启动 app 与 worker
 docker compose start app worker
 ```
 

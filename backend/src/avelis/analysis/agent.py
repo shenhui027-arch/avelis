@@ -28,6 +28,7 @@ import json
 import operator
 import ssl
 import time
+from html import escape
 from types import SimpleNamespace
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -44,10 +45,10 @@ from sqlalchemy.orm import Session
 
 from avelis import charts
 from avelis.analysis import conversation_context, investigation, live
-from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
+from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope, SkillScope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
-from avelis.ask.agent import explain_answer
+from avelis.ask.agent import SKILL_CONTEXT_ID, SKILL_REFERENCE_NOTE, explain_answer
 from avelis.ask.alignment import (
     AlignmentResult,
     align_filters,
@@ -612,6 +613,8 @@ def _invoke(
                 retried = True
                 continue
             raise
+        if reply is not None and any(getattr(message, "id", None) == SKILL_CONTEXT_ID for message in messages):
+            toolbox.record_skill_injection()
         usage = model_usage(reply)
         budget.used_input_tokens += usage["input_tokens"] or 0
         budget.used_output_tokens += usage["output_tokens"] or 0
@@ -776,6 +779,14 @@ def _conversation_text(inherited: dict) -> str:
         + "\n历史 datasets.ref 仅属于对应 run_id；只有 copied_ref / new_ref 是本轮可用编号，"
         "可用 view_dataset 查看并引用。没有本轮编号的历史结论只能作为线索，不能当成本轮数据引用。"
     )
+
+
+def _skill_catalog_text(catalog: list[dict]) -> str:
+    entries = "\n".join(
+        f"<skill><name>{escape(skill['name'])}</name><description>{escape(skill['description'])}</description></skill>"
+        for skill in catalog
+    )
+    return f"<available_skills>\n{entries}\n</available_skills>"
 
 
 def _reply_context(text: str, context: dict) -> str:
@@ -1057,7 +1068,8 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
     ctx = state.get("context") or {}
     user_question = inherited.get("user_text") or state["question"]
-    scope = Scope.model_validate(selected_scope) if selected_scope else None
+    scope_schema = SkillScope if toolbox.skill_catalog else Scope
+    scope = scope_schema.model_validate(selected_scope) if selected_scope else None
     raw, problem, question = selected_scope, None, None
     if not shortcut and _can_call_model(toolbox):
         previous_question = inherited.get("previous_question")
@@ -1071,7 +1083,7 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
         candidates = toolbox.candidate_metrics(candidate_question)
         codes = {c["code"] for c in candidates}
         tool = StructuredTool.from_function(
-            lambda **kw: "", name="submit_scope", args_schema=Scope, description="提交问题的范围（只调用一次）"
+            lambda **kw: "", name="submit_scope", args_schema=scope_schema, description="提交问题的范围（只调用一次）"
         )
         feedback = state.get("feedback")
         followup = (
@@ -1085,13 +1097,22 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             if previous_question
             else ""
         )
+        skill_catalog = ""
+        prompt = UNDERSTAND_PROMPT
+        if toolbox.skill_catalog:
+            skill_catalog = f"\n可用技能：\n{_skill_catalog_text(toolbox.skill_catalog)}"
+            prompt += (
+                "\n仅在目录中的方法与本轮问题相关时填写 skills，最多 3 个；没有相关技能时留空。\n"
+                + SKILL_REFERENCE_NOTE
+            )
         messages = [
-            SystemMessage(UNDERSTAND_PROMPT),
+            SystemMessage(prompt),
             HumanMessage(
                 f"今天是 {ctx.get('today')}（业务时区 {ctx.get('tz')}）。{_window_text(ctx.get('window'))}\n"
                 f"候选口径：{json.dumps(candidates, ensure_ascii=False, default=str)}\n用户问题：{user_question}"
                 + followup
                 + _conversation_text(inherited)
+                + skill_catalog
                 + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else "")
             ),
         ]
@@ -1113,7 +1134,14 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             )
             call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None) if reply else None
             raw = call["args"] if call else None
-            scope = Scope.model_validate(raw) if raw is not None else None
+            if isinstance(raw, dict) and "skills" in raw:
+                proposed = raw["skills"] if isinstance(raw["skills"], list) else []
+                raw = {key: value for key, value in raw.items() if key != "skills"}
+                if toolbox.skill_catalog:
+                    names = {skill["name"] for skill in toolbox.skill_catalog}
+                    selected = dict.fromkeys(name for name in proposed if isinstance(name, str) and name in names)
+                    raw["skills"] = list(selected)[:3]
+            scope = scope_schema.model_validate(raw) if raw is not None else None
             if reply is None:
                 problem = toolbox.budget.model_blocked()
             elif scope is None:
@@ -1149,7 +1177,9 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
     if retained_confirmed:
         # 续问通常只判断是否改图；对齐追问的自由文本仅允许纠正受影响维度的筛选。
         toolbox.catalog = service.visible_catalog(toolbox.session, toolbox.user, with_values=False)
-        confirmed_scope = Scope.model_validate({**confirmed, "clarification": None})
+        confirmed_scope = scope_schema.model_validate(
+            {**confirmed, "clarification": None, "skills": getattr(scope, "skills", [])}
+        )
         if alignment_items and not selections:
             affected = {item["dimension"] for item in alignment_items}
             corrections = {
@@ -1203,6 +1233,8 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
             "notes": [f"需要澄清：{question}"],
             "inherited": inherited,
         }
+    if toolbox.skill_catalog and not toolbox.stopped and (scope is None or scope.question_type != "chart"):
+        toolbox.activate_skills(getattr(scope, "skills", []))
     return {
         "scope": scope.model_dump(mode="json") if scope else None,
         "phase": "chart_edit" if scope is not None and scope.question_type == "chart" else "precheck",
@@ -1288,6 +1320,7 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
                     answer.intent,
                     instruction=_reply_context("", state.get("context") or {}).strip(),
                     invoke=invoke_explanation,
+                    skills_text=toolbox.skill_context(),
                 ),
             ]
         service.finish_answer(toolbox.session, toolbox.user, answer, started)
@@ -1310,6 +1343,8 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
                     ),
                 },
             }
+            if refs := toolbox.skill_version_refs():
+                toolbox.report["skill_versions"] = refs
             toolbox.verification = {"ok": True, "status": "lookup"}
         return {"answer_id": answer.id, "status": answer.status}, None, "ok" if answer.status == "answered" else "error"
 
@@ -1720,6 +1755,8 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
     ctx = state.get("context") or {}
     budget = toolbox.budget
     scope = state.get("scope")
+    if scope is not None and "skills" in scope:
+        scope = {key: value for key, value in scope.items() if key != "skills"}
     inherited = _followup_inherited(state, toolbox)
     state = {**state, "inherited": inherited}
     lines = [
@@ -1760,9 +1797,18 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
             "结论类型以上下文包里 explain_change 的判定（summary.conclusion）为准，"
             "报告的 scope 照抄它的 summary.scope。"
         )
+    if toolbox.skill_catalog:
+        lines.append(
+            f"{SKILL_REFERENCE_NOTE}\n"
+            "可用技能（与问题相关且正文尚未完整注入时可用 load_skill；技能里的脚本不会执行）：\n"
+            + _skill_catalog_text(toolbox.skill_catalog)
+        )
+    skills_text = toolbox.skill_context()
+    if skills_text:
+        lines.append(skills_text)
     messages: list[AnyMessage] = [
         system_message(ctx.get("example")),
-        HumanMessage(_reply_context("\n\n".join(lines), ctx)),
+        HumanMessage(_reply_context("\n\n".join(lines), ctx), id=SKILL_CONTEXT_ID if skills_text else None),
     ]
     notes: list[str] = []
     revised = False
@@ -1794,6 +1840,8 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
         (i["experience_id"], i["experience_version"]) for i in inherited_items if i.get("source") == "experience"
     )
     toolbox.report["experience_versions"] = [{"id": id_, "version": version} for id_, version in sorted(used)]
+    if refs := toolbox.skill_version_refs():
+        toolbox.report["skill_versions"] = refs
     return {"phase": "done", "revised": revised, "rounds": 1, "notes": notes, "inherited": inherited}
 
 
