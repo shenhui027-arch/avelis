@@ -283,7 +283,8 @@ function ProviderDetail({ provider, isAdmin, onChanged }: {
                           const v = parseContextWindow(input.value);
                           if (v === undefined) {
                             input.setAttribute("aria-invalid", "true");
-                            input.setAttribute("data-tip", t("写数字，或带单位 k、M，例如 200k、1M；范围 1024 到 10M"));
+                            // 校验提示改为书面表达
+                            input.setAttribute("data-tip", t("请输入数字，可带单位 k、M（如 200k、1M），范围 1024–10M"));
                             return;
                           }
                           input.removeAttribute("aria-invalid");

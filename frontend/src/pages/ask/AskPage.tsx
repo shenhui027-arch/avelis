@@ -1,5 +1,5 @@
 // 问数：对话模式 —— 会话线程 | 依据栏（口径、来源、SQL、步骤）。追问以候选按钮回答，同一会话保留上下文。
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
@@ -59,10 +59,11 @@ export function AskPage() {
   const pendingQuestion = ask.isPending ? ask.variables : null;
   const model = current?.evidence?.model as { adapter?: string; is_demo?: boolean } | undefined;
 
+  // 高度与窄屏单列堆叠移入 pages.css，内联间距与列宽统一提取为语义类名
   return (
-    <div className="av-split av-ask-page" style={{ height: "calc(100vh - 48px)" }}>
-      <div style={{ display: "flex", flexDirection: "column", minWidth: 0, height: "100%" }}>
-        <div className="av-pagehd" style={{ padding: "16px 24px", borderBottom: "1px solid var(--line-subtle)" }}>
+    <div className="av-split av-ask-page">
+      <div className="av-ask-page__main">
+        <div className="av-pagehd av-ask-page__hd">
           <div className="av-pagehd__title"><h1>{t("问数")}</h1>
             {model ? (model.is_demo ? <Pill tone="warn" title={t("意图解析使用演示规则")}>{t("演示模型")}</Pill> : <Pill tone="info">{model.adapter}</Pill>) : null}
             <Hint text={t("只按已发布口径回答；口径受影响时拦截，不会悄悄改用其他口径")} /></div>
@@ -72,41 +73,40 @@ export function AskPage() {
           </div>
         </div>
         {showHistory ? (
-          <div style={{ borderBottom: "1px solid var(--line-subtle)", maxHeight: 220, overflow: "auto" }}>
+          <div className="av-ask-page__history">
             {(threads.data ?? []).map((thread) => (
-              <Link key={thread.id} to={`/ask/${thread.id}`} className="av-row" onClick={() => setShowHistory(false)}
-                style={{ "--row-cols": "minmax(0, 1fr) auto auto", minHeight: 40 } as React.CSSProperties}>
+              <Link key={thread.id} to={`/ask/${thread.id}`} className="av-row av-ask-page__thread-row" onClick={() => setShowHistory(false)}>
                 <span className="av-row__title">{thread.title}</span><Status value={thread.status} />
                 <span className="av-row__meta av-mono">{formatShortTime(thread.updated_at, tz)}</span>
               </Link>
             ))}
           </div>
         ) : null}
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "20px 24px" }}>
-          <div className="av-thread" style={{ maxWidth: 820, margin: "0 auto" }}>
+        <div className="av-ask-page__scroll">
+          <div className="av-thread">
             {!answers.length && !pendingQuestion ? (
               <Empty text={t("选择一个示例，或输入你的问题")} />
             ) : null}
             {answers.map((a) => (
-              <div key={a.id} style={{ display: "contents" }}>
+              <Fragment key={a.id}>
                 <div className="av-ask">{a.question}</div>
                 <AnswerCard a={a} active={a.id === current?.id} onSelect={() => setSelected(a.id)} onPick={send} disabled={ask.isPending} />
-              </div>
+              </Fragment>
             ))}
             {pendingQuestion ? <><div className="av-ask">{pendingQuestion}</div>
               <article className="av-answer"><div className="av-trace"><span className="is-ok">{t("理解中")}</span></div></article></> : null}
             <div ref={bottom} />
           </div>
         </div>
-        <div style={{ padding: "12px 24px 20px" }}>
-          {error ? <div className="av-banner av-banner--danger" style={{ maxWidth: 820, margin: "0 auto 8px" }}>{error}</div> : null}
+        <div className="av-ask-page__foot">
+          {error ? <div className="av-banner av-banner--danger av-ask-page__error">{error}</div> : null}
           {!answers.length && !pendingQuestion ? (
             <div className="av-ask-examples" aria-label={t("问题示例")}>
               {examples.map((example) => <button key={example} type="button" className="av-btn av-btn--ghost av-btn--sm"
                 onClick={() => { setText(example); document.getElementById("q")?.focus(); }}>{example}</button>)}
             </div>
           ) : null}
-          <form className="av-composer" style={{ maxWidth: 820, margin: "0 auto" }} onSubmit={(e) => { e.preventDefault(); send(text); }}>
+          <form className="av-composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
             <label htmlFor="q" className="av-sr">{t("问题")}</label>
             <textarea id="q" rows={2} value={text} placeholder={thread.data?.status === "waiting" ? t("回答上面的追问") : t("问一个问题")}
               onChange={(e) => setText(e.target.value)}
@@ -116,7 +116,7 @@ export function AskPage() {
           </form>
         </div>
       </div>
-      <aside className="av-inspector" style={{ height: "100%", overflow: "auto" }} aria-label={t("依据")}>
+      <aside className="av-inspector av-ask-page__inspector" aria-label={t("依据")}>
         {current ? <Evidence a={current} /> : <Empty text={t("回答的依据显示在这里")} />}
       </aside>
     </div>
@@ -143,14 +143,13 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
   const comparisonRanges = [...new Set(queries.filter((q) => q.period === intent.compare).map((q) => dateRange(q.range)))];
   const warning = a.evidence?.warning;
   return (
-    <article className={`av-answer${blocked ? " is-blocked" : ""}`} onClick={onSelect}
-      style={active ? { borderColor: "var(--line-default)" } : undefined}>
+    <article className={`av-answer${blocked ? " is-blocked" : ""}${active ? " is-active" : ""}`} onClick={onSelect}>
       <div className="av-answer__hd">
         <Status value={a.status} />
         {mv ? <span className="av-tag">{mv.metric_name} V{mv.version_no}</span> : null}
         {a.cache_hit ? <span className="av-tag">{t("缓存")}</span> : null}
         <BasisState a={a} />
-        <span className="av-caption av-mono" style={{ marginLeft: "auto" }}>{a.duration_ms ? `${(a.duration_ms / 1000).toFixed(2)} s` : ""}</span>
+        <span className="av-caption av-mono av-answer__duration">{a.duration_ms ? `${(a.duration_ms / 1000).toFixed(2)} s` : ""}</span>
       </div>
       {intent.order || intent.compare ? (
         <div className="av-answer-meta">
@@ -160,11 +159,11 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         </div>
       ) : null}
       {single ? (
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <span style={{ font: "500 28px/36px var(--font-mono)" }}>{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
+        <div className="av-answer__single">
+          <span className="av-answer__value">{cellText(result, result.columns![0], result.rows![0][0], false, style)}</span>
           <span className="av-caption">{a.message}</span>
         </div>
-      ) : <span style={{ whiteSpace: "pre-wrap" }}>{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
+      ) : <span className="av-answer__text">{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       <FilterAlignmentNote items={a.filter_alignment} />
       {result?.insights?.length && !single ? <Insights items={result.insights} /> : null}
       {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={onPick} disabled={disabled} /> : null}
@@ -175,7 +174,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       ) : null}
       {result?.truncated ? <span className="av-caption av-answer-warning">{typeof warning === "string" ? warning : t("结果已截断，仅展示返回的数据")}</span> : null}
       {a.status === "clarify" && clarification?.options?.length ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <div className="av-answer__options">
           {clarification.options.map((o) => (
             <button key={o} type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={disabled}
               onClick={(e) => { e.stopPropagation(); onPick(o); }}>{o}</button>
@@ -183,7 +182,7 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         </div>
       ) : null}
       {a.status === "blocked" && a.error_code === "metric_affected" ? (
-        <div className="av-row" style={{ "--row-cols": "minmax(0, 1fr) auto", minHeight: 0, padding: 0, border: "none", background: "none" } as React.CSSProperties}>
+        <div className="av-row av-answer__blocked">
           <span className="av-row__meta">{partiallyCompleted ? t("部分子查询已完成，后续查询已拦截") : t("后端已拦截，未执行查询")}</span>
           <span className="av-row__end"><Link className="av-btn av-btn--secondary av-btn--sm" to="/changes">{t("查看变更")}</Link></span>
         </div>
@@ -291,20 +290,20 @@ export function Evidence({ a }: { a: Answer }) {
   return (
     <>
       <div className="av-inspector__hd">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div className="av-evidence-hd__top">
           <span className="av-section-label">{t("依据")}</span><span className="av-mono av-caption">{a.id.slice(0, 8)}</span></div>
-        <span style={{ fontWeight: 500 }}>{a.question}</span>
+        <span className="av-evidence-hd__question">{a.question}</span>
       </div>
-      <div style={{ padding: "0 16px" }}>
+      <div className="av-evidence-tabs">
         <Tabs value={tab} onChange={setTab} options={[{ value: "source", label: t("口径与来源") }, { value: "sql", label: "SQL" }, { value: "steps", label: t("步骤") }]} />
       </div>
       <div className="av-inspector__bd">
         {tab === "source" ? (
           <>
             {mv ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="av-evidence-section">
                 <span className="av-section-label">{t("口径")}</span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className="av-evidence-tags">
                   <span className="av-tag">{mv.metric_name} V{mv.version_no}</span>
                   <Status value={mv.status} />
                 </div>
@@ -329,25 +328,25 @@ export function Evidence({ a }: { a: Answer }) {
               </section>
             ))}
             {lineage.length ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="av-evidence-section">
                 <span className="av-section-label">{t("字段来源")}</span>
                 {lineage.filter((l) => l.role === "measure").map((l) => (
                   <div key={l.column} className="av-chain">
                     <div className="av-chain__item"><span>{l.column.split(".").slice(-2).join(".")}</span></div>
                     {l.sources.filter((s) => s.relation.startsWith("value")).map((s) => (
-                      <div key={s.source} style={{ display: "contents" }}><div className="av-chain__link" />
-                        <div className="av-chain__item"><span>{s.source.split(".").slice(-2).join(".")}</span></div></div>
+                      <Fragment key={s.source}><div className="av-chain__link" />
+                        <div className="av-chain__item"><span>{s.source.split(".").slice(-2).join(".")}</span></div></Fragment>
                     ))}
                   </div>
                 ))}
               </div>
             ) : null}
             {sources.length ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="av-evidence-section">
                 <span className="av-section-label">{t("读取的来源")} <Hint text={t("沿血缘与“同一张表”找到的全部来源；每个都需要业务域权限")} /></span>
                 {sources.map((s) => (
                   <span key={s.qualified} className="av-chain__item"><span className="av-plat">{s.datasource}</span><span>{s.asset_id ? <Link to={`/catalog/assets/${s.asset_id}`}>{s.qualified}</Link> : s.qualified}</span>
-                    {s.version_no ? <span className="av-tag" style={{ marginLeft: "auto" }}>v{s.version_no}</span> : null}</span>
+                    {s.version_no ? <span className="av-tag av-evidence-source__ver">v{s.version_no}</span> : null}</span>
                 ))}
               </div>
             ) : null}

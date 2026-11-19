@@ -6,7 +6,7 @@ import { api, unwrap } from "../../api/client";
 import {
   errorText, useAction, useAssetNames, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, Seg, Select, Status, Tabs, shortName, useMessage } from "../../components/ui";
+import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, QueryState, Seg, Select, Status, Tabs, shortName, statusOf, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
@@ -45,31 +45,42 @@ export function ChangesPage() {
   return (
     <div className="av-changes">
       <section className="av-pane av-changes__list" aria-label={t("变更列表")}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "16px 16px 0" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <h1 style={{ margin: 0, font: "600 18px/26px var(--font-sans)" }}>{t("变更")} <Hint text={t("每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核")} /></h1>
+        {/* 去除写死内联样式，统一使用令牌类与一级标题字号 */}
+        <div className="av-changes__hd">
+          <div className="av-changes__title">
+            <h1>{t("变更")} <Hint text={t("每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核")} /></h1>
             <Seg label={t("视图")} value={view} onChange={(v) => setParams(v === "records" ? { view: "records" } : {})}
               options={[{ value: "sets", label: t("变更集") }, { value: "records", label: t("记录") }]} />
           </div>
           <Tabs value={filter} onChange={setFilter} options={[
-            { value: "open", label: <>{t("待处理")} <Count n={openCount} /></> },
-            { value: "all", label: <>{t("全部")} <Count n={sets.data?.length ?? 0} /></> },
+            { value: "open", label: <>{t("待处理")}{sets.isSuccess ? <> <Count n={openCount} /></> : null}</> },
+            { value: "all", label: <>{t("全部")}{sets.isSuccess ? <> <Count n={sets.data.length} /></> : null}</> },
             { value: "resolved", label: t("已处理") },
           ]} />
         </div>
         <div className="av-pane__body">
-          {byDay.map(([day, items]) => (
-            <div key={day}>
-              <div className="av-tree__label" style={{ padding: "12px 16px 4px" }}>{formatDate(items[0].created_at, tz)}</div>
-              <div className="av-list">
-                {items.map((c) => <ChangeRow key={c.id} c={c} active={view === "sets" && c.id === current} onClick={() => navigate(`/changes/${c.id}`)} />)}
+          {/* 变更集列表接入 QueryState，统一加载骨架与错误重试 */}
+          <QueryState query={sets} isEmpty={() => !list.length} emptyText={t("没有变更")} compact>
+            {() => byDay.map(([day, items]) => (
+              <div key={day}>
+                <div className="av-tree__label av-changes__day">{formatDate(items[0].created_at, tz)}</div>
+                <div className="av-list">
+                  {items.map((c) => <ChangeRow key={c.id} c={c} active={view === "sets" && c.id === current} onClick={() => navigate(`/changes/${c.id}`)} />)}
+                </div>
               </div>
-            </div>
-          ))}
-          {sets.isSuccess && !list.length ? <Empty text={t("没有变更")} /> : null}
+            ))}
+          </QueryState>
         </div>
       </section>
-      {view === "records" ? <ChangeRecords /> : current ? <Detail key={current} id={current} /> : <section className="av-pane" />}
+      {view === "records" ? <ChangeRecords /> : current ? <Detail key={current} id={current} /> : (
+        <section className="av-pane av-changes__detail" aria-label={t("变更详情")}>
+          <div className="av-pane__body">
+            <QueryState query={sets} rows={6} isEmpty={() => true} emptyText={t("没有变更")}>
+              {() => null}
+            </QueryState>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -82,9 +93,9 @@ function ChangeRow({ c, active, onClick }: { c: ChangeSet; active: boolean; onCl
   const impacts = summary.impacts ?? 0;
   const lead = isFirstCollection(c) ? t("首次采集") : impacts ? t("{{count}} 项影响", { count: impacts }) : t("无影响口径");
   return (
-    <button type="button" className={`av-row${active ? " is-active" : ""}`} onClick={onClick}
-      style={{ "--row-cols": "8px minmax(0, 1fr) auto", minHeight: 58, width: "100%", border: "none", borderBottom: "1px solid var(--line-subtle)", background: active ? "var(--bg-active)" : "transparent", textAlign: "left", cursor: "pointer" } as React.CSSProperties}>
-      <Dot tone={c.status === "resolved" ? (impacts ? "ok" : "") : impacts ? "danger" : "warn"} />
+    // 补齐当前选中无障碍属性与状态圆点读屏/悬浮说明
+    <button type="button" className={`av-row av-changes__row${active ? " is-active" : ""}`} aria-current={active ? "true" : undefined} onClick={onClick}>
+      <Dot tone={c.status === "resolved" ? (impacts ? "ok" : "") : impacts ? "danger" : "warn"} label={statusOf(c.status)[1]} />
       <span className="av-row__main">
         <span className="av-row__title">{datasourceName(c.datasource_id)}</span>
         <span className="av-row__meta">{[lead, ...kinds.slice(0, 2)].join(" · ")}</span>
@@ -105,15 +116,6 @@ function Detail({ id }: { id: string }) {
   // 复核面板不常驻：只有这组变化带复核任务时才给入口，点开后以抽屉显示
   const [reviewing, setReviewing] = useState(false);
   const assetName = (id: string) => shortName(assetNames.get(id)) || id.slice(0, 8);
-  const c = cs.data;
-  if (!c) return <section className="av-pane" />;
-  const first = isFirstCollection(c);
-  const events = c.events ?? [];
-  const def = events.find((e) => e.kind === "definition_changed");
-  const direct = events.filter((e) => !["derivation_changed", "upstream_broken", "identity_link_changed"].includes(e.kind));
-  const derived = events.filter((e) => e.kind === "derivation_changed" || e.kind === "upstream_broken");
-  // 身份映射变化（外部表与他库真实表的对应关系）单独成组，不能从列表中漏掉
-  const identity = events.filter((e) => e.kind === "identity_link_changed");
   const metricName = (versionId: string) => {
     for (const m of metrics.data ?? []) {
       const v = m.versions.find((x) => x.id === versionId);
@@ -121,97 +123,112 @@ function Detail({ id }: { id: string }) {
     }
     return null;
   };
-  const task = (c.tasks ?? []).find((item) => item.status === "open") ?? (c.tasks ?? [])[0];
-  const rows = [...direct, ...identity, ...derived];
-  // 首次采集的登记清单通常很长且不需要处理，默认收起
-  const shown = first && !expanded ? [] : rows;
 
   return (
-    <>
-      <section className="av-pane" aria-label={t("变更详情")}>
-        <div className="av-pane__body">
-          <div className="av-page">
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span className="av-caption av-mono">{t("变更集 {{id}} · 批次 {{run}}", { id: c.id.slice(0, 8), run: c.run_id.slice(0, 8) })}</span>
-              <div className="av-pagehd"><div className="av-pagehd__title">
-                <h1>{datasourceName(c.datasource_id)}</h1>
-                {first ? <Pill>{t("首次采集")}</Pill>
-                  : (c.impacts ?? []).some((i) => i.object_type === "metric_version") ? <Pill tone="danger">{t("影响口径")}</Pill> : <Pill>{t("不影响口径")}</Pill>}
-                <Status value={c.status} />
-              </div>
-                <div className="av-actions">
-                  {task ? <button type="button" className={`av-btn av-btn--sm ${task.status === "open" ? "av-btn--primary" : "av-btn--secondary"}`} onClick={() => setReviewing(true)}>
-                    {task.status === "open" ? t("处理复核") : t("复核结论")}</button> : null}
-                  <Link className="av-btn av-btn--secondary av-btn--sm" to={`/settings/datasources/${c.datasource_id}`}>{t("打开数据源")}</Link>
-                  {def?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
-                    <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></> : null}
+    <section className="av-pane av-changes__detail" aria-label={t("变更详情")}>
+      <div className="av-pane__body">
+        {/* 变更详情接入 QueryState，取代空白窗格 */}
+        <QueryState query={cs} rows={6}>
+          {(c) => {
+            const first = isFirstCollection(c);
+            const events = c.events ?? [];
+            const def = events.find((e) => e.kind === "definition_changed");
+            const direct = events.filter((e) => !["derivation_changed", "upstream_broken", "identity_link_changed"].includes(e.kind));
+            const derived = events.filter((e) => e.kind === "derivation_changed" || e.kind === "upstream_broken");
+            // 身份映射变化（外部表与他库真实表的对应关系）单独成组，不能从列表中漏掉
+            const identity = events.filter((e) => e.kind === "identity_link_changed");
+            const task = (c.tasks ?? []).find((item) => item.status === "open") ?? (c.tasks ?? [])[0];
+            const rows = [...direct, ...identity, ...derived];
+            // 首次采集的登记清单通常很长且不需要处理，默认收起
+            const shown = first && !expanded ? [] : rows;
+
+            return (
+              <>
+                <div className="av-page">
+                  <div className="av-changes__detail-hd">
+                    <span className="av-caption av-mono">{t("变更集 {{id}} · 批次 {{run}}", { id: c.id.slice(0, 8), run: c.run_id.slice(0, 8) })}</span>
+                    <div className="av-pagehd"><div className="av-pagehd__title">
+                      <h1>{datasourceName(c.datasource_id)}</h1>
+                      {first ? <Pill>{t("首次采集")}</Pill>
+                        : (c.impacts ?? []).some((i) => i.object_type === "metric_version") ? <Pill tone="danger">{t("影响口径")}</Pill> : <Pill>{t("不影响口径")}</Pill>}
+                      <Status value={c.status} />
+                    </div>
+                      <div className="av-actions">
+                        {task ? <button type="button" className={`av-btn av-btn--sm ${task.status === "open" ? "av-btn--primary" : "av-btn--secondary"}`} onClick={() => setReviewing(true)}>
+                          {task.status === "open" ? t("处理复核") : t("复核结论")}</button> : null}
+                        <Link className="av-btn av-btn--secondary av-btn--sm" to={`/settings/datasources/${c.datasource_id}`}>{t("打开数据源")}</Link>
+                        {def?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
+                          <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></> : null}
+                      </div>
+                    </div>
+                    {first ? (
+                      <span className="av-changes__first-note">
+                        {t("首次采集：登记数据源里已有的 {{count}} 个对象，不是新发生的变化，也不对应 DDL 操作", { count: events.filter((e) => e.kind === "added").length })}
+                      </span>
+                    ) : null}
+                    <div className="av-changes__meta">
+                      <span>{t("发现")} <span className="av-mono av-changes__meta-val">{formatTime(c.created_at, tz)}</span></span>
+                      {first ? null : <>
+                        <span>{t("生效于")} <span className="av-mono av-changes__meta-val">{formatTime(String(c.effective_window.after ?? ""), tz)} – {formatClock(String(c.effective_window.before), tz)}</span> <Hint text={String(c.effective_window.note ?? "")} /></span>
+                        <span>{t("结构")} <span className="av-changes__meta-val">{events.some((e) => e.kind.startsWith("column_")) ? t("有变化") : t("无变化")}</span></span>
+                      </>}
+                    </div>
+                  </div>
+
+                  {def ? (
+                    <section className="av-panel">
+                      <div className="av-panel__hd"><h2 className="av-panel__title">{t("定义对比")}</h2><span className="av-caption">{t("左：变化前 · 右：变化后")}</span></div>
+                      <div className="av-panel__bd"><DiffCode before={String(def.before.canonical_sql ?? "")} after={String(def.after.canonical_sql ?? "")} /></div>
+                    </section>
+                  ) : null}
+
+                  <section className="av-panel">
+                    <div className="av-panel__hd">
+                      <h2 className="av-panel__title">{first ? t("首次采集清单") : t("变化")} <Count n={events.length} /></h2>
+                      {first ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>{expanded ? t("收起") : t("展开")}</button> : null}
+                    </div>
+                    {shown.length ? (
+                      <table className="av-table av-changes__table">
+                        <thead><tr><th>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th>{first ? null : <th>{t("数据库用户")}</th>}</tr></thead>
+                        <tbody>{shown.map((e) => (
+                          <tr key={e.id}>
+                            <td className="av-mono">{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset)}</Link> : shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
+                            <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={first && e.kind === "added" ? t("登记") : EVENT[e.kind] ?? e.kind} /></td>
+                            <td className="av-caption av-changes__cell-wrap" data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String(e.before.hash ?? "").slice(0, 8), v2: String(e.after.hash ?? "").slice(0, 8) }) : undefined}>{eventDetail(e)}</td>
+                            {first ? null : <td><Actor e={e} /></td>}
+                          </tr>))}</tbody>
+                      </table>
+                    ) : null}
+                  </section>
+
+                  <section className="av-panel">
+                    <div className="av-panel__hd"><h2 className="av-panel__title">{t("影响范围")} <Count n={c.impacts?.length ?? 0} /></h2></div>
+                    {c.impacts?.length ? <table className="av-table av-changes__table">
+                      <thead><tr><th>{t("对象")}</th><th>{t("原因")}</th><th>{t("状态")}</th><th className="end" /></tr></thead>
+                      <tbody>{(c.impacts ?? []).map((i) => {
+                        const m = i.object_type === "metric_version" ? metricName(i.object_id) : null;
+                        return (
+                          <tr key={i.id}>
+                            <td>{m ? m.name : <span className="av-mono">{i.object_type === "asset" ? <><Link to={`/catalog/assets/${i.object_id}`}>{assetName(i.object_id)}</Link>{assetFromPath(i.path)}</> : OBJECT[i.object_type] ?? i.object_type}</span>}</td>
+                            <td className="av-caption av-changes__cell-wrap">{i.reason}</td>
+                            <td>{m ? <Status value={m.status} /> : <Status value={i.level === "affected" ? "affected" : "unknown"} label={i.level === "affected" ? t("受影响") : t("可能受影响")} />}</td>
+                            <td className="end">{m ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/metrics/${m.id}`}>{t("查看")}</Link> : null}</td>
+                          </tr>);
+                      })}</tbody>
+                    </table> : <Empty compact text={t("没有影响口径、关联路径或历史回答")} />}
+                  </section>
                 </div>
-              </div>
-              {first ? (
-                <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                  {t("首次采集：登记数据源里已有的 {{count}} 个对象，不是新发生的变化，也不对应 DDL 操作", { count: events.filter((e) => e.kind === "added").length })}
-                </span>
-              ) : null}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 20, fontSize: 12, color: "var(--text-tertiary)" }}>
-                <span>{t("发现")} <span className="av-mono" style={{ color: "var(--text-secondary)" }}>{formatTime(c.created_at, tz)}</span></span>
-                {first ? null : <>
-                  <span>{t("生效于")} <span className="av-mono" style={{ color: "var(--text-secondary)" }}>{formatTime(String(c.effective_window.after ?? ""), tz)} – {formatClock(String(c.effective_window.before), tz)}</span> <Hint text={String(c.effective_window.note ?? "")} /></span>
-                  <span>{t("结构")} <span style={{ color: "var(--text-secondary)" }}>{events.some((e) => e.kind.startsWith("column_")) ? t("有变化") : t("无变化")}</span></span>
-                </>}
-              </div>
-            </div>
-
-            {def ? (
-              <section className="av-panel">
-                <div className="av-panel__hd"><h2 className="av-panel__title">{t("定义对比")}</h2><span className="av-caption">{t("左：变化前 · 右：变化后")}</span></div>
-                <div className="av-panel__bd"><DiffCode before={String(def.before.canonical_sql ?? "")} after={String(def.after.canonical_sql ?? "")} /></div>
-              </section>
-            ) : null}
-
-            <section className="av-panel">
-              <div className="av-panel__hd">
-                <h2 className="av-panel__title">{first ? t("首次采集清单") : t("变化")} <Count n={events.length} /></h2>
-                {first ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}>{expanded ? t("收起") : t("展开")}</button> : null}
-              </div>
-              {shown.length ? (
-                <table className="av-table">
-                  <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("变化")}</th><th>{t("详情")}</th>{first ? null : <th>{t("数据库用户")}</th>}</tr></thead>
-                  <tbody>{shown.map((e) => (
-                    <tr key={e.id}>
-                      <td className="av-mono" style={{ paddingLeft: 16 }}>{e.asset_id ? <Link to={`/catalog/assets/${e.asset_id}`}>{shortName(e.asset)}</Link> : shortName(e.asset)}{e.column ? `.${e.column}` : ""}</td>
-                      <td><Status value={e.kind === "upstream_broken" ? "broken" : e.kind.includes("derivation") ? "affected" : "open"} label={first && e.kind === "added" ? t("登记") : EVENT[e.kind] ?? e.kind} /></td>
-                      <td className="av-caption" style={{ whiteSpace: "normal" }} data-tip={e.kind === "definition_changed" ? t("定义校验码 {{v1}} → {{v2}}", { v1: String(e.before.hash ?? "").slice(0, 8), v2: String(e.after.hash ?? "").slice(0, 8) }) : undefined}>{eventDetail(e)}</td>
-                      {first ? null : <td><Actor e={e} /></td>}
-                    </tr>))}</tbody>
-                </table>
-              ) : null}
-            </section>
-
-            <section className="av-panel">
-              <div className="av-panel__hd"><h2 className="av-panel__title">{t("影响范围")} <Count n={c.impacts?.length ?? 0} /></h2></div>
-              {c.impacts?.length ? <table className="av-table">
-                <thead><tr><th style={{ paddingLeft: 16 }}>{t("对象")}</th><th>{t("原因")}</th><th>{t("状态")}</th><th className="end" /></tr></thead>
-                <tbody>{(c.impacts ?? []).map((i) => {
-                  const m = i.object_type === "metric_version" ? metricName(i.object_id) : null;
-                  return (
-                    <tr key={i.id}>
-                      <td style={{ paddingLeft: 16 }}>{m ? m.name : <span className="av-mono">{i.object_type === "asset" ? <><Link to={`/catalog/assets/${i.object_id}`}>{assetName(i.object_id)}</Link>{assetFromPath(i.path)}</> : OBJECT[i.object_type] ?? i.object_type}</span>}</td>
-                      <td className="av-caption" style={{ whiteSpace: "normal" }}>{i.reason}</td>
-                      <td>{m ? <Status value={m.status} /> : <Status value={i.level === "affected" ? "affected" : "unknown"} label={i.level === "affected" ? t("受影响") : t("可能受影响")} />}</td>
-                      <td className="end">{m ? <Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/metrics/${m.id}`}>{t("查看")}</Link> : null}</td>
-                    </tr>);
-                })}</tbody>
-              </table> : <Empty compact text={t("没有影响口径、关联路径或历史回答")} />}
-            </section>
-          </div>
-        </div>
-      </section>
-      {task && reviewing ? (
-        <Drawer title={t("复核")} width={400} onClose={() => setReviewing(false)}>
-          <ReviewPanel key={task.id} task={task} />
-        </Drawer>
-      ) : null}
-    </>
+                {task && reviewing ? (
+                  <Drawer title={t("复核")} width={400} onClose={() => setReviewing(false)}>
+                    <ReviewPanel key={task.id} task={task} />
+                  </Drawer>
+                ) : null}
+              </>
+            );
+          }}
+        </QueryState>
+      </div>
+    </section>
   );
 }
 
@@ -261,18 +278,18 @@ function ReviewPanel({ task }: { task: Task }) {
   return (
     <>
       <div className="av-inspector__hd">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div className="av-changes__review-top">
           <span className="av-section-label">{t("复核")} {task.id.slice(0, 8)}</span><Status value={task.status} />
         </div>
-        <span className="body-strong" style={{ fontWeight: 500 }}>{String(task.target.metric_name ?? "")} V{String(task.target.version_no ?? "")} <Status value={String(task.target.status ?? "")} /></span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-tertiary)" }}>
-          <span className="av-avatar" style={{ width: 20, height: 20, fontSize: 10 }}>{assignee?.display_name.slice(0, 1)}</span>{assignee?.display_name} {t("· 指标负责人")}</span>
+        <span className="av-changes__review-target">{String(task.target.metric_name ?? "")} V{String(task.target.version_no ?? "")} <Status value={String(task.target.status ?? "")} /></span>
+        <span className="av-changes__review-owner">
+          <span className="av-avatar av-changes__review-avatar">{assignee?.display_name.slice(0, 1)}</span>{assignee?.display_name} {t("· 指标负责人")}</span>
       </div>
       <div className="av-pane__body">
-        <div className="av-inspector__bd" style={{ gap: 12 }}>
+        <div className="av-inspector__bd av-changes__review-bd">
           {task.status === "open" ? (
             <>
-              <fieldset style={{ border: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              <fieldset className="av-changes__review-options">
                 <legend className="av-sr">{t("处理结论")}</legend>
                 {options.map((o) => (
                   <label key={o.id} className="av-option">
@@ -291,7 +308,7 @@ function ReviewPanel({ task }: { task: Task }) {
               <label className="av-field"><span className="av-label">{t("理由（必填）")}</span>
                 <textarea className="av-textarea" rows={3} value={note} disabled={!mine} onChange={(e) => setNote(e.target.value)} /></label>
               <Banner message={message} />
-              <div className="av-actions" style={{ justifyContent: "flex-end" }}>
+              <div className="av-actions">
                 {!mine ? <span className="av-status av-status--warn">{t("只有负责人可以处理")}</span> : null}
                 <button type="button" className="av-btn av-btn--primary av-btn--lg" disabled={!mine || !note || resolve.isPending}
                   onClick={() => resolve.mutate(undefined, { onSuccess: () => setMessage({ ok: true, text: t("已提交结论") }), onError: (e) => setMessage({ ok: false, text: errorText(e) }) })}>{t("提交结论")}</button>
@@ -305,7 +322,7 @@ function ReviewPanel({ task }: { task: Task }) {
               <dt>{t("理由")}</dt><dd>{task.note}</dd>
             </dl>
           )}
-          <div style={{ height: 1, background: "var(--line-subtle)", margin: "8px 0" }} />
+          <div className="av-changes__divider" />
           <ol className="av-steps">
             {task.resolved_at ? <li className="av-step is-ok"><span className="av-step__dot" /><span className="av-step__body"><span className="av-step__title">{t("{{name}} 提交结论", { name: resolver?.display_name })}</span><span className="av-step__meta">{formatTime(task.resolved_at, tz)}</span></span></li> : null}
             <li className="av-step is-blocked"><span className="av-step__dot" /><span className="av-step__body"><span className="av-step__title">{t("系统拦截问数，生成复核")}</span><span className="av-step__meta">{formatTime(task.created_at, tz)} · {task.status === "open" ? task.note : ""}</span></span></li>

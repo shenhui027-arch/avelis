@@ -6,7 +6,7 @@ import { errorText, useAction, useTimeZone, useUsers } from "../../api/hooks";
 import { formatTime } from "../../format";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
-import { Banner, Drawer, Icon, PaneHeader, Pill, Switch, useMessage } from "../../components/ui";
+import { Banner, Drawer, Icon, PaneHeader, Pill, QueryState, Switch, useMessage } from "../../components/ui";
 import type { Schemas } from "../../api/client";
 
 type User = Schemas["UserOut"];
@@ -22,7 +22,6 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [resetting, setResetting] = useState<User | null>(null);
   const isAdmin = roles.has("admin");
-  const list = users.data ?? [];
   return (
     <div className="av-fill">
       <div className="av-pagehd">
@@ -35,31 +34,36 @@ export function UsersPage() {
       </div>
       <div className="av-workspace">
         <section className="av-pane">
-          <PaneHeader title={t("用户")} count={list.length} />
+          {/* 加载完成后再显示计数，加载中与错误态统一接入 QueryState */}
+          <PaneHeader title={t("用户")} count={users.isSuccess ? users.data.length : undefined} />
           <div className="av-scroll">
-            <table className="av-table">
-              <thead><tr><th style={{ paddingLeft: 16 }}>{t("用户", { context: "column" })}</th><th>{t("账号")}</th><th>{t("角色")}</th><th>{t("业务域")}</th><th>{t("最近登录")}</th><th>{t("状态")}</th><th className="end" style={{ paddingRight: 16 }} /></tr></thead>
-              <tbody>
-                {list.map((u) => (
-                  <tr key={u.id}>
-                    <td style={{ paddingLeft: 16 }}><span className="av-crumb"><span className="av-avatar">{u.display_name.slice(0, 1)}</span><b>{u.display_name}</b></span></td>
-                    <td className="av-mono">{u.username}</td>
-                    <td>{u.roles.map((r) => <span key={r} className="av-tag" style={{ marginRight: 4 }}>{ROLE_LABEL[r] ?? r}</span>)}</td>
-                    <td>{u.domains.map((d) => <span key={d.id} className="av-tag" style={{ marginRight: 4 }}>{d.name} · {DOMAIN_ROLE[d.role] ?? d.role}</span>)}</td>
-                    <td className="av-mono">{u.last_login_at ? formatTime(u.last_login_at, tz) : "—"}</td>
-                    <td>{!u.is_active ? <Pill>{t("停用")}</Pill> : u.must_change_password ? <Pill tone="warn">{t("待改密码")}</Pill> : <Pill tone="ok">{t("启用")}</Pill>}</td>
-                    <td className="end" style={{ paddingRight: 16 }}>
-                      {isAdmin ? (
-                        <span className="av-actions">
-                          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(u)}>{t("编辑")}</button>
-                          <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setResetting(u)}>{t("重置密码")}</button>
-                        </span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <QueryState query={users} isEmpty={(list) => !list.length}>
+              {(list) => (
+                <table className="av-table">
+                  <thead><tr><th style={{ paddingLeft: 16 }}>{t("用户", { context: "column" })}</th><th>{t("账号")}</th><th>{t("角色")}</th><th>{t("业务域")}</th><th>{t("最近登录")}</th><th>{t("状态")}</th><th className="end" style={{ paddingRight: 16 }} /></tr></thead>
+                  <tbody>
+                    {list.map((u) => (
+                      <tr key={u.id}>
+                        <td style={{ paddingLeft: 16 }}><span className="av-crumb"><span className="av-avatar">{u.display_name.slice(0, 1)}</span><b>{u.display_name}</b></span></td>
+                        <td className="av-mono">{u.username}</td>
+                        <td>{u.roles.map((r) => <span key={r} className="av-tag" style={{ marginRight: 4 }}>{ROLE_LABEL[r] ?? r}</span>)}</td>
+                        <td>{u.domains.map((d) => <span key={d.id} className="av-tag" style={{ marginRight: 4 }}>{d.name} · {DOMAIN_ROLE[d.role] ?? d.role}</span>)}</td>
+                        <td className="av-mono">{u.last_login_at ? formatTime(u.last_login_at, tz) : "—"}</td>
+                        <td>{!u.is_active ? <Pill>{t("停用")}</Pill> : u.must_change_password ? <Pill tone="warn">{t("待改密码")}</Pill> : <Pill tone="ok">{t("启用")}</Pill>}</td>
+                        <td className="end" style={{ paddingRight: 16 }}>
+                          {isAdmin ? (
+                            <span className="av-actions">
+                              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setEditing(u)}>{t("编辑")}</button>
+                              <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setResetting(u)}>{t("重置密码")}</button>
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </QueryState>
           </div>
         </section>
       </div>

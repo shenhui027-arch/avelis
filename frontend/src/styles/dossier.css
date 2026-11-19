@@ -67,7 +67,8 @@
 .av-dossier-src { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .av-dossier-src__item { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .av-dossier-src__item > i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--mod-lineage); }
-.av-dossier-src__item > :last-child { min-width: 0; overflow-wrap: anywhere; }
+/* 来源字段配合点号后零宽折行点优先分段，仅单段超宽时兜底断词 */
+.av-dossier-src__item > :last-child { min-width: 0; overflow-wrap: break-word; }
 .av-dossier-lineage__how p { margin: 0 0 4px; color: var(--text-primary); font: var(--type-body-compact); }
 .av-dossier-lineage__how p.is-stale { color: var(--text-tertiary); }
 .av-dossier-lineage__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-tertiary); font: var(--type-caption); }

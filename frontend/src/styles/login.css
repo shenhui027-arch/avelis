@@ -73,7 +73,8 @@
 .av-login__input:hover { border-color: var(--line-strong); }
 .av-login__input:focus-within { border-color: var(--mod-collect); background: var(--bg-surface); box-shadow: 0 0 0 4px var(--accent-subtle); color: var(--accent-text); }
 .av-login__input input { flex: 1; min-width: 0; height: 100%; border: none; background: transparent; color: var(--text-primary); font: 400 15px/22px var(--font-sans); outline: none; }
-.av-login__input input::placeholder { color: var(--text-disabled); }
+/* 登录输入框占位符使用三级文字色保证对比度 */
+.av-login__input input::placeholder { color: var(--text-tertiary); }
 .av-login__reveal { padding: 4px 8px; border: none; border-radius: var(--radius-xs); background: transparent; color: var(--text-secondary); font: 500 12px/16px var(--font-sans); cursor: pointer; }
 .av-login__reveal:hover { background: var(--bg-active); color: var(--text-primary); }
 .av-login__reveal:focus-visible, .av-login__switch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -85,6 +86,9 @@
 .av-login__submit:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
 /* 不可用时保留品牌色，只是变淡 */
 .av-login__submit:disabled { opacity: .5; box-shadow: none; cursor: not-allowed; }
+/* 深色主题登录提交按钮：实色品牌蓝配深色字、禁用态实混底配次级字，均保证 ≥4.5:1 */
+:root:not([data-theme="light"]) .av-login__submit { background: var(--brand-gradient); color: var(--text-on-primary); }
+:root:not([data-theme="light"]) .av-login__submit:disabled { opacity: 1; background: color-mix(in srgb, var(--brand-gradient) 22%, var(--bg-surface)); color: var(--text-secondary); }
 .av-login__foot { display: flex; align-items: center; justify-content: space-between; margin: 0; color: var(--text-tertiary); font: 400 13px/20px var(--font-sans); }
 .av-login__forgot { display: inline-flex; align-items: center; gap: 4px; }
 .av-login__switch { padding: 0; border: none; background: transparent; color: var(--accent-text); font: 500 13px/20px var(--font-sans); cursor: pointer; }

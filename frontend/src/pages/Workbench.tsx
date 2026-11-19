@@ -97,7 +97,8 @@ export function Workbench() {
                     <li key={String(c.id)} className={`av-step${Number(c.impacts) ? " is-blocked" : c.status === "resolved" ? " is-ok" : ""}`}>
                       <span className="av-step__dot" />
                       <Link to={`/changes/${String(c.id)}`} className="av-step__body av-workbench__change-link">
-                        <span className="av-step__title">{String(c.asset)}</span>
+                        {/* 最近变更窄卡：标题单行省略，悬停展示完整限定名 */}
+                        <span className="av-step__title" data-tip={String(c.asset)}>{String(c.asset)}</span>
                         <span className="av-step__meta">{String(c.kind)} · {Number(c.impacts) ? t("{{count}} 项影响", { count: Number(c.impacts) }) : t("不影响口径")} · {formatClock(c.at as string, tz)}</span>
                       </Link>
                     </li>

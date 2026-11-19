@@ -12,7 +12,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
 import {
-  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, statusOf, shortName,
+  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, Switch, statusOf, shortName,
 } from "../../components/ui";
 import { SWATCHES } from "../catalog/CatalogPage";
 import { t } from "../../i18n";
@@ -64,6 +64,7 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
   const grain = node.grains[0];
   const [tone] = statusOf(grain?.status);
   const parts = node.qualified.split(".");
+  const schema = parts.slice(-3, -1).join(".");
   return (
     <div className={`av-node${selected ? " is-selected" : ""}${placeholder ? " is-placeholder" : ""}`}>
       <Handle type="target" position={Position.Left} className="av-lineage__handle" />
@@ -73,7 +74,8 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
           <span className="av-node__path">
             {domainSwatch ? <span className={`av-swatch av-swatch--${domainSwatch}`} /> : null}
             {node.datasource ? <Plat kind={node.datasource.kind} /> : <span className="av-plat">{t("导入")}</span>}
-            {parts.slice(-3, -1).join(".")}
+            {/* 包裹库名以支持超长省略号并悬停展示完整限定名 */}
+            {schema ? <span className="av-node__schema" data-tip={node.qualified}>{schema}</span> : null}
           </span>
           <span className="av-node__name">{parts[parts.length - 1]}</span>
         </span>
@@ -143,6 +145,30 @@ function Canvas() {
   const [density, setDensity] = useState<AssetData["density"]>("overview");
   const [showColumns, setShowColumns] = useState(false);
   const [showJoins, setShowJoins] = useState(true);
+  const [domainOpen, setDomainOpen] = useState(false);
+  const domainFilterRef = useRef<HTMLDivElement>(null);
+  const domainTriggerRef = useRef<HTMLButtonElement>(null);
+  // 业务域筛选弹层：点击外部（含画布捕获阶段）或按 Esc 自动收起
+  useEffect(() => {
+    if (!domainOpen) return;
+    const onOutside = (e: Event) => {
+      if (!domainFilterRef.current?.contains(e.target as globalThis.Node)) setDomainOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const hadFocus = domainFilterRef.current?.contains(document.activeElement);
+      setDomainOpen(false);
+      if (hadFocus) domainTriggerRef.current?.focus();
+    };
+    window.addEventListener("pointerdown", onOutside, true);
+    window.addEventListener("mousedown", onOutside, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onOutside, true);
+      window.removeEventListener("mousedown", onOutside, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [domainOpen]);
   const [inspectorWidth, setInspectorWidth] = useState(readInspectorWidth);
   const resizing = useRef(false);
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -378,9 +404,10 @@ function Canvas() {
     <div className="av-lineage" data-inspector-open={inspectorOpen} style={{ "--lineage-inspector-w": `${inspectorWidth}px` } as CSSProperties}>
       <div className="av-lineage__workspace">
         <div className="av-lineage__toolbar" aria-label={t("血缘工具栏")}>
-          <details className="av-lineage__domain-filter">
-            <summary className="av-btn av-btn--secondary av-btn--sm">{t("业务域")}{domainIds.length ? ` · ${domainIds.length}` : t(" · 全部")}<Icon name="chevron" small /></summary>
-            <div className="av-lineage__domain-menu">
+          <div ref={domainFilterRef} className="av-lineage__domain-filter">
+            <button ref={domainTriggerRef} type="button" className="av-btn av-btn--secondary av-btn--sm" aria-expanded={domainOpen}
+              onClick={() => setDomainOpen((open) => !open)}>{t("业务域")}{domainIds.length ? ` · ${domainIds.length}` : t(" · 全部")}<Icon name="chevron" small /></button>
+            {domainOpen ? <div className="av-lineage__domain-menu">
               <QueryState query={domains} isEmpty={(items) => !items.length} emptyText={t("暂无业务域")} compact rows={3}>
                 {(items) => <fieldset><legend className="av-section-label">{t("筛选业务域")}</legend>{items.map((domain) => <label key={domain.id}>
                   <input type="checkbox" checked={domainIds.includes(domain.id)} onChange={() => toggleDomain(domain.id)} />
@@ -388,10 +415,11 @@ function Canvas() {
                 </label>)}</fieldset>}
               </QueryState>
               <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!domainIds.length && !focusAsset} onClick={clearFilters}>{t("清除筛选")}</button>
-            </div>
-          </details>
+            </div> : null}
+          </div>
           {graph.isSuccess && graph.data.nodes.length ? <NodeSearch nodes={graph.data.nodes} onPick={pick} /> : null}
-          <label className="av-lineage__toggle"><input type="checkbox" checked={showJoins} onChange={(e) => setShowJoins(e.target.checked)} />{t("关联路径")}</label>
+          {/* 关联路径显隐改用 Switch 控件替代原生复选框 */}
+          <label className="av-lineage__toggle"><Switch checked={showJoins} onChange={setShowJoins} label={t("关联路径")} /><span>{t("关联路径")}</span></label>
           <Seg value={density} label={t("节点显示")} options={[{ value: "overview", label: t("只看表") }, { value: "columns", label: t("显示字段") }]} onChange={setDensity} />
           {focusAsset ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={clearFilters}>{t("查看全部血缘")}</button> : null}
           <Link className="av-btn av-btn--sm av-btn--primary av-lineage__import" to="/lineage/import"><Icon name="upload" small />{t("导入")}</Link>
@@ -543,7 +571,8 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
           </>
         ) : (
           <>
-            {node.grains.length ? <dl className="av-kv"><dt>{t("粒度")}</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag">{g.columns.join(", ")} · <Status value={g.status} /></span>)}</dd></dl> : null}
+            {/* 粒度列与核验状态拆分为弹性换行子元素，去掉折行后悬空的孤立间隔点 */}
+            {node.grains.length ? <dl className="av-kv"><dt>{t("粒度")}</dt><dd>{node.grains.map((g) => <span key={g.columns.join()} className="av-tag av-lineage__grain-tag"><span>{g.columns.join(", ")}</span><Status value={g.status} /></span>)}</dd></dl> : null}
             <Flow title={t("上游")} onPick={onPick} items={[...new Map(incoming.map((e) => [e.source, e])).values()].map((e) => ({ key: e.source, target: e.source, left: shortName(name(e.source)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
             <Flow title={t("下游")} onPick={onPick} items={[...new Map(outgoing.map((e) => [e.target, e])).values()].map((e) => ({ key: e.target, target: e.target, left: shortName(name(e.target)), rel: e.relations.find((r) => VALUE.has(r)) ?? e.relations[0], origins: e.origins, expr: t("{{count}} 条列级边", { count: e.columns.length }) }))} />
           </>

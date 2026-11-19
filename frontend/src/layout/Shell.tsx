@@ -165,7 +165,8 @@ function NotificationBell() {
 }
 
 
-// 没有保存过偏好时跟随窗口宽度：1100px 及以下收起，拉宽后自动展开
+// 768px 及以下强制收起侧栏；其余宽度在未保存偏好时按 1100px 阈值自动收起或展开
+const COMPACT = "(max-width: 768px)";
 const NARROW = "(max-width: 1100px)";
 
 function savedCollapsed(): boolean | null {
@@ -178,14 +179,25 @@ function savedCollapsed(): boolean | null {
 }
 
 function useCollapsed() {
-  const [collapsed, setCollapsed] = useState(() => savedCollapsed() ?? window.matchMedia(NARROW).matches);
+  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT).matches);
+  const [collapsed, setCollapsed] = useState(() =>
+    window.matchMedia(COMPACT).matches ? true : (savedCollapsed() ?? window.matchMedia(NARROW).matches));
   useEffect(() => {
-    const media = window.matchMedia(NARROW);
-    const follow = () => { if (savedCollapsed() === null) setCollapsed(media.matches); };
-    media.addEventListener("change", follow);
-    return () => media.removeEventListener("change", follow);
+    const compactMedia = window.matchMedia(COMPACT);
+    const narrowMedia = window.matchMedia(NARROW);
+    const syncCompact = () => {
+      setCompact(compactMedia.matches);
+      setCollapsed(compactMedia.matches ? true : (savedCollapsed() ?? narrowMedia.matches));
+    };
+    const follow = () => { if (!compactMedia.matches && savedCollapsed() === null) setCollapsed(narrowMedia.matches); };
+    compactMedia.addEventListener("change", syncCompact);
+    narrowMedia.addEventListener("change", follow);
+    return () => {
+      compactMedia.removeEventListener("change", syncCompact);
+      narrowMedia.removeEventListener("change", follow);
+    };
   }, []);
-  return [collapsed, setCollapsed] as const;
+  return [compact || collapsed, setCollapsed, compact] as const;
 }
 
 function Sidebar() {
@@ -193,10 +205,11 @@ function Sidebar() {
   const location = useLocation();
   const sources = useDatasources();
   const tasks = useAnalysisTasks();
-  const [collapsed, setCollapsed] = useCollapsed();
+  const [collapsed, setCollapsed, compact] = useCollapsed();
   const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
   const ok = primary?.last_run ? primary.last_run.status === "succeeded" : null;
   const toggle = () => {
+    if (compact) return;
     setCollapsed(!collapsed);
     try {
       localStorage.setItem("avelis.sidebar", collapsed ? "open" : "collapsed");
@@ -208,10 +221,13 @@ function Sidebar() {
     <nav className={`av-sb${collapsed ? " is-collapsed" : ""}`} aria-label={t("主导航")}>
       <div className="av-sb__brand">
         <Link to="/" aria-label={t("Avelis 工作台")}>{collapsed ? <LogoMark size={28} /> : <Logo size={28} />}</Link>
-        <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
-          aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")} aria-expanded={!collapsed}>
-          <Icon name="sidebar" />
-        </button>
+        {/* 窄屏强制收起时不渲染展开按钮，避免挤占主内容区 */}
+        {compact ? null : (
+          <button type="button" className="av-sb__icon av-sb__toggle" onClick={toggle}
+            aria-label={collapsed ? t("展开侧边栏") : t("收起侧边栏")} aria-expanded={!collapsed}>
+            <Icon name="sidebar" />
+          </button>
+        )}
       </div>
       {primary ? (
         <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title={t("数据源与最近一次采集")}>

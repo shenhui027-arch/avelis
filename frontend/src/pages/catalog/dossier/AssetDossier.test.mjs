@@ -117,7 +117,7 @@ assert.match(tab, /来源已变更 · 需重新确认/);
 assert.match(tab, /暂无说明/);
 assert.match(tab, />添加说明</);
 assert.match(tab, /汇总|聚合/);
-assert.match(tab, /hidden_t\.x/);
+assert.match(tab, /hidden_t\.(<wbr\/>)?x/);
 assert.doesNotMatch(tab, /href="\/catalog\/assets\/null"/);
 assert.equal((tab.match(/<tr>/g) ?? []).length, 13, "表头 1 行 + 前 12 个字段");
 assert.match(tab, /显示全部 14 个字段/);

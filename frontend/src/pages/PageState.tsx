@@ -30,5 +30,6 @@ export function Forbidden() {
 export function RouteError() {
   const error = useRouteError();
   if (isRouteErrorResponse(error) && error.status === 404) return <NotFound />;
-  return <PageState code="ERROR" title={t("页面出错了")} text={t("已记录错误。可以刷新重试，或返回工作台。")} />;
+  // 路由异常标题统一为书面短语
+  return <PageState code="ERROR" title={t("页面加载异常")} text={t("已记录错误。可以刷新重试，或返回工作台。")} />;
 }

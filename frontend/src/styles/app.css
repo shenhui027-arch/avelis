@@ -49,17 +49,9 @@ body { font-family: var(--font-sans); }
 .av-provider[aria-current="true"] { background: var(--bg-active); }
 .av-provider:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
-/* 模型配置页：工作台模式的三栏 */
-.ms-workspace { grid-template-columns: 280px minmax(0, 1fr) var(--size-inspector); }
-
-/* 登录 */
-@media (max-width: 1279px) {
-  .ms-workspace { grid-template-columns: 240px minmax(0, 1fr) 300px; }
-}
+/* 窄屏下填充布局高度随内容展开 */
 @media (max-width: 1023px) {
   .av-fill { height: auto; overflow: visible; }
-  .ms-workspace { grid-template-columns: minmax(0, 1fr); }
-  .ms-workspace > .av-pane + .av-pane { border-left: none; border-top: 1px solid var(--line-subtle); }
 }
 
 /* 血缘画布：@xyflow/react 的节点外壳透明，节点外观完全由 av-node 决定 */
@@ -108,8 +100,9 @@ body { font-family: var(--font-sans); }
 .av-menu__item:hover { background: var(--bg-active); color: var(--text-primary); }
 .av-menu__item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; background: var(--bg-active); color: var(--text-primary); }
 .av-notices { position: relative; }
-.av-notices__count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font: 500 10px/16px var(--font-sans); text-align: center; }
-.av-notices .av-menu { width: 340px; max-height: 420px; overflow-y: auto; }
+/* 未读角标采用深红实底配白字保证对比度，通知弹层限制最大宽度防窄屏溢出 */
+.av-notices__count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger-solid); color: var(--text-on-accent); font: 500 10px/16px var(--font-sans); text-align: center; }
+.av-notices .av-menu { width: 340px; max-width: calc(100vw - var(--space-6)); max-height: 420px; overflow-y: auto; }
 .av-notice { display: flex; flex-direction: column; align-items: stretch; gap: 2px; height: auto; padding: var(--space-2) var(--space-3); line-height: 18px; white-space: normal; }
 .av-notice b { color: var(--text-primary); font-weight: 500; }
 .av-notice[data-unread="true"] b::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 3px; background: var(--accent); vertical-align: middle; }

@@ -56,7 +56,8 @@ ${t("外部工具只能读取口径与血缘，或按已发布口径查询数据
             {disabled ? <Pill tone="warn">{t("已关闭")}</Pill> : mine.isSuccess ? <Pill tone="ok">{t("已开启")}</Pill> : null}
           </PaneHeader>
           <div className="av-pane__body av-mcp__body">
-            {disabled ? <Banner message={{ ok: false, text: t("MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），删掉这项或改为 true 即可恢复") }} /> : null}
+            {/* 部署配置关闭提示改为书面表达 */}
+            {disabled ? <Banner message={{ ok: false, text: t("MCP 服务已在部署配置中关闭（AVELIS_MCP_ENABLED=false），移除该配置项或设为 true 即可恢复") }} /> : null}
             <div className="av-mcp__endpoint">
               <code className="av-code av-mono">{endpoint}</code>
               <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => {

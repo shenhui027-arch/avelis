@@ -196,9 +196,10 @@ export function Interject({ run }: { run: Run }) {
     <div className="av-runlog__composer">
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <div className="av-compose av-compose--inline">
-        <label htmlFor={`int-${run.id}`} className="av-sr">{t("插话")}</label>
+        {/* 运行中补充输入改为严谨书面短语 */}
+        <label htmlFor={`int-${run.id}`} className="av-sr">{t("补充指令")}</label>
         <textarea id={`int-${run.id}`} rows={2} maxLength={2000} value={text}
-          placeholder={t("发现方向不对？直接说，下一步就按你说的调整，例如：不要用名称关联，改用编码")}
+          placeholder={t("补充说明或修正方向，将在下一步生效，例如：改用编码关联而非名称")}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
         <div className="av-compose__bar">

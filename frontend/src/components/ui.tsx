@@ -1,7 +1,7 @@
 // 通用界面件：全部基于 Avelis UI 的 av-* 类，不引入新的视觉规则。
 import type { UseQueryResult } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 
@@ -13,7 +13,7 @@ export { ConfirmDialog, DateInput, Select, SuggestInput } from "./controls";
 
 // --- 状态：状态点 + 两三个字（文字取自语言包 status.*） ----------------------------------
 
-type Tone = "ok" | "warn" | "danger" | "info" | "";
+export type Tone = "ok" | "warn" | "danger" | "info" | "";
 
 const STATUS: Record<string, [Tone, string]> = {
   // 指标版本
@@ -24,7 +24,7 @@ const STATUS: Record<string, [Tone, string]> = {
   error: ["danger", t("出错")],
   // 变更、复核、任务
   open: ["warn", t("待处理")], resolved: ["ok", t("已处理")], queued: ["info", t("排队中")], running: ["info", t("进行中")],
-  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")],
+  succeeded: ["ok", t("成功")], failed: ["danger", t("失败")], stopped: ["", t("已停止")],
   // 同一张表、粒度、指纹
   confirmed: ["ok", t("同一张表")], candidate: ["warn", t("待确认")], mismatch: ["danger", t("列不一致")],
   unresolved: ["", t("未匹配")], verified: ["ok", t("已核验")], unverified: ["warn", t("未核验")], violated: ["danger", t("不唯一")],
@@ -51,8 +51,13 @@ export function Pill({ tone = "", children, title }: { tone?: Tone; children: Re
   return <span className={`av-pill${tone ? ` av-pill--${tone}` : ""}`} title={title}>{children}</span>;
 }
 
-export function Dot({ tone = "" }: { tone?: Tone }) {
-  return <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}`} />;
+// 状态圆点：可选悬浮提示与读屏文字，避免仅靠颜色传达状态
+export function Dot({ tone = "", label, className }: { tone?: Tone; label?: string; className?: string }) {
+  return (
+    <span className={`av-dot${tone ? ` av-dot--${tone}` : ""}${className ? ` ${className}` : ""}`} data-tip={label || undefined}>
+      {label ? <span className="av-sr">{label}</span> : null}
+    </span>
+  );
 }
 
 export function Count({ n }: { n: number }) {
@@ -120,15 +125,30 @@ export function Seg<T extends string>({ value, options, onChange, label }: {
   );
 }
 
+// 共享标签页：支持 roving tabIndex 与左右方向键、Home/End 循环切换
 export function Tabs<T extends string>({ value, options, onChange }: {
   value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void;
 }) {
   const id = useId();
+  const tabsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
+    const len = options.length;
+    if (!len) return;
+    const next = e.key === "ArrowRight" ? (i + 1) % len
+      : e.key === "ArrowLeft" ? (i + len - 1) % len
+      : e.key === "Home" ? 0 : e.key === "End" ? len - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    onChange(options[next].value);
+    tabsRef.current[next]?.focus();
+  };
   return (
     <div className="av-tabs" role="tablist">
-      {options.map((o) => (
-        <button key={o.value} type="button" className="av-tab" role="tab" aria-selected={o.value === value}
-          onClick={() => onChange(o.value)}>{o.label}
+      {options.map((o, i) => (
+        <button key={o.value} ref={(el) => { tabsRef.current[i] = el; }} type="button" className="av-tab" role="tab"
+          aria-selected={o.value === value} tabIndex={i === activeIndex ? 0 : -1}
+          onClick={() => onChange(o.value)} onKeyDown={(e) => onKeyDown(e, i)}>{o.label}
           {o.value === value ? <motion.span layoutId={`tab${id}`} className="av-tab__bar" aria-hidden /> : null}</button>
       ))}
     </div>
@@ -268,7 +288,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
     const focusables = () => Array.from(ref.current?.querySelectorAll<HTMLElement>(
       "input, select, textarea, button, a[href], [tabindex]:not([tabindex='-1'])") ?? []).filter((el) => !el.hasAttribute("disabled"));
     (focusables().find((el) => el.tagName !== "BUTTON") ?? focusables()[0])?.focus();
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === "Escape") setClosing(true);
       if (e.key !== "Tab") return;
       const items = focusables();
