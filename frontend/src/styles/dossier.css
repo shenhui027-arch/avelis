@@ -35,7 +35,7 @@
 .av-dossier-hero__meta .av-avatar { width: 28px; height: 28px; background: color-mix(in srgb, var(--text-on-accent) 22%, transparent); color: var(--text-on-accent); font-size: 12px; }
 
 /* --- 并排卡片与通用列表行 ------------------------------------------------------------------------- */
-.av-dossier-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); align-items: start; }
+.av-dossier-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-3); align-items: stretch; }
 .av-dossier-card { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; padding: var(--space-4); }
 .av-dossier-card__hd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .av-dossier-card__hd h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--text-primary); font: var(--type-body-strong); }

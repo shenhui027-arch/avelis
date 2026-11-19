@@ -60,7 +60,7 @@ export function ChangesPage() {
         </div>
         <div className="av-pane__body">
           {/* 变更集列表接入 QueryState，待处理为空时给出明确提示 */}
-          <QueryState query={sets} isEmpty={() => !list.length} emptyText={filter === "open" ? t("没有待处理的变更") : t("没有变更")} compact>
+          <QueryState query={sets} isEmpty={() => !list.length} emptyText={filter === "open" ? t("没有待处理的变更") : sets.data?.length ? t("没有符合条件的变更") : t("没有变更")} compact>
             {() => byDay.map(([day, items]) => (
               <div key={day}>
                 <div className="av-tree__label av-changes__day">{formatDate(items[0].created_at, tz)}</div>

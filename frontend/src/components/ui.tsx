@@ -65,7 +65,7 @@ export function Count({ n }: { n: number }) {
 }
 
 /** 统一分页条：兼容无总数的 hasNext 翻页与已知 total 的范围翻页。 */
-export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, compact, alwaysShow, label, onChange }: {
+export function Pager({ offset, shown, page, total, hasNext, busy, paging, align, inline, compact, alwaysShow, label, ariaLabel, onChange }: {
   offset: number; page: number; shown?: number; total?: number; hasNext?: boolean;
   /** 占位数据加载中：暂停向后翻，避免连点越过末页 */
   busy?: boolean;
@@ -76,6 +76,8 @@ export function Pager({ offset, shown, page, total, hasNext, busy, paging, align
   compact?: boolean;
   alwaysShow?: boolean;
   label?: ReactNode;
+  /** 同页有多个分页条时用于区分的读屏名称 */
+  ariaLabel?: string;
   onChange: (offset: number) => void;
 }) {
   const prevRef = useRef<HTMLButtonElement>(null);
@@ -103,7 +105,7 @@ export function Pager({ offset, shown, page, total, hasNext, busy, paging, align
     : (shown ? `${offset + 1}–${offset + shown}` : "—"));
   const cls = `av-pager${align === "center" ? " av-pager--center" : ""}${inline ? " av-pager--inline" : ""}${compact ? " av-pager--compact" : ""}`;
   return (
-    <nav className={cls} aria-label={t("分页")}>
+    <nav className={cls} aria-label={ariaLabel ?? t("分页")}>
       <button ref={prevRef} type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={prevDisabled}
         onClick={() => { if (document.activeElement === prevRef.current) pendingFocus.current = "prev"; onChange(Math.max(0, offset - page)); }}>{t("上一页")}</button>
       <span className={`av-caption${label ? "" : " av-mono"}`}>{range}</span>

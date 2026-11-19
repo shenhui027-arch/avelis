@@ -202,7 +202,7 @@
 .av-pagehd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 40px; }
 .av-pagehd__title { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
 .av-pagehd h1 { margin: 0; font: var(--type-title-lg); color: var(--text-primary); }
-.av-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); align-items: start; gap: var(--space-4); }
+.av-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: var(--space-4); }
 .av-split { display: grid; grid-template-columns: minmax(0, 1fr) var(--size-inspector); grid-template-rows: minmax(0, 1fr); min-height: 0; }
 /* 窄屏分栏改为上下单列堆叠，右侧检查器落到下方并改用上边框 */
 @media (max-width: 900px) {

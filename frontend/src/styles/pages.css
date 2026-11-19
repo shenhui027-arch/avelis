@@ -40,15 +40,15 @@
 @media (max-width: 767px) { .av-changes { padding: var(--space-3); } }
 
 /* 两栏是两张独立的卡片：宽的放待办与指标，窄的放数据源、采集节奏与最近变更 */
-.av-workbench__workspace { grid-template-columns: minmax(0, 1fr) var(--size-inspector); align-items: start; gap: var(--space-3); overflow: visible; border: none; background: transparent; box-shadow: none; }
-.av-workbench__workspace > .av-pane { max-height: 100%; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
+.av-workbench__workspace { grid-template-columns: minmax(0, 1fr) var(--size-inspector); gap: var(--space-3); overflow: visible; border: none; background: transparent; box-shadow: none; }
+.av-workbench__workspace > .av-pane { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 .av-workbench__workspace > .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
 /* 左栏拆成两张卡片（待办 / 被拦截的提问、我负责的指标），标题固定，内容各自滚动 */
-.av-workbench__col { display: flex; flex-direction: column; gap: var(--space-3); height: 100%; max-height: 100%; min-width: 0; min-height: 0; }
+.av-workbench__col { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; min-height: 0; }
 .av-workbench__card { flex: 1 1 0; min-height: 0; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-glass); }
 /* 上排：待办 + 最近变更并排（最近变更是固定宽度的窄卡）；下排：我负责的指标占整行 */
-.av-workbench__row { display: flex; flex: 0 1 auto; max-height: 55%; align-items: flex-start; gap: var(--space-3); min-width: 0; min-height: 0; }
-.av-workbench__row > .av-workbench__card { display: flex; flex-direction: column; max-height: 100%; }
+.av-workbench__row { display: flex; flex: 1 1 0; gap: var(--space-3); min-width: 0; min-height: 0; }
+.av-workbench__row > .av-workbench__card { display: flex; flex-direction: column; }
 .av-workbench__card--todo { flex: 1 1 0; min-width: 0; }
 .av-workbench__card--changes { flex: 0 0 clamp(calc(var(--space-8) * 7.5), 30%, calc(var(--space-8) * 9.5)); min-width: 0; }
 /* 最近变更窄卡：长限定名单行省略，配合 data-tip 悬停展示全名 */
@@ -79,10 +79,9 @@
 @media (max-width: 1023px) {
   .av-workbench { height: 100%; overflow: auto; }
   .av-fill > .av-workbench__workspace { flex: none; overflow: visible; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
-  .av-workbench__workspace > .av-pane, .av-workbench__col, .av-workbench__row > .av-workbench__card { height: auto; max-height: none; }
   .av-workbench__workspace .av-pane__body { overflow: visible; }
   .av-workbench__card { flex: none; }
-  .av-workbench__row { flex: none; flex-direction: column; max-height: none; align-items: stretch; }
+  .av-workbench__row { flex: none; flex-direction: column; }
   .av-workbench__card--changes { flex: none; }
   .av-workbench__workspace > .av-pane + .av-pane { border-left: 1px solid var(--line-subtle); }
   .av-workbench .av-stages { grid-template-columns: repeat(5, minmax(calc(var(--space-6) * 5), 1fr)); overflow-x: auto; }
@@ -544,7 +543,7 @@
 .av-models__models, .av-models__policy { padding-top: var(--space-4); border-top: 1px solid var(--line-subtle); }
 .av-models__endpoint { overflow-wrap: anywhere; }
 .av-models__feedback:empty { display: none; }
-.av-models__assignments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: var(--space-4); }
+.av-models__assignments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .av-models__policy { gap: var(--space-2); }
 .av-models__table td { height: var(--size-list-row); }
 .av-models__table td:first-child { min-width: calc(var(--space-6) * 6); overflow-wrap: anywhere; }
@@ -934,7 +933,7 @@
 .av-lineage__chain-link { width: 100%; text-align: left; cursor: pointer; }
 .av-lineage__chain-link:hover { border-color: var(--accent); }
 .av-lineage__qualified { overflow-wrap: anywhere; }
-@media (max-width: 760px) { .av-lineage__resize { display: none; } }
+@media (max-width: 1279px) { .av-lineage__resize { display: none; } }
 /* 检查器粒度标签：列文本与核验状态按弹性布局自动换行 */
 .av-lineage__inspector .av-kv dd { min-width: 0; }
 .av-lineage__inspector .av-lineage__grain-tag { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); width: fit-content; max-width: 100%; height: auto; padding: var(--space-1) var(--space-2); white-space: normal; overflow-wrap: anywhere; }
@@ -969,7 +968,7 @@
 .av-calendar__day { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line-subtle); border-radius: var(--radius-full); color: var(--text-secondary); font: var(--type-caption); cursor: pointer; }
 .av-calendar__day:has(input:checked) { border-color: var(--accent); color: var(--text-primary); background: var(--accent-subtle, var(--bg-raised)); }
 .av-calendar__day input { margin: 0; accent-color: var(--accent); }
-.av-calendar__lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; gap: var(--space-4); }
+.av-calendar__lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
 /* 输入框底栏：时间、确认、模型、定时统一成同一种胶囊，菜单用同一套弹出层；发送是圆形主按钮 */
 .av-compose__bar { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--space-1) * 1.5); padding: var(--space-1) var(--space-3) var(--space-3); }
 .av-chip__btn, .av-compose__bar .av-mbar__btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;

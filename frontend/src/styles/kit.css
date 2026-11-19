@@ -190,7 +190,7 @@
 .av-approve.av-analysis__confirm { border-color: color-mix(in srgb, var(--accent) 35%, var(--line-default)); box-shadow: var(--shadow-glass), 0 0 0 3px var(--accent-subtle); }
 .av-approve > .av-actions:last-child { justify-content: flex-end; padding-top: var(--space-1); }
 
-/* --- 树：缩进引导线 + 可旋转的展开箭头 ------------------------------------------------------------- */
+/* 主视觉卡渐变两端用令牌 --hero-from / --hero-to（contrast.test.mjs 从 tokens.css 读取校验） */
 .av-tree__children { position: relative; margin-left: 18px; padding-left: 8px; }
 .av-tree__children::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 1px; background: var(--line-default); }
 .av-tree__caret { color: var(--text-tertiary); transition: transform var(--dur-base) var(--ease-out); }

@@ -63,7 +63,7 @@ export function CatalogPage() {
   const assetList = (assets.data ?? []).slice(0, ASSET_PAGE);
   const moreAssets = (assets.data?.length ?? 0) > ASSET_PAGE;
   const renderAssetPager = (compact?: boolean) => <Pager offset={assetOffset} shown={assetList.length} page={ASSET_PAGE} hasNext={moreAssets}
-    compact={compact} busy={assets.isPlaceholderData || assets.isFetching} onChange={setAssetOffset} />;
+    compact={compact} ariaLabel={compact ? t("资产树分页") : undefined} busy={assets.isPlaceholderData || assets.isFetching} onChange={setAssetOffset} />;
   // 翻到空页（例如数据在两次请求之间减少）时退回上一页，不停在没有翻页按钮的空状态
   useEffect(() => {
     if (assets.isSuccess && !assets.isPlaceholderData && assetOffset > 0 && !assets.data.length) setAssetOffset(Math.max(0, assetOffset - ASSET_PAGE));

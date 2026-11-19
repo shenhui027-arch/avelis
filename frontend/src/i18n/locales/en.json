@@ -455,6 +455,7 @@
   "· 由": "· from",
   "上一页": "Previous",
   "分页": "Pagination",
+  "资产树分页": "Asset tree pagination",
   "第 {{page}} / {{pages}} 页": "Page {{page}} / {{pages}}",
   "下一页": "Next",
   "探索查询": "Exploratory query",
