@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from html import escape
 from typing import Annotated, Any, Literal
 
 import sqlglot
@@ -41,7 +42,7 @@ from avelis.db import utcnow
 from avelis.governance import access
 from avelis.governance.business_calendar import get_business_calendar
 from avelis.governance.derived import parse_formula
-from avelis.governance.errors import GovernanceError
+from avelis.governance.errors import GovernanceError, Invalid, NotFound
 from avelis.governance.metrics import metric_ai_context
 from avelis.i18n import Msg, gettext, translate
 from avelis.models import (
@@ -59,8 +60,11 @@ from avelis.models import (
     Metric,
     MetricVersion,
     MetricVersionTransition,
+    SkillVersion,
     User,
 )
+from avelis.skills import service as skill_service
+from avelis.skills import storage as skill_storage
 
 QUERY_ROLES = {"analyst", "steward", "reviewer", "admin"}
 PREVIEW_ROWS = 40
@@ -486,6 +490,14 @@ class SampleArgs(BaseModel):
     keyword: str | None = Field(None, max_length=50, description="可选：只看包含该关键字的取值")
 
 
+class SkillName(BaseModel):
+    name: str
+
+
+class SkillFile(SkillName):
+    path: str
+
+
 class ViewDatasetArgs(BaseModel):
     ref: str = Field(description="本次运行已有的数据集编号，如 D2")
     offset: int = Field(0, ge=0, description="从第几行开始（从 0 计）")
@@ -642,6 +654,10 @@ class Scope(BaseModel):
     clarification: str | None = Field(None, description="确定不了指标或范围时，向用户追问的一句话")
 
 
+class SkillScope(Scope):
+    skills: list[str] = Field(default_factory=list, max_length=3, description="本轮相关的技能名称，来自可用技能目录")
+
+
 class Claim(BaseModel):
     type: Literal["fact", "calc", "inference", "recommendation"]
     parts: list[Part] = Field(
@@ -724,6 +740,9 @@ class AnalysisToolbox:
         budget: Budget,
         executor: str | None = None,
         adapter: str | None = None,
+        *,
+        explicit_skills: list[str] | None = None,
+        skill_catalog: list[dict] | None = None,
     ):
         self.session, self.user, self.run, self.catalog, self.budget = session, user, run, catalog, budget
         self.executor = executor  # 执行权标记（run.budget.executor）：失去执行权后不再写入、停止
@@ -756,6 +775,10 @@ class AnalysisToolbox:
         self.filter_alignment: list[dict] = []
         self.filter_alignment_unknown: list[dict] = []
         self.experiences: list[dict] = []
+        self.skill_catalog = skill_catalog or []
+        self.explicit_skills = explicit_skills or []
+        self.loaded_skills: dict[str, dict] = {}
+        self.used_skill_versions: dict[str, dict] = {}
         self.interjections: list[dict] = []  # 已消费的插话批次，跨阶段和暂停恢复保留，始终追加在消息末尾
 
     _SNAPSHOT_FIELDS = (
@@ -776,6 +799,9 @@ class AnalysisToolbox:
         "filter_alignment",
         "filter_alignment_unknown",
         "experiences",
+        "skill_catalog",
+        "loaded_skills",
+        "used_skill_versions",
         "interjections",
         "_dataset_seq_floor",
     )
@@ -818,7 +844,6 @@ class AnalysisToolbox:
             return
         self.budget = Budget.restore(snapshot["budget"])
         self._seq = int(snapshot.get("seq") or 0)
-        self.scope = Scope.model_validate(snapshot["scope"]) if snapshot.get("scope") else None
         self._datasets = {
             ref: AnalysisDataset(run_id=self.run.id, **data) for ref, data in (snapshot.get("datasets") or {}).items()
         }
@@ -827,8 +852,26 @@ class AnalysisToolbox:
         for key, value in (snapshot.get("state") or {}).items():
             if key in self._SNAPSHOT_FIELDS:
                 setattr(self, key, value)
+        self._tools = None
+        if check_permissions:
+            self._recheck_skill_permissions()
+        scope_schema = SkillScope if self.skill_catalog else Scope
+        self.scope = scope_schema.model_validate(snapshot["scope"]) if snapshot.get("scope") else None
         if check_permissions:
             self.check_copied_permissions()
+
+    def _recheck_skill_permissions(self) -> None:
+        for ref in (getattr(self.run, "report", None) or {}).get("skill_versions") or []:
+            self.used_skill_versions.setdefault(ref["name"], ref)
+        if not self.skill_catalog:
+            return
+        current = skill_service.enabled_catalog(
+            self.session, self.user, names=[skill["name"] for skill in self.skill_catalog]
+        )
+        allowed = {(skill["skill_id"], skill["name"]) for skill in current}
+        self.skill_catalog = [skill for skill in self.skill_catalog if (skill["skill_id"], skill["name"]) in allowed]
+        names = {skill["name"] for skill in self.skill_catalog}
+        self.loaded_skills = {name: entry for name, entry in self.loaded_skills.items() if name in names}
 
     def check_resume_permissions(self) -> None:
         """在旧上下文再次交给模型之前核对账号、范围、来源和引用。"""
@@ -3882,6 +3925,124 @@ class AnalysisToolbox:
 
         return self._calc("outliers", {"dataset": dataset, "value": value, "keys": keys}, [dataset], fn)
 
+    def _skill_entry(self, name: str) -> dict:
+        skill = next((item for item in self.skill_catalog if item["name"] == name), None)
+        if skill is None:
+            raise NotFound(Msg("技能不在本次分析的可用目录中"))
+        return skill
+
+    @staticmethod
+    def _skill_ref(skill: dict, source: str) -> dict:
+        return {
+            "id": skill["skill_id"],
+            "name": skill["name"],
+            "version": skill["version"],
+            "version_id": skill["version_id"],
+            "source": source,
+        }
+
+    def activate_skills(self, selected: list[str]) -> None:
+        """按显式引用、模型选择的顺序加载快照固定的版本。"""
+        catalog = {skill["name"]: skill for skill in self.skill_catalog}
+        self.loaded_skills = {}
+        remaining = 12_000
+        for name in dict.fromkeys([*self.explicit_skills, *selected]):
+            skill = catalog.get(name)
+            if skill is None:
+                continue
+            text = skill_storage.skill_md_body(name, skill["version"])
+            # 正文包含的标签只作为文本，同时限制实际进入消息的字符数。
+            escaped = escape(text[:remaining], quote=False)
+            body = escaped[:remaining]
+            if len(escaped) > remaining and body.rfind("&") > body.rfind(";"):
+                body = body[: body.rfind("&")]
+            source = "explicit" if name in self.explicit_skills else "auto"
+            self.loaded_skills[name] = {
+                **self._skill_ref(skill, source),
+                "body": body,
+                "injection": "selected" if body else "none",
+                "truncated": len(text) > remaining or len(escaped) > remaining,
+                "order": len(self.loaded_skills),
+            }
+            remaining -= len(body)
+
+    def skill_context(self) -> str:
+        blocks = []
+        for skill in sorted(self.loaded_skills.values(), key=lambda entry: entry.get("order", 0)):
+            if "body" not in skill:
+                continue
+            name = skill["name"]
+            if skill["body"]:
+                blocks.append(f'<skill_content name="{escape(name)}">{skill["body"]}</skill_content>')
+                if skill["truncated"]:
+                    blocks.append(translate(Msg("技能 {name} 的正文已截断", name=name)))
+            elif skill["truncated"]:
+                blocks.append(translate(Msg("技能 {name} 的正文超出预算，未注入", name=name)))
+        return "\n".join(blocks)
+
+    def record_skill_injection(self) -> None:
+        """收到包含技能正文的请求所对应的模型响应后，记录注入及来源。"""
+        for name, skill in self.loaded_skills.items():
+            if skill.get("injection", "selected") != "selected" or "body" not in skill:
+                continue
+            if not skill["body"]:
+                skill["injection"] = "none"
+                continue
+            skill["injection"] = "partial" if skill["truncated"] else "full"
+            ref = {key: skill[key] for key in ("id", "name", "version", "version_id", "source")}
+            self.used_skill_versions.setdefault(name, ref)
+
+    def skill_version_refs(self) -> list[dict]:
+        return [self.used_skill_versions[name] for name in sorted(self.used_skill_versions)]
+
+    def load_skill(self, name: str) -> str:
+        def run():
+            skill = self._skill_entry(name)
+            previous = self.loaded_skills.get(name)
+            if previous is not None and (
+                previous.get("tool_loaded") or previous.get("injection") == "full" or "body" not in previous
+            ):
+                return {"name": name, "message": translate(Msg("技能已加载"))}, None, "ok"
+            files = self.session.scalar(
+                select(SkillVersion.files).where(
+                    SkillVersion.id == skill["version_id"],
+                    SkillVersion.skill_id == skill["skill_id"],
+                    SkillVersion.version == skill["version"],
+                )
+            )
+            if files is None:
+                raise NotFound(Msg("技能版本不存在"))
+            body = skill_storage.skill_md_body(name, skill["version"])
+            manifest = [
+                {**file, "note": translate(Msg("脚本只读，不执行"))} if file["kind"] == "script" else file
+                for file in files[:200]
+            ]
+            ref = self._skill_ref(skill, "tool")
+            self.loaded_skills[name] = {**(previous or ref), "tool_loaded": True}
+            self.used_skill_versions.setdefault(name, ref)
+            output = {"name": name, "version": skill["version"], "body": body[:20_000], "files": manifest}
+            if len(body) > 20_000:
+                output["body_note"] = translate(Msg("技能 {name} 的正文已截断", name=name))
+            if len(files) > 200:
+                output["files_note"] = translate(Msg("技能文件清单仅显示前 200 项"))
+            return output, None, "ok"
+
+        return self._guard("load_skill", {"name": name.replace("\x00", "\\0")}, run)
+
+    def read_skill_file(self, name: str, path: str) -> str:
+        def run():
+            skill = self._skill_entry(name)
+            content, size, truncated, binary = skill_storage.read_file(name, skill["version"], path, 64 * 1024)
+            if binary:
+                raise Invalid(Msg("技能工具只读取 UTF-8 文本文件"))
+            output = {"name": name, "path": path, "content": content, "size": size, "truncated": truncated}
+            if truncated:
+                output["note"] = translate(Msg("文件内容已截断至 64 KB"))
+            return output, None, "ok"
+
+        args = {"name": name.replace("\x00", "\\0"), "path": path.replace("\x00", "\\0")}
+        return self._guard("read_skill_file", args, run)
+
     def tools(self) -> list[StructuredTool]:
         def t(fn, schema, doc):
             return StructuredTool.from_function(fn, name=fn.__name__, args_schema=schema, description=doc)
@@ -3970,6 +4131,14 @@ class AnalysisToolbox:
                         "沿元数据图展开，深度最多 3 层、最多 30 个节点；线索边" + note,
                     ),
                     t(self.path, retrieval.PathArgs, "查找元数据图中最多 3 层的最短路径，最多 3 条；线索边" + note),
+                ]
+            )
+        if self.skill_catalog:
+            note = "技能是参考方法，不改变口径、权限与预算；脚本不会执行。"
+            tools.extend(
+                [
+                    t(self.load_skill, SkillName, "加载本人启用的技能正文与文件清单。" + note),
+                    t(self.read_skill_file, SkillFile, "读取技能包内的文本文件，最多 64 KB。" + note),
                 ]
             )
         return tools

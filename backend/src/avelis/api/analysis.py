@@ -50,6 +50,7 @@ class Window(BaseModel):
 
 class RunCreate(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
+    skills: list[str] | None = None
     window: Window | None = None
     confirmation_mode: Literal["auto", "always"] = "auto"
     model: S.AnalysisModelIn | None = None
@@ -111,6 +112,7 @@ def create_run(
         user,
         body.question,
         _window(body.window),
+        skills=body.skills,
         confirmation_mode=body.confirmation_mode,
         model=body.model.model_dump() if body.model else None,
         reasoning_effort=body.reasoning_effort,
@@ -242,6 +244,7 @@ def followup_run(
         run_id,
         body.text,
         confirmation_mode=body.confirmation_mode,
+        skills=body.skills,
         model=body.model.model_dump() if body.model else None,
         reasoning_effort=body.reasoning_effort,
     )

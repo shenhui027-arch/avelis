@@ -27,6 +27,7 @@ import { UsersPage } from "./pages/settings/UsersPage";
 import { CalendarPage } from "./pages/settings/CalendarPage";
 import { McpPage } from "./pages/settings/McpPage";
 import { WebhooksPage } from "./pages/settings/WebhooksPage";
+import { SkillsPage } from "./pages/skills/SkillsPage";
 import { Workbench } from "./pages/Workbench";
 import "./theme";
 import "./styles/tokens.css";
@@ -35,6 +36,7 @@ import "./styles/app.css";
 import "./styles/pages.css";
 import "./styles/kit.css";
 import "./styles/dossier.css";
+import "./styles/skills.css";
 import "./styles/motion.css";
 
 export const queryClient = new QueryClient({
@@ -60,6 +62,8 @@ const router = createBrowserRouter([
       { path: "catalog/:section/:id", element: <CatalogPage /> },
       { path: "changes", element: <ChangesPage /> },
       { path: "changes/:id", element: <ChangesPage /> },
+      { path: "skills", element: <Navigate to="/skills/market" replace /> },
+      { path: "skills/:section", element: <SkillsPage /> },
       // 问数入口统一到分析页（取数类问题在那里直接给出答案）；旧会话链接仍可查看
       { path: "ask", element: <Navigate to="/analysis" replace /> },
       { path: "ask/:threadId", element: <AskPage /> },

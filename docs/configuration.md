@@ -199,6 +199,15 @@ MCP 工具使用令牌所代表用户的现有业务域权限，并受授权的 
 
 超时采集和导入的治理收尾会在后续扫描中重试，业务任务本身不会自动重跑。每个 worker 使用独立的投递循环，长业务任务和历史清理不会推迟 Webhook 投递。每轮最多处理 50 条，按订阅轮转并发发送；同一订阅同一时刻最多一个请求在途。单次请求包括 DNS 解析在内最多 5 秒，连接最多 3 秒，且不超过本轮剩余预算；不会按订阅数量切短单次期限。详见[事件投递规则](events.md#投递与签名验证)。
 
+### 技能市场 `[skills]`
+
+| 配置文件 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `dir` | `AVELIS_SKILLS_DIR` | `/var/lib/avelis/skills` | 技能存储目录。app 与 worker 共享 |
+| `max_zip_bytes` | `AVELIS_SKILLS_MAX_ZIP_BYTES` | `10485760` | 上传 ZIP 的大小上限，字节 |
+| `max_unpacked_bytes` | `AVELIS_SKILLS_MAX_UNPACKED_BYTES` | `52428800` | ZIP 解压后的总大小上限，字节 |
+| `max_files` | `AVELIS_SKILLS_MAX_FILES` | `500` | ZIP 条目数上限，包含目录 |
+
 ### Webhook `[webhook]`
 
 | 配置文件 | 环境变量 | 默认值 | 说明 |

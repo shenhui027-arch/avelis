@@ -146,13 +146,16 @@ docker compose down                                                # 停止（�
 docker build -t avelis:1.0.10 .                       # 在儲存庫根目錄建置
 docker run -d --name avelis -p 8080:8000 \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10
 docker run -d --name avelis-worker --no-healthcheck \
   -v "$PWD/avelis.toml:/etc/avelis/avelis.toml:ro" \
+  -v avelis-skills:/var/lib/avelis/skills \
   avelis:1.0.10 python -m avelis.jobs
 ```
 
 映像預設讀取 `/etc/avelis/avelis.toml`；映像自帶的健康檢查針對 API，worker 容器用 `--no-healthcheck` 關閉。`[database]`、`[redis]` 寫外部服務的地址；`[bootstrap] auto_migrate`、`auto_init_admin` 預設均為 `true`，可省略。也可以不掛載設定檔，全部用 `-e AVELIS_*` 環境變數傳入。
+技能套件儲存在 `[skills] dir`（預設為 `/var/lib/avelis/skills`）。Compose 將具名磁碟區 `skills` 同時掛載到 `app` 與 `worker`。多執行個體部署時，所有 app 和 worker 都須共用同一個儲存目錄，並具備讀寫權限。變更儲存路徑時，掛載位置也須一併調整。
 
 ## 5. 反向代理與 HTTPS
 
@@ -226,11 +229,15 @@ cd deploy/docker
 docker compose up -d --build
 ```
 
-`auto_migrate = true` 時，新版本的 app 啟動時自動遷移中繼資料庫（多副本時用 PostgreSQL 諮詢鎖序列執行）；遷移完成並就緒後 worker 才會重啟。升級前先備份中繼資料庫。
+`auto_migrate = true` 時，新版本的 app 啟動時自動遷移中繼資料庫（多副本時用 PostgreSQL 諮詢鎖序列執行）；遷移完成並就緒後 worker 才會重啟。升級前先成對備份中繼資料庫與技能磁碟區。
 
 ## 9. 備份與恢復
 
-需要備份的是中繼資料庫與 `avelis.toml`（資料來源密碼與模型金鑰以加密形式存在庫裡，恢復時需要同一個 `[security] secret`）。Redis 只放可重建的快取與喚醒訊號。
+備份中繼資料庫、技能磁碟區與 `avelis.toml`。資料來源密碼與模型金鑰以加密形式存在庫裡，還原時需要同一個 `[security] secret`。Redis 只放可重建的快取與喚醒訊號。
+
+資料庫與技能磁碟區必須成對備份、成對還原。備份前請先暫停所有 app 和 worker 的寫入，並備份完整技能磁碟區（包含隱藏的 `.versions`）。還原時請使用同一批次的資料庫與技能磁碟區備份，兩者都還原後再啟動 app 和 worker。
+
+只有確認資料庫已回到遷移 `0026` 之前且技能資料表均已不存在時，才可將舊技能磁碟區移出使用路徑，並另行保留整個磁碟區。
 
 ```bash
 # 備份
@@ -238,6 +245,7 @@ docker compose exec -T postgres pg_dump -U avelis -d avelis -Fc > avelis-$(date 
 # 恢復到空庫（先停 app 與 worker）
 docker compose stop app worker
 docker compose exec -T postgres pg_restore -U avelis -d avelis --clean --if-exists < avelis-2026-10-31.dump
+# 還原技能目錄後再啟動 app 與 worker
 docker compose start app worker
 ```
 

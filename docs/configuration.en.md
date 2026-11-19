@@ -196,6 +196,15 @@ Automatic migration and administrator initialization are enabled by default, eve
 
 Governance finalization for timed-out collection and import jobs is retried by later scans; business work itself is not rerun automatically. Each worker has one independent delivery loop, so long business jobs and history cleanup do not delay Webhook delivery. Each round processes at most 50 items, taking turns across subscriptions with concurrent requests. Each subscription has at most one request in flight. Each request allows at most 5 seconds including DNS resolution, with at most 3 seconds for connecting, and is capped by the round's remaining budget. Its deadline is not divided by the number of subscriptions. See [delivery rules](events.en.md#delivery-and-signature-verification).
 
+### Skill marketplace `[skills]`
+
+| Config file | Environment variable | Default | Description |
+|---|---|---|---|
+| `dir` | `AVELIS_SKILLS_DIR` | `/var/lib/avelis/skills` | Skills storage directory shared by the app and worker |
+| `max_zip_bytes` | `AVELIS_SKILLS_MAX_ZIP_BYTES` | `10485760` | Maximum size of an uploaded ZIP in bytes |
+| `max_unpacked_bytes` | `AVELIS_SKILLS_MAX_UNPACKED_BYTES` | `52428800` | Maximum total uncompressed ZIP size in bytes |
+| `max_files` | `AVELIS_SKILLS_MAX_FILES` | `500` | Maximum number of ZIP entries, including directories |
+
 ### Webhook `[webhook]`
 
 | Configuration file | Environment variable | Default | Description |

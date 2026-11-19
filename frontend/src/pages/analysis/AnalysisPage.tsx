@@ -17,7 +17,7 @@ import { Insights, Narrative } from "../../components/AnswerInsights";
 import type { ChartSpec } from "../../components/charts/chartOption";
 import { ArchivedConversations } from "../../layout/Conversations";
 import { datasetCell, datasetLabel, datasetNumeric, DatasetView, EvidenceLink, useOpenDataset } from "./DatasetView";
-import { ChipMenu } from "./ComposeOptions";
+import { ChipMenu, SkillPickerTrigger, SkillTags, useSkillPicker } from "./ComposeOptions";
 import { motion } from "motion/react";
 import { RevealGroup, revealItem } from "../../components/Motion";
 import { CronPicker, describeCron } from "./CronPicker";
@@ -156,8 +156,16 @@ function Composer() {
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const picker = useModelChoice();
+  const skillPicker = useSkillPicker(text, setText);
   const start = useAction(() => unwrap(api.POST("/api/analysis/runs", {
-    body: { question: text, window: windowBody(kind, fixed), confirmation_mode: mode, ...picker.body } as never })), ["analysis-runs"]);
+    body: {
+      question: text,
+      window: windowBody(kind, fixed),
+      confirmation_mode: mode,
+      ...(skillPicker.skills.length ? { skills: skillPicker.skills } : {}),
+      ...picker.body,
+    } as never,
+  })), ["analysis-runs"]);
   return (
     <RevealGroup as="section" className="av-analysis__compose">
       <motion.h1 className="av-compose__title" variants={revealItem}>{t("想知道什么？")}</motion.h1>
@@ -165,12 +173,30 @@ function Composer() {
       <motion.form className="av-compose" variants={revealItem} onSubmit={(e) => {
         e.preventDefault();
         setError(null);
-        start.mutate(undefined, { onSuccess: (r) => navigate(`/analysis/runs/${r.id}`), onError: (err) => setError(errorText(err)) });
+        start.mutate(undefined, {
+          onSuccess: (r) => { skillPicker.clear(); navigate(`/analysis/runs/${r.id}`); },
+          onError: (err) => setError(errorText(err)),
+        });
       }}>
-        <label htmlFor="aq" className="av-sr">{t("分析问题")}</label>
-        <textarea id="aq" rows={3} value={text} placeholder={t("问一个数，或者问为什么变了、有什么关系")}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit(); }} />
+        <SkillTags skills={skillPicker.skills} onRemove={skillPicker.remove} />
+        <div className="av-compose__row">
+          <SkillPickerTrigger state={skillPicker} />
+          <label htmlFor="aq" className="av-sr">{t("分析问题")}</label>
+          <textarea
+            ref={skillPicker.textareaRef}
+            id="aq"
+            rows={3}
+            value={text}
+            placeholder={t("问一个数，或者问为什么变了、有什么关系")}
+            {...skillPicker.textareaProps}
+            onKeyDown={(e) => {
+              if (skillPicker.onTextareaKeyDown(e)) return;
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+        </div>
         <div className="av-compose__bar">
           <ChipMenu down icon="calendar" title={t("时间范围")} value={kind} onChange={setKind} keepOpenFor="fixed"
             display={kind === "fixed" ? `${shortDate(fixed.start)}–${shortDate(fixed.end)}` : undefined}
@@ -477,7 +503,8 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
   const [error, setError] = useState<string | null>(null);
   const report = (r.report ?? {}) as { title?: string; summary?: string; claims?: Claim[]; unexplained?: string; method?: string;
     notes?: string[]; fields?: Record<string, FieldRecord>; conclusion?: string; causes?: CauseView[];
-    sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[] };
+    sources?: Parameters<typeof SourcesPanel>[0]["items"]; experience_versions?: { id: string; version: number }[];
+    skill_versions?: Parameters<typeof SourcesPanel>[0]["skills"] };
   const answer = (r as Run & { answer?: Answer | null }).answer;
   const lookup = (report as { kind?: string }).kind === "lookup";
   // 对话改图的一轮：只换上一轮数据的画法，没有结论与依据，只显示说明与改好的图
@@ -522,7 +549,18 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       </header>
       {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
       <DatasetSql.Provider value={Object.fromEntries((r.datasets ?? []).filter((d) => d.sql).map((d) => [d.ref, d.sql as string]))}>
-      <div className="av-runlog__user is-question"><span className="av-runlog__bubble">{r.question}</span></div>
+      <div className="av-runlog__user is-question">
+        <span className="av-runlog__bubble">{r.question}</span>
+        {r.skills?.length ? (
+          <div className="av-runlog__skills">
+            {r.skills.map((name) => (
+              <span key={name} className="av-tag av-runlog__skill-tag">
+                <Icon name="skill" small />{name}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
       {r.steps?.length || live ? <RunTranscript run={r} live={live} autoFollow={autoFollow} footer={<>
         {report.method ? <p className="av-doc__method"><Segments segments={report.fields?.method?.segments} text={report.method} /></p> : null}
         <p className="av-caption av-doc__meta">
@@ -537,7 +575,10 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
       {r.status === "waiting" && hitl.pending?.kind !== "clarify"
         ? <ConfirmPanel key={r.id} runId={r.id} items={hitl.proposal?.items ?? []} /> : null}
       {done ? <FilterAlignmentNote items={(r as Run & { filter_alignment?: Parameters<typeof FilterAlignmentNote>[0]["items"] }).filter_alignment} /> : null}
-      {done && lookup && answer ? <LookupAnswer a={answer} onContinue={onContinue} /> : null}
+      {done && lookup && answer ? <>
+        <LookupAnswer a={answer} onContinue={onContinue} />
+        <SourcesPanel skills={report.skill_versions} />
+      </> : null}
       {done && chartEdit ? <>
         {report.summary ? <p className={verification.ok === false ? "av-banner av-banner--info" : "av-doc__method"}>{report.summary}</p> : null}
         <Figures runId={r.id} figures={(r as Run & { figures?: Figure[] }).figures ?? []} />
@@ -584,7 +625,7 @@ function RunTurn({ r, turn, total, onContinue, autoFollow }: { r: Run; turn: num
           </ol>
           {report.notes?.length ? <p className="av-caption">{report.notes.join(t("；"))}</p> : null}
         </details>
-        <SourcesPanel items={report.sources} experiences={report.experience_versions} />
+        <SourcesPanel items={report.sources} experiences={report.experience_versions} skills={report.skill_versions} />
       </> : null}
       {r.join_candidates?.length || r.checkpoint_warnings?.length ? (
         <section className="av-analysis__joins" aria-label={t("关联路径")}>

@@ -56,6 +56,9 @@ services:
   app:
     <<: *avelis
     restart: unless-stopped
+    volumes:
+      - *config-mount
+      - skills:/var/lib/avelis/skills
     ports:
       - "${AVELIS_BIND_ADDRESS:-127.0.0.1}:${AVELIS_HTTP_PORT:-8080}:8000"
     depends_on:
@@ -77,6 +80,9 @@ services:
   worker:
     <<: *avelis
     restart: unless-stopped
+    volumes:
+      - *config-mount
+      - skills:/var/lib/avelis/skills
     command: ["python", "-m", "avelis.jobs"]
     depends_on:
       # 等应用完成迁移并就绪后再启动
@@ -125,6 +131,7 @@ volumes:
   pgdata:
   redisdata:
   service-secrets:
+  skills:
 
 networks:
   default:
