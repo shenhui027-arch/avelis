@@ -199,6 +199,7 @@ class FakeRedis:
 
 
 def test_live_sink_throttles_and_can_be_read_back(monkeypatch):
+    monkeypatch.setattr(live, "_unavailable_until", 0.0)  # 不受其他用例触发的暂停写入影响
     redis = FakeRedis()
     monkeypatch.setattr(live, "_client", lambda: redis)
     sink = live.LiveSink("r1")
