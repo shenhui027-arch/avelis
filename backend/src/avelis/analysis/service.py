@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from avelis import audit, modelcfg
 from avelis.analysis import agent as analysis_agent
+from avelis.analysis import live
 from avelis.analysis.tools import AnalysisToolbox, Budget, PermissionLost
 from avelis.ask import service as ask_service
 from avelis.ask.intent import business_today
@@ -443,6 +444,7 @@ def _execute(
             ),
         }
     session.rollback()  # 丢弃未提交的半步写入；已完成的步骤与数据集已逐步提交
+    live.clear(run_id)  # 运行中的实时过程到此为止（只影响显示；键本身也会过期）
     # 加锁顺序全局一致：Job → 运行 → 任务（恢复器、领取、任务路径相同），并发收尾不会互等
     job = _own_job(session, job_id, attempt)
     run = session.get(AnalysisRun, run_id, with_for_update=True, populate_existing=True)

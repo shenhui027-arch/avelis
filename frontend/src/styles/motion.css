@@ -41,5 +41,8 @@
 @media (prefers-reduced-motion: reduce) {
   .av-menu, .av-popover, .av-backdrop, .av-dialog__scrim, .av-drawer, .av-dialog, .av-tooltip { animation: none; }
   .av-spinner { animation: none; }
+  .av-shimmer { animation: none; background: none; color: var(--text-secondary); }
+  .av-caret { animation: none; }
+  .av-think__hd > .av-icon:first-child, .av-runlog__toggle > .av-icon:first-child { transition: none; }
   .av-btn:active:not([disabled]), .av-sb__new:active, .av-compose__send:active:not(:disabled), .av-login__submit:active:not(:disabled) { transform: none; }
 }

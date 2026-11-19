@@ -23,7 +23,7 @@ flowchart LR
     ENG[引擎適配層 engines]
   end
   PG[(PostgreSQL 中繼資料庫<br/>含代理會話 avelis_agent)]
-  RD[(Valkey / Redis<br/>鎖、權杖吊銷、快取、喚醒)]
+  RD[(Valkey / Redis<br/>鎖、權杖吊銷、快取、喚醒、即時過程)]
   LLM[[模型服務<br/>DeepSeek / OpenAI 相容 / Anthropic]]
   UI[前端 React SPA] -->|/api| API
   API --> PG

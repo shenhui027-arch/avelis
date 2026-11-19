@@ -43,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avelis import charts
-from avelis.analysis import conversation_context, investigation
+from avelis.analysis import conversation_context, investigation, live
 from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
@@ -60,7 +60,13 @@ from avelis.engines import dialect_of, get_engine
 from avelis.governance import access, experiences, joins
 from avelis.governance.errors import GovernanceError
 from avelis.i18n import current_locale, gettext, reply_language_instruction
-from avelis.llm_protocol import ModelProtocolError, protocol_problem, response_finish_reason
+from avelis.llm_protocol import (
+    ModelProtocolError,
+    protocol_problem,
+    response_finish_reason,
+    stream_reply,
+    streams_live,
+)
 from avelis.models import AnalysisRun, Asset, Datasource, MetricVersion, User
 
 REVISION_TOOL_CALLS = 6
@@ -569,7 +575,18 @@ def _invoke(
         budget.used_model_requests += 1
         started = time.monotonic()
         try:
-            reply: AIMessage = bound.invoke(messages)
+            sink = _live_sink(toolbox)
+            if sink is not None and streams_live(bound):
+                # 流式：思考中的推理文字实时写入（live），整体时限与非流式的请求超时一致
+                sink.model_started(getattr(toolbox, "_seq", 0))
+                reply: AIMessage = stream_reply(
+                    bound,
+                    messages,
+                    sink.model_delta,
+                    deadline=started + max(1.0, min(_model_timeout_seconds(), budget.remaining())),
+                )
+            else:
+                reply = bound.invoke(messages)
         except Exception as exc:
             transient = _is_transient_error(exc)
             retry = (
@@ -643,6 +660,18 @@ def _invoke(
         return reply
 
 
+def _live_sink(toolbox: AnalysisToolbox) -> live.LiveSink | None:
+    """执行者（worker）运行时写实时过程；进程内直接调用（测试、离线实验）不写。"""
+    executor, run = getattr(toolbox, "executor", None), getattr(toolbox, "run", None)
+    if not isinstance(executor, str) or not executor or not isinstance(getattr(run, "id", None), str):
+        return None
+    sink = getattr(toolbox, "_live", None)
+    if sink is None or sink.run_id != toolbox.run.id:
+        sink = live.LiveSink(toolbox.run.id)
+        toolbox._live = sink
+    return None if sink.disabled else sink
+
+
 def _can_call_model(toolbox: AnalysisToolbox) -> bool:
     toolbox.check_executor()
     toolbox.check_copied_permissions()
@@ -698,6 +727,9 @@ def _round(
         toolbox.check_executor()
         if toolbox.stopped:
             break
+        sink = _live_sink(toolbox)
+        if sink is not None:
+            sink.tool_started(getattr(toolbox, "_seq", 0), call["name"], call["args"])
         result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
         out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
     # 参数无法解析的调用（LangChain 放在 invalid_tool_calls）也必须逐个回复，否则下一轮请求会因缺少工具消息被拒（400）；

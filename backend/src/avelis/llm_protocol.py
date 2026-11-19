@@ -4,7 +4,8 @@
 - DeepSeek 思考模式的 reasoning_content（https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/）：官方要求
   “携带了 tools 参数的请求，在后续所有请求中，必须完整回传 reasoning_content 给 API”，否则返回 400。
   langchain_openai.ChatOpenAI 只按 OpenAI 规范解析，既不读取也不回传这个字段，这里补上受控的原样往返：
-  响应里的 reasoning_content 放进 AIMessage.additional_kwargs（不进入 content，不展示给用户，不写步骤记录与普通日志），
+  响应里的 reasoning_content 放进 AIMessage.additional_kwargs（不进入 content、不写普通日志；
+  问数页的过程展示读取 model 步骤里保存的推理文字），
   之后的请求把同一条助手消息的 reasoning_content 原样带回。消息对象可以按 LangChain 的序列化保存与恢复，字段随之保留。
 - DeepSeek 官方 Chat Completions 的输出上限字段是 max_tokens；langchain_openai 1.7.1 改发的 max_completion_tokens
   经实测被忽略（上限 8，实际输出 141 token），因此请求时改回 max_tokens。
@@ -12,14 +13,21 @@
     """按基础设施错误处理（ModelProtocolError），
   不把截断的工具参数当作模型写错的内容去修复或重交。
 - 工具调用编号：同一条回复里的工具调用必须各有编号且互不重复，否则无法逐个回复（下一次请求会被拒），也按协议错误处理。
+- 流式（stream_reply）：只对核实过思考协议的提供方（ReasoningRoundTripChatOpenAI）使用，边收边把累计的推理文字与正文
+  交给回调（问数页的“思考中”实时显示）；流式增量里的 reasoning_content 同样放进
+  additional_kwargs，合并后与非流式回复一致。
+  流式请求按 OpenAI 规范请求用量（stream_options.include_usage），原始用量放进 response_metadata.token_usage，
+  缓存命中等字段与非流式一致。读取超时只限制单次等待，整体截止时间由调用方传入的 deadline 控制。
 """
 )
 
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import Any, Callable
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages.utils import message_chunk_to_message
 from langchain_openai import ChatOpenAI
 
 REASONING_FIELD = "reasoning_content"
@@ -91,3 +99,75 @@ class ReasoningRoundTripChatOpenAI(ChatOpenAI):
             if isinstance(message, AIMessage) and REASONING_FIELD in message.additional_kwargs:
                 out[REASONING_FIELD] = message.additional_kwargs[REASONING_FIELD]
         return payload
+
+    def _convert_chunk_to_generation_chunk(
+        self, chunk: dict, default_chunk_class: type, base_generation_info: dict | None
+    ):
+        result = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
+        if result is None or not isinstance(result.message, AIMessageChunk):
+            return result
+        choices = chunk.get("choices") or []
+        reasoning = ((choices[0] if choices else {}).get("delta") or {}).get(REASONING_FIELD)
+        if isinstance(reasoning, str) and reasoning:
+            result.message.additional_kwargs[REASONING_FIELD] = reasoning
+        if chunk.get("usage"):
+            result.message.response_metadata["token_usage"] = chunk["usage"]
+        return result
+
+
+def streams_live(bound: Any) -> bool:
+    """这次请求是否走流式：只对核实过思考协议的提供方（bind_tools 之后取被绑定的模型判断）。"""
+    return isinstance(getattr(bound, "bound", bound), ReasoningRoundTripChatOpenAI)
+
+
+def _text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(
+        block if isinstance(block, str) else block.get("text", "")
+        for block in content or []
+        if isinstance(block, str) or isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def stream_reply(
+    bound: Any,
+    messages: list,
+    on_delta: Callable[[str, str], None],
+    *,
+    deadline: float | None = None,
+    interval: float = 0.25,
+) -> AIMessage:
+    """流式请求一次模型并合并为完整回复；收到增量时把累计的推理文字与正文交给 on_delta（至多每 interval 秒一次）。
+    超过 deadline（time.monotonic）时中止并抛出 TimeoutError（与非流式的请求超时同样按传输层临时错误处理）。"""
+    chunks: list[AIMessageChunk] = []
+    thinking: list[str] = []
+    text: list[str] = []
+    notified = 0.0
+    stream = iter(bound.stream(messages, stream_usage=True))
+    try:
+        for chunk in stream:
+            if not isinstance(chunk, AIMessageChunk):
+                continue
+            chunks.append(chunk)
+            piece = (chunk.additional_kwargs or {}).get(REASONING_FIELD)
+            if isinstance(piece, str):
+                thinking.append(piece)
+            if chunk.content:
+                text.append(_text(chunk.content))
+            now = time.monotonic()
+            if (piece or chunk.content) and now - notified >= interval:
+                notified = now
+                on_delta("".join(thinking), "".join(text))
+            if deadline is not None and now > deadline:
+                raise TimeoutError("模型流式回复超过剩余时间")
+    finally:
+        close = getattr(stream, "close", None)
+        if close is not None:
+            close()
+    if not chunks:
+        raise ModelProtocolError("model_protocol", "模型流式回复没有任何内容")
+    merged = chunks[0] + chunks[1:] if len(chunks) > 1 else chunks[0]
+    reply = message_chunk_to_message(merged)
+    assert isinstance(reply, AIMessage)
+    return reply

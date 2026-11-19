@@ -23,7 +23,7 @@ flowchart LR
     ENG[引擎适配层 engines]
   end
   PG[(PostgreSQL 元数据库<br/>含智能体会话 avelis_agent)]
-  RD[(Valkey / Redis<br/>锁、令牌吊销、缓存、唤醒)]
+  RD[(Valkey / Redis<br/>锁、令牌吊销、缓存、唤醒、实时过程)]
   LLM[[模型服务<br/>DeepSeek / OpenAI 兼容 / Anthropic]]
   UI[前端 React SPA] -->|/api| API
   API --> PG

@@ -32,7 +32,7 @@ flowchart LR
 - **app**：`python -m avelis.server`。同一埠提供 `/api`（介面，文件在 `/api/docs`）與建置好的前端（其他路徑回退到 `index.html`，由前端路由處理）。啟動時自動遷移中繼資料庫、建立首個管理員。
 - **worker**：`python -m avelis.jobs`。執行採集任務、定時採集與定時分析、超期歷史清理。與 app 同一映像、同一設定，單獨一個容器。
 - **postgres**：中繼資料庫（只支援 PostgreSQL，也存放問數代理的會話狀態）。
-- **redis**：Redis 協議服務（映像為 Valkey 8），用於任務喚醒、快取、鎖與權杖吊銷。
+- **redis**：Redis 協議服務（映像為 Valkey 8），用於任務喚醒、快取、鎖、權杖吊銷，以及分析執行中的即時過程（推理文字與正在執行的工具，僅用於顯示，自動過期）。
 
 映像由儲存庫根目錄的多階段 `Dockerfile` 建置：pnpm 建置前端 → uv 按鎖檔案安裝後端依賴 → 執行映像（Python 3.12，非 root 使用者 `avelis`，UID 10001，帶健康檢查與中文字型）。
 
