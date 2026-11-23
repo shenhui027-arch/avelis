@@ -31,7 +31,17 @@ def api(monkeypatch):
     from avelis.api import auth
     from avelis.api.deps import get_session
     from avelis.config import build_settings
-    from avelis.models import AuditEvent, Domain, DomainMember, EventOutbox, User, UserRole, WebhookSubscription
+    from avelis.models import (
+        AppSetting,
+        AuditEvent,
+        Domain,
+        DomainMember,
+        EventOutbox,
+        PersonalAccessToken,
+        User,
+        UserRole,
+        WebhookSubscription,
+    )
 
     class Clock(datetime):
         moment = datetime.now(timezone.utc).replace(microsecond=0)
@@ -40,19 +50,71 @@ def api(monkeypatch):
         def now(cls, tz=None):
             return cls.fromtimestamp(cls.moment.timestamp(), tz)
 
+    class MemoryPipeline:
+        def __init__(self, store):
+            self.store = store
+            self.commands = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def get(self, name):
+            self.commands.append(("get", name))
+            return self
+
+        def ttl(self, name):
+            self.commands.append(("ttl", name))
+            return self
+
+        def incr(self, name):
+            self.commands.append(("incr", name))
+            return self
+
+        def expire(self, name, seconds, nx=False):
+            self.commands.append(("expire", name, seconds, nx))
+            return self
+
+        def execute(self):
+            results = []
+            for cmd in self.commands:
+                op = cmd[0]
+                if op == "get":
+                    results.append(self.store.get(cmd[1]))
+                elif op == "ttl":
+                    name = cmd[1]
+                    results.append(self.store.ttl(name) if name in self.store.deadlines else -2)
+                elif op == "incr":
+                    results.append(self.store.incr(cmd[1]))
+                elif op == "expire":
+                    _, name, seconds, nx = cmd
+                    if not nx or name not in self.store.deadlines:
+                        self.store.expire(name, seconds)
+                    results.append(True)
+            return results
+
     class MemoryRedis:
         def __init__(self):
             self.values, self.deadlines, self.writes = {}, {}, []
+
+        def pipeline(self, transaction=True):
+            assert transaction is True
+            return MemoryPipeline(self)
 
         def get(self, name):
             if self.deadlines.get(name, float("inf")) <= Clock.now(timezone.utc).timestamp():
                 self.delete(name)
             return self.values.get(name)
 
-        def set(self, name, value, ex):
+        def set(self, name, value, ex, nx=False):
+            if nx and self.get(name) is not None:
+                return False
             self.values[name] = value
             self.expire(name, ex)
             self.writes.append((name, ex))
+            return True
 
         def exists(self, name):
             return int(self.get(name) is not None)
@@ -68,8 +130,10 @@ def api(monkeypatch):
             return ceil(self.deadlines[name] - Clock.now(timezone.utc).timestamp())
 
         def delete(self, name):
+            existed = int(name in self.values)
             self.values.pop(name, None)
             self.deadlines.pop(name, None)
+            return existed
 
     state = SimpleNamespace(
         settings=build_settings({"AVELIS_SECRET": "offline-unit-test-secret-0123456789"}),
@@ -87,7 +151,17 @@ def api(monkeypatch):
     monkeypatch.setattr(cache, "client", lambda: state.store)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     metadata = MetaData()
-    for model in (User, UserRole, Domain, DomainMember, AuditEvent, WebhookSubscription, EventOutbox):
+    for model in (
+        AppSetting,
+        User,
+        UserRole,
+        PersonalAccessToken,
+        Domain,
+        DomainMember,
+        AuditEvent,
+        WebhookSubscription,
+        EventOutbox,
+    ):
         table = model.__table__.to_metadata(metadata)
         for column in table.columns:
             if isinstance(column.type, JSONB):
@@ -103,7 +177,7 @@ def api(monkeypatch):
                 username="actor",
                 display_name="登录用户",
                 password_hash=security.hash_password("Initial-pass-2026"),
-                must_change_password=True,
+                must_change_password=False,
             )
             state.admin = User(id="admin", username="admin", display_name="管理员", password_hash="unused")
             session.add_all([state.user, state.admin, UserRole(user_id="admin", role="admin")])
@@ -125,10 +199,7 @@ def api(monkeypatch):
         engine.dispose()
 
 
-@pytest.mark.parametrize("must_change_password", [False, True])
-def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api, must_change_password):
-    api.user.must_change_password = must_change_password
-    api.session.commit()
+def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api):
     response = login(api)
     assert response.status_code == 200, response.text
     data = response.json()
@@ -136,7 +207,7 @@ def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api, must_
     assert original["auth_time"] == int(api.clock.moment.timestamp())
     assert data["expires_in"] == 120 * 60
     assert datetime.fromisoformat(data["expires_at"]).timestamp() == original["exp"]
-    assert data["token_type"] == "bearer" and data["must_change_password"] is must_change_password
+    assert data["token_type"] == "bearer" and data["must_change_password"] is False
     for minutes in (10, 15):
         old = data["access_token"]
         old_claims = api.security.decode_access_token(old)
@@ -150,7 +221,7 @@ def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api, must_
         assert claims["exp"] == int(api.clock.moment.timestamp()) + 120 * 60
         assert data["expires_in"] == 120 * 60
         assert datetime.fromisoformat(data["expires_at"]).timestamp() == claims["exp"]
-        assert data["token_type"] == "bearer" and data["must_change_password"] is must_change_password
+        assert data["token_type"] == "bearer" and data["must_change_password"] is False
         assert api.store.writes[-1] == (
             f"avelis:revoked:{old_claims['jti']}",
             old_claims["exp"] - int(api.clock.moment.timestamp()),
@@ -158,10 +229,23 @@ def test_login_and_chained_refresh_rotate_tokens_and_preserve_session(api, must_
         assert api.client.get("/api/me", headers=bearer(old)).status_code == 401
         assert api.client.post("/api/auth/refresh", headers=bearer(old)).status_code == 401
         me = api.client.get("/api/me", headers=bearer(data["access_token"]))
-        assert me.status_code == 200 and me.json()["must_change_password"] is must_change_password
+        assert me.status_code == 200 and me.json()["must_change_password"] is False
     events = list(api.session.scalars(select(api.AuditEvent)))
     assert [event.action for event in events] == ["auth.login", "auth.refresh", "auth.refresh"]
     assert all(event.actor_id == api.user.id and "token" not in repr(event.detail) for event in events)
+
+
+def test_must_change_password_blocks_refresh_and_allows_me_password_logout(api):
+    api.user.must_change_password = True
+    api.session.commit()
+    response = login(api)
+    assert response.status_code == 200 and response.json()["must_change_password"] is True
+    token = response.json()["access_token"]
+    blocked = api.client.post("/api/auth/refresh", headers=bearer(token))
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["code"] == "must_change_password"
+    assert api.client.get("/api/me", headers=bearer(token)).status_code == 200
+    assert api.client.post("/api/auth/logout", headers=bearer(token)).status_code == 200
 
 
 def test_login_also_caps_expiry_at_session_maximum(api):
@@ -208,6 +292,7 @@ def test_refresh_requires_current_active_non_revoked_token(api, state):
     headers = bearer(token)
     if state == "missing":
         headers = {}
+        api.client.cookies.clear()
     elif state == "expired":
         api.clock.moment += timedelta(minutes=120, seconds=1)
     elif state == "disabled":
@@ -244,8 +329,12 @@ def test_password_change_or_admin_reset_prevents_old_token_refresh(api, action):
     rejected = api.client.post("/api/auth/refresh", headers=bearer(old))
     assert rejected.status_code == 401 and "会话已失效" in rejected.json()["detail"]
     refreshed = api.client.post("/api/auth/refresh", headers=bearer(fresh))
-    assert refreshed.status_code == 200, refreshed.text
-    assert refreshed.json()["must_change_password"] is (action == "reset")
+    if action == "reset":
+        assert refreshed.status_code == 403
+        assert refreshed.json()["detail"]["code"] == "must_change_password"
+    else:
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json()["must_change_password"] is False
 
 
 def test_password_change_preserves_original_session_maximum(api):

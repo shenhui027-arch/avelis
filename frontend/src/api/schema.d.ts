@@ -66,10 +66,26 @@ export interface paths {
         put?: never;
         /**
          * Login
-         * @description 失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。
-         *     锁定期间即使密码正确也拒绝，且不透露账号是否存在。
+         * @description 失败按“账号 + 来源地址”双维度计数，连续失败达到上限后锁定；锁定期间不透露账号是否存在。
          */
         post: operations["login_api_auth_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/totp/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Login Totp */
+        post: operations["verify_login_totp_api_auth_totp_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -87,7 +103,7 @@ export interface paths {
         put?: never;
         /**
          * Refresh
-         * @description 轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。
+         * @description 轮换当前凭证，保留本次登录的起点；支持 Bearer JWT 与 HttpOnly Cookie。
          */
         post: operations["refresh_api_auth_refresh_post"];
         delete?: never;
@@ -202,6 +218,217 @@ export interface paths {
          * @description 管理员重置密码：该用户的会话全部失效，下次登录必须修改密码。
          */
         post: operations["reset_password_api_users__user_id__password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Reset Password Random
+         * @description 管理员重置密码：生成一次性随机临时密码，吊销所有会话，下次登录强制改密。
+         */
+        post: operations["admin_reset_password_random_api_users__user_id__reset_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}/revoke-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke User Sessions
+         * @description 管理员强制下线：使目标用户当前所有会话失效。
+         */
+        post: operations["revoke_user_sessions_api_users__user_id__revoke_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Totp Status */
+        get: operations["totp_status_api_me_totp_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/totp/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Totp Enroll */
+        post: operations["totp_enroll_api_me_totp_enroll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/totp/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Totp Verify Enroll */
+        post: operations["totp_verify_enroll_api_me_totp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/totp/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Totp Disable */
+        post: operations["totp_disable_api_me_totp_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Pats */
+        get: operations["list_pats_api_me_tokens_get"];
+        put?: never;
+        /** Create Pat */
+        post: operations["create_pat_api_me_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Pat */
+        delete: operations["revoke_pat_api_me_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public Auth Config */
+        get: operations["public_auth_config_api_auth_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Oidc Login */
+        get: operations["oidc_login_api_auth_oidc_login_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Oidc Callback */
+        get: operations["oidc_callback_api_auth_oidc_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Forward Auth */
+        get: operations["forward_auth_api_auth_forward_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -539,6 +766,23 @@ export interface paths {
         put: operations["set_member_api_domains__domain_id__members_put"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/domains/{domain_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Member */
+        delete: operations["remove_member_api_domains__domain_id__members__user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1839,6 +2083,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Auth Settings */
+        get: operations["get_auth_settings_api_settings_auth_get"];
+        /** Put Auth Settings */
+        put: operations["put_auth_settings_api_settings_auth_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports": {
         parameters: {
             query?: never;
@@ -2424,6 +2686,131 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdminAuthSettingsIn */
+        AdminAuthSettingsIn: {
+            /**
+             * Local Login Enabled
+             * @default true
+             */
+            local_login_enabled?: boolean;
+            /**
+             * Forward Auth Enabled
+             * @default false
+             */
+            forward_auth_enabled?: boolean;
+            /**
+             * Forward Auth Header
+             * @default X-Forwarded-User
+             */
+            forward_auth_header?: string;
+            /**
+             * Forward Auth Auto Create
+             * @default true
+             */
+            forward_auth_auto_create?: boolean;
+            /** Forward Auth Secret */
+            forward_auth_secret?: string | null;
+            /**
+             * Clear Forward Auth Secret
+             * @default false
+             */
+            clear_forward_auth_secret?: boolean;
+            oidc?: components["schemas"]["AdminOidcSettingsIn"];
+            branding?: components["schemas"]["BrandingSettings"];
+        };
+        /** AdminAuthSettingsOut */
+        AdminAuthSettingsOut: {
+            /** Local Login Enabled */
+            local_login_enabled: boolean;
+            /** Forward Auth Enabled */
+            forward_auth_enabled: boolean;
+            /** Forward Auth Header */
+            forward_auth_header: string;
+            /** Forward Auth Auto Create */
+            forward_auth_auto_create: boolean;
+            /** Has Forward Auth Secret */
+            has_forward_auth_secret: boolean;
+            /** Forward Auth Secret Hint */
+            forward_auth_secret_hint?: string | null;
+            oidc: components["schemas"]["AdminOidcSettingsOut"];
+            branding: components["schemas"]["BrandingSettings"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** AdminOidcSettingsIn */
+        AdminOidcSettingsIn: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled?: boolean;
+            /**
+             * Provider Name
+             * @default SSO
+             */
+            provider_name?: string;
+            /**
+             * Issuer Url
+             * @default
+             */
+            issuer_url?: string;
+            /**
+             * Client Id
+             * @default
+             */
+            client_id?: string;
+            /** Client Secret */
+            client_secret?: string | null;
+            /**
+             * Clear Client Secret
+             * @default false
+             */
+            clear_client_secret?: boolean;
+            /**
+             * Scopes
+             * @default openid profile email
+             */
+            scopes?: string;
+            /**
+             * Auto Create User
+             * @default true
+             */
+            auto_create_user?: boolean;
+            /**
+             * Default Role
+             * @default analyst
+             */
+            default_role?: string;
+        };
+        /** AdminOidcSettingsOut */
+        AdminOidcSettingsOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Provider Name */
+            provider_name: string;
+            /** Issuer Url */
+            issuer_url: string;
+            /** Client Id */
+            client_id: string;
+            /** Has Client Secret */
+            has_client_secret: boolean;
+            /** Client Secret Hint */
+            client_secret_hint?: string | null;
+            /** Scopes */
+            scopes: string;
+            /** Auto Create User */
+            auto_create_user: boolean;
+            /** Default Role */
+            default_role: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** AdminResetPasswordOut */
+        AdminResetPasswordOut: {
+            /** Temporary Password */
+            temporary_password: string;
+            user: components["schemas"]["UserOut"];
+        };
         /** AliasCreate */
         AliasCreate: {
             /** Datasource Id */
@@ -3308,6 +3695,16 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** AuthOkOut */
+        AuthOkOut: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /** AuthorizationOut */
         AuthorizationOut: {
             /** Id */
@@ -3332,6 +3729,13 @@ export interface components {
         };
         /** Body_login_api_auth_token_post */
         Body_login_api_auth_token_post: {
+            /**
+             * Remember Me
+             * @default false
+             */
+            remember_me?: boolean;
+            /** Totp Code */
+            totp_code?: string | null;
             /** Grant Type */
             grant_type?: string | null;
             /** Username */
@@ -3370,6 +3774,22 @@ export interface components {
             model_assist?: string | null;
             /** Sql Functions */
             sql_functions?: string | null;
+        };
+        /** BrandingSettings */
+        BrandingSettings: {
+            /**
+             * Brand Name
+             * @default Avelis
+             */
+            brand_name?: string;
+            /** Brand Logo Url */
+            brand_logo_url?: string | null;
+            /** Login Subtitle */
+            login_subtitle?: string | null;
+            /** Terms Url */
+            terms_url?: string | null;
+            /** Privacy Url */
+            privacy_url?: string | null;
         };
         /** BusinessCalendarIn */
         BusinessCalendarIn: {
@@ -5782,6 +6202,59 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PatCreateIn */
+        PatCreateIn: {
+            /** Name */
+            name: string;
+            /** Scopes */
+            scopes?: ("read" | "write")[];
+            /** Expires In Days */
+            expires_in_days?: number | null;
+        };
+        /** PatCreatedOut */
+        PatCreatedOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Scopes */
+            scopes: string[];
+            /** Expires At */
+            expires_at?: string | null;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Token */
+            token: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** PatOut */
+        PatOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Scopes */
+            scopes: string[];
+            /** Expires At */
+            expires_at?: string | null;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Created At */
+            created_at: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** PolicyOut */
         PolicyOut: {
             /** Send Results */
@@ -5881,6 +6354,31 @@ export interface components {
             enabled?: boolean | null;
             /** Models */
             models?: components["schemas"]["ModelEntry"][] | null;
+        };
+        /** PublicAuthConfigOut */
+        PublicAuthConfigOut: {
+            /** Local Login Enabled */
+            local_login_enabled: boolean;
+            /**
+             * Forward Auth Enabled
+             * @default false
+             */
+            forward_auth_enabled?: boolean;
+            oidc?: components["schemas"]["PublicOidcOut"] | null;
+            branding: components["schemas"]["BrandingSettings"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** PublicOidcOut */
+        PublicOidcOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Provider Name */
+            provider_name: string;
+            /** Authorize Url */
+            authorize_url: string;
+        } & {
+            [key: string]: unknown;
         };
         /** PublishCheckOut */
         PublishCheckOut: {
@@ -6571,6 +7069,43 @@ export interface components {
              */
             must_change_password?: boolean;
         };
+        /** TotpChallengeVerifyIn */
+        TotpChallengeVerifyIn: {
+            /** Challenge Token */
+            challenge_token: string;
+            /** Code */
+            code: string;
+        };
+        /** TotpCodeIn */
+        TotpCodeIn: {
+            /** Code */
+            code: string;
+        };
+        /** TotpDisableIn */
+        TotpDisableIn: {
+            /** Current Password */
+            current_password?: string | null;
+            /** Code */
+            code?: string | null;
+        };
+        /** TotpEnrollOut */
+        TotpEnrollOut: {
+            /** Secret */
+            secret: string;
+            /** Otpauth Uri */
+            otpauth_uri: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** TotpStatusOut */
+        TotpStatusOut: {
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled At */
+            enabled_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** TransitionOut */
         TransitionOut: {
             /** From */
@@ -6592,6 +7127,8 @@ export interface components {
             username: string;
             /** Display Name */
             display_name: string;
+            /** Email */
+            email?: string | null;
             /** Password */
             password: string;
             /** Roles */
@@ -6611,6 +7148,18 @@ export interface components {
             username: string;
             /** Display Name */
             display_name: string;
+            /** Email */
+            email?: string | null;
+            /**
+             * Auth Provider
+             * @default local
+             */
+            auth_provider?: string;
+            /**
+             * Totp Enabled
+             * @default false
+             */
+            totp_enabled?: boolean;
             /** Is Active */
             is_active: boolean;
             /** Roles */
@@ -6900,6 +7449,39 @@ export interface operations {
             };
         };
     };
+    verify_login_totp_api_auth_totp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpChallengeVerifyIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     refresh_api_auth_refresh_post: {
         parameters: {
             query?: never;
@@ -6997,7 +7579,9 @@ export interface operations {
     };
     list_users_api_users_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7011,6 +7595,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7105,6 +7698,375 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_reset_password_random_api_users__user_id__reset_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminResetPasswordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_user_sessions_api_users__user_id__revoke_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    totp_status_api_me_totp_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpStatusOut"];
+                };
+            };
+        };
+    };
+    totp_enroll_api_me_totp_enroll_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpEnrollOut"];
+                };
+            };
+        };
+    };
+    totp_verify_enroll_api_me_totp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCodeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    totp_disable_api_me_totp_disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpDisableIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pats_api_me_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatOut"][];
+                };
+            };
+        };
+    };
+    create_pat_api_me_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatCreatedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_pat_api_me_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    public_auth_config_api_auth_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAuthConfigOut"];
+                };
+            };
+        };
+    };
+    oidc_login_api_auth_oidc_login_get: {
+        parameters: {
+            query?: {
+                next?: string | null;
+                remember_me?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    oidc_callback_api_auth_oidc_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forward_auth_api_auth_forward_get: {
+        parameters: {
+            query?: {
+                next?: string | null;
+                remember_me?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenOut"];
                 };
             };
             /** @description Validation Error */
@@ -7777,6 +8739,38 @@ export interface operations {
                 "application/json": components["schemas"]["MemberSet"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_api_domains__domain_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                domain_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -10467,6 +11461,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BusinessCalendarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_auth_settings_api_settings_auth_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAuthSettingsOut"];
+                };
+            };
+        };
+    };
+    put_auth_settings_api_settings_auth_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminAuthSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAuthSettingsOut"];
                 };
             };
             /** @description Validation Error */

@@ -327,10 +327,18 @@ def create_oauth_router(settings: Settings) -> APIRouter:
             session, server.create_endpoint_response("client_registration", FastAPIJsonRequest(request, body))
         )
 
+    def _require_password_changed(user: User) -> None:
+        if user.must_change_password:
+            raise HTTPException(
+                403,
+                detail={"code": "must_change_password", "detail": gettext("首次登录或密码重置后必须修改密码")},
+            )
+
     @router.get("/api/oauth/consent/{ticket}", response_model=ConsentOut)
     def consent(
         ticket: str, request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)
     ):
+        _require_password_changed(user)
         row = ticket_row(session, ticket)
         client = client_for_ticket(session, row)
         adapted = restore_request(row, request)
@@ -348,6 +356,7 @@ def create_oauth_router(settings: Settings) -> APIRouter:
         }
 
     def decide(ticket, user, session, approve, request):
+        _require_password_changed(user)
         row = ticket_row(session, ticket)
         client_for_ticket(session, row)
         server = server_for(session, request)

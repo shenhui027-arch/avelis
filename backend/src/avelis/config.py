@@ -72,7 +72,11 @@ class Settings:
     access_token_minutes: int = 120  # 单个登录凭证有效期（闲置超时），单位分钟
     session_max_hours: int = 168  # 一次登录最长可续期时长，单位小时；到期后必须重新登录
     login_max_failures: int = 5
+    login_ip_max_failures: int = 20
     login_lock_minutes: int = 15
+    cookie_secure: bool | None = None
+    environment: str = "production"
+    docs_enabled: bool = False
     business_timezone: str = "Asia/Shanghai"
     number_style: str = "cn"
     allow_self_review: bool = False
@@ -268,8 +272,13 @@ def _build_settings(env: dict[str, str]) -> Settings:
     secret = env.get("AVELIS_SECRET", "")
     origins = env.get("AVELIS_CORS_ORIGINS")
     mcp_enabled = _boolean(env, "AVELIS_MCP_ENABLED", Settings.mcp_enabled)
+    environment = _enum(env, "AVELIS_ENVIRONMENT", Settings.environment, ("production", "development", "test"))
+    docs_enabled = _boolean(env, "AVELIS_DOCS_ENABLED", environment != "production")
+    cookie_secure = _boolean(env, "AVELIS_COOKIE_SECURE", False) if "AVELIS_COOKIE_SECURE" in env else None
     public_url = env.get("AVELIS_PUBLIC_URL", "").strip().rstrip("/")
-    cors_origins = tuple(o.strip() for o in origins.split(",")) if origins else Settings.cors_origins
+    cors_origins = (
+        tuple(o.strip() for o in origins.split(",") if o.strip()) if origins is not None else Settings.cors_origins
+    )
     parsed_public = urlsplit(public_url)
     public_origin = f"{parsed_public.scheme}://{parsed_public.netloc}" if mcp_enabled and public_url else public_url
     if public_origin and public_origin not in cors_origins:
@@ -293,7 +302,11 @@ def _build_settings(env: dict[str, str]) -> Settings:
         ),
         unassigned_asset_policy=env.get("AVELIS_UNASSIGNED_ASSET_POLICY", "deny").strip().lower(),
         login_max_failures=int(env.get("AVELIS_LOGIN_MAX_FAILURES", "5")),
+        login_ip_max_failures=_nonnegative_int(env, "AVELIS_LOGIN_IP_MAX_FAILURES", Settings.login_ip_max_failures),
         login_lock_minutes=int(env.get("AVELIS_LOGIN_LOCK_MINUTES", "15")),
+        cookie_secure=cookie_secure,
+        environment=environment,
+        docs_enabled=docs_enabled,
         ask_live_check=env.get("AVELIS_ASK_LIVE_CHECK", "true").strip().lower() not in ("0", "false", "no"),
         require_column_comments=env.get("AVELIS_REQUIRE_COLUMN_COMMENTS", "false").strip().lower()
         in ("1", "true", "yes"),
@@ -444,6 +457,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_REDIS_DB",
         "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS",
         "AVELIS_EVENTS_DEAD_RETENTION_DAYS",
+        "AVELIS_LOGIN_IP_MAX_FAILURES",
     }
     bounded = {
         "AVELIS_PORT": 65535,
@@ -507,6 +521,20 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         )
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
+    try:
+        _enum(values, "AVELIS_ENVIRONMENT", Settings.environment, ("production", "development", "test"))
+    except ValueError as exc:
+        values.problem("AVELIS_ENVIRONMENT", str(exc))
+    for bool_key in ("AVELIS_DOCS_ENABLED", "AVELIS_COOKIE_SECURE"):
+        if bool_key in values:
+            try:
+                _boolean(values, bool_key, False)
+            except ValueError as exc:
+                values.problem(bool_key, str(exc))
+    if "AVELIS_CORS_ORIGINS" in values:
+        raw_origins = [o.strip() for o in values["AVELIS_CORS_ORIGINS"].split(",") if o.strip()]
+        if "*" in raw_origins:
+            values.problem("AVELIS_CORS_ORIGINS", "不能包含通配符 *")
     try:
         _reply_language(values)
     except ValueError as exc:

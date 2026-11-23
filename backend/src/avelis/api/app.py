@@ -34,22 +34,126 @@ from avelis.api import (
 from avelis.api import (
     settings as system_settings,
 )
+from avelis.api.deps import ACCESS_COOKIE, get_session, try_authenticated_user
 from avelis.api.schemas import WorkerHealthOut
 from avelis.cache import WORKER_HEARTBEAT, LockBusy
 from avelis.cache import client as cache_client
 from avelis.config import Settings, get_settings
-from avelis.db import get_engine
+from avelis.db import get_engine, session_factory
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
 from avelis.governance.errors import GovernanceError
 from avelis.i18n import LocaleMiddleware, gettext, translate
 
+_STRICT_CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
+    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+)
+_DOCS_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "img-src 'self' data: https://fastapi.tiangolo.com https:; font-src 'self' data:; "
+    "connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
+def _strip_root_path(scope) -> str:
+    path = scope.get("path", "")
+    root = scope.get("root_path", "")
+    if root and (path == root or path.startswith(root + "/")):  # 与 Starlette 一致：只剥除完整路径段
+        path = path[len(root) :]
+    return path
+
+
+class SecurityHeadersMiddleware:
+    """纯 ASGI 安全响应头中间件：避免缓冲流式响应，同时覆盖 API、静态页与错误响应。"""
+
+    def __init__(self, app, *, docs_enabled: bool, public_url: str):
+        self.app = app
+        self.docs_enabled = docs_enabled
+        self.public_url = public_url
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = _strip_root_path(scope)
+        csp = _DOCS_CSP if (self.docs_enabled and path in ("/api/docs", "/api/docs/oauth2-redirect")) else _STRICT_CSP
+        use_hsts = scope.get("scheme") == "https" or self.public_url.startswith("https://")
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", ()))
+                existing = {k.lower() for k, _ in headers}
+                defaults = [
+                    (b"x-frame-options", b"DENY"),
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+                    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+                    (b"content-security-policy", csp.encode("latin-1")),
+                ]
+                if use_hsts:
+                    defaults.append((b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
+                for name, value in defaults:
+                    if name not in existing:
+                        headers.append((name, value))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+class _OAuthConsentPasswordGuardMiddleware:
+    """阻断未完成首次改密的用户访问 /oauth/consent*；未登录访问仍交由 SPA 返回 200。"""
+
+    def __init__(self, app, *, fastapi_app: FastAPI):
+        self.app = app
+        self.fastapi_app = fastapi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = _strip_root_path(scope)
+            if path == "/oauth/consent" or path.startswith("/oauth/consent/"):
+                request = Request(scope)
+                auth_header = request.headers.get("authorization", "")
+                has_bearer = auth_header.lower().startswith("bearer ") and bool(auth_header[7:].strip())
+                has_cookie = bool(request.cookies.get(ACCESS_COOKIE))
+                if has_bearer or has_cookie:
+                    blocked = False
+                    override = self.fastapi_app.dependency_overrides.get(get_session)
+                    if override is not None:
+                        gen = override()
+                        session = next(gen)
+                        try:
+                            user = try_authenticated_user(request, session)
+                            blocked = bool(user is not None and user.must_change_password)
+                        finally:
+                            try:
+                                next(gen)
+                            except StopIteration:
+                                pass
+                    else:
+                        with session_factory()() as session:
+                            user = try_authenticated_user(request, session)
+                            blocked = bool(user is not None and user.must_change_password)
+                    if blocked:
+                        resp = JSONResponse(
+                            status_code=403,
+                            content={
+                                "detail": {
+                                    "code": "must_change_password",
+                                    "detail": gettext("首次登录或密码重置后必须修改密码"),
+                                }
+                            },
+                        )
+                        await resp(scope, receive, send)
+                        return
+        await self.app(scope, receive, send)
+
 
 class _FrontendRoute(APIRoute):
     def matches(self, scope):
-        path = scope.get("path", "")
-        root = scope.get("root_path", "")
-        if root and (path == root or path.startswith(root + "/")):  # 与 Starlette 一致：只剥除完整路径段
-            path = path[len(root) :]
+        path = _strip_root_path(scope)
         if path == "/api" or path.startswith("/api/"):
             return Match.NONE, {}
         # 协议地址不能被 SPA 的 index.html 回退吞掉，关闭模块时仍须返回 404。
@@ -85,19 +189,25 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="Avelis API",
         version="1.0.11",
-        openapi_url="/api/openapi.json",
-        docs_url="/api/docs",
+        openapi_url="/api/openapi.json" if settings.docs_enabled else None,
+        docs_url="/api/docs" if settings.docs_enabled else None,
         redoc_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(_OAuthConsentPasswordGuardMiddleware, fastapi_app=app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
-        allow_credentials=False,
+        allow_credentials=bool(settings.cors_origins) and "*" not in settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "Accept-Language"],
     )
     app.add_middleware(LocaleMiddleware)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        docs_enabled=settings.docs_enabled,
+        public_url=settings.public_url,
+    )
 
     @app.exception_handler(GovernanceError)
     async def governance_error(_: Request, exc: GovernanceError) -> JSONResponse:

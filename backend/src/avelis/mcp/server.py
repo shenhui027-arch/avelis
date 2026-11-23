@@ -97,6 +97,8 @@ def create_mcp_app(settings, session_maker=None):
                 user = session.get(User, token.subject)
                 if user is None or not user.is_active:
                     raise ToolError(gettext("用户不存在或已停用"))
+                if user.must_change_password:
+                    raise ToolError(gettext("首次登录或密码重置后必须修改密码"))
                 try:
                     result = getattr(ToolService(session, user, settings), name)(**arguments)
                     session.commit()

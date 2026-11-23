@@ -2561,3 +2561,136 @@ msgstr "The body of skill {name} did not fit within the budget and was omitted"
 
 msgid "技能文件清单仅显示前 200 项"
 msgstr "Only the first 200 skill files are shown"
+
+
+msgid "OIDC 发现文档获取失败"
+msgstr "Failed to fetch OIDC discovery document"
+
+msgid "OIDC 默认角色不合法"
+msgstr "Invalid OIDC default role"
+
+msgid "{field} 不支持不安全的协议"
+msgstr "{field} uses an unsupported or unsafe scheme"
+
+msgid "{field} 不能以 // 开头"
+msgstr "{field} must not start with //"
+
+msgid "{field} 包含非法空白或控制字符"
+msgstr "{field} contains invalid whitespace or control characters"
+
+msgid "{field} 必须为 http(s) 地址或站内相对路径"
+msgstr "{field} must be an http(s) URL or a site-relative path"
+
+msgid "{field} 必须为无凭据、查询参数或片段的 HTTP(S) 地址"
+msgstr "{field} must be an HTTP(S) URL without credentials, query, or fragment"
+
+msgid "{field} 必须为有效的 HTTP(S) 地址"
+msgstr "{field} must be a valid HTTP(S) URL"
+
+msgid "不能同时禁用本地登录和所有外部认证方式"
+msgstr "Cannot disable local login and all external authentication methods simultaneously"
+
+msgid "不能移除业务域负责人"
+msgstr "Cannot remove the domain owner"
+
+msgid "业务域成员不存在"
+msgstr "Domain member not found"
+
+msgid "个人访问令牌不存在"
+msgstr "Personal access token not found"
+
+msgid "个人访问令牌已过期"
+msgstr "Personal access token has expired"
+
+msgid "个人访问令牌数量已达上限"
+msgstr "Personal access token limit reached"
+
+msgid "个人访问令牌无效或已吊销"
+msgstr "Personal access token is invalid or revoked"
+
+msgid "个人访问令牌无权访问认证与安全管理接口"
+msgstr "Personal access tokens cannot access authentication or security management endpoints"
+
+msgid "个人访问令牌权限不足"
+msgstr "Insufficient personal access token scope"
+
+msgid "修改密码尝试次数过多，请 {minutes} 分钟后再试"
+msgstr "Too many password change attempts. Please try again in {minutes} minutes"
+
+msgid "双因素认证会话已使用"
+msgstr "Two-factor authentication challenge has already been used"
+
+msgid "双因素认证会话无效或已过期"
+msgstr "Two-factor authentication challenge is invalid or expired"
+
+msgid "双因素认证尝试次数过多，请 {minutes} 分钟后再试"
+msgstr "Too many two-factor authentication attempts. Please try again in {minutes} minutes"
+
+msgid "双因素认证未配置"
+msgstr "Two-factor authentication is not configured"
+
+msgid "双因素认证验证码无效"
+msgstr "Invalid two-factor authentication code"
+
+msgid "反代认证凭据无效"
+msgstr "Invalid forward authentication secret"
+
+msgid "反代认证请求头名称不合法"
+msgstr "Invalid forward authentication header name"
+
+msgid "启用 OIDC 时必须填写 client_id"
+msgstr "client_id is required when OIDC is enabled"
+
+msgid "品牌名称不能为空"
+msgstr "Brand name cannot be empty"
+
+msgid "外部认证账号不支持修改本地密码"
+msgstr "External authentication accounts cannot change a local password"
+
+msgid "外部认证账号不支持重置本地密码"
+msgstr "External authentication accounts do not support local password reset"
+
+msgid "已启用双因素认证"
+msgstr "Two-factor authentication is already enabled"
+
+msgid "无权访问该任务"
+msgstr "You do not have permission to access this job"
+
+msgid "未启用 OIDC 登录"
+msgstr "OIDC login is not enabled"
+
+msgid "未启用双因素认证"
+msgstr "Two-factor authentication is not enabled"
+
+msgid "未启用反代认证"
+msgstr "Forward authentication is not enabled"
+
+msgid "未提供有效凭据"
+msgstr "Authentication credentials were not provided"
+
+msgid "未配置共享密钥时不允许通配符代理信任"
+msgstr "Wildcard proxy trust is not allowed without a shared forward-auth secret"
+
+msgid "本地账号密码登录已禁用"
+msgstr "Local username/password login is disabled"
+
+msgid "用户不存在或未启用双因素认证"
+msgstr "User not found or two-factor authentication is not enabled"
+
+msgid "缺少反代用户身份请求头"
+msgstr "Missing forward authentication user header"
+
+msgid "请先生成双因素认证密钥"
+msgstr "Please generate a two-factor authentication secret first"
+
+msgid "请提供当前密码或有效双因素验证码"
+msgstr "Please provide your current password or a valid two-factor authentication code"
+
+msgid "请求来源不在受信任代理列表中"
+msgstr "Request origin is not in the trusted proxy list"
+
+msgid "需要双因素认证验证码"
+msgstr "Two-factor authentication code required"
+
+msgid "首次登录或密码重置后必须修改密码"
+msgstr "Password change is required on first login or after a password reset"

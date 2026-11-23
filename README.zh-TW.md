@@ -188,17 +188,21 @@ pnpm dev
 |---|---|
 | 使用者 | [介面導覽](docs/product-tour.zh-TW.md) |
 | 維運 | [部署指南](docs/deployment.zh-TW.md) · [設定參考](docs/configuration.zh-TW.md) |
-| 開發者 | [開發指南](docs/development.zh-TW.md) · [架構與治理說明](docs/architecture.zh-TW.md) · [文件規範](docs/documentation-guide.zh-TW.md) |
+| 開發者 | [開發指南](docs/development.zh-TW.md) · [架構與治理說明](docs/architecture.zh-TW.md) · [開發路線圖](docs/roadmap.zh-TW.md) · [文件規範](docs/documentation-guide.zh-TW.md) |
 | 設計決策 | [架構決策記錄](docs/decisions/)（簡體中文） |
 
 完整索引見 [docs/README.md](docs/README.zh-TW.md)。
 
 ## 路線圖
 
-計劃中的方向，不承諾日期：
+計劃中的方向（依實施順序推進，不承諾日期），詳情與邊界約束見[開發路線圖](docs/roadmap.zh-TW.md)：
 
-- 更多引擎的外部 Catalog 與物化檢視表。
-- 問數表達能力：衍生指標巢狀、按週 / 月的時間粒度、佔比。
+- **驗證安全與登入體驗**：強制首次改密與介面安全標頭、防暴力破解與 Cookie 驗證、標準 OIDC 單一登入、本機雙因素驗證、個人存取權杖，以及重新設計的登入、改密與管理員使用者維運介面。
+- **介面體驗、無障礙與前端效能**：修復跨頁跳轉與重試閉環、全域命令面板與完整 CRUD、WCAG AA 對比度與鍵盤無障礙、動效精簡，以及路由與語系包按需載入。
+- **代理能力與評測擴充**：混合檢索、業務域共享經驗與已核驗查詢庫、多模型串流與費用限流、唯讀計算沙盒與更多引擎探索查詢、MCP 協定相容協商與技能安全審核。
+- **資料合規與工程底座**：全引擎 TLS、金鑰輪換、欄位遮罩與列級權限、稽核日誌擴充與雜湊鏈驗真頁、結構化可觀測性與資料庫整合 CI。
+- **大規模擴充與高可用**（前四項全部驗收後實施）：分片雜湊鏈與串流清理、萬表級增量採集與全文索引、多副本並行 worker 與跨副本 SSE、物件儲存與 Helm 部署。
+- **持續方向**：更多引擎的外部 Catalog 與物化檢視表；問數表達能力（衍生指標巢狀、按週 / 月時間粒度、佔比）。
 
 版本變化見[更新日誌](CHANGELOG.md)。
 

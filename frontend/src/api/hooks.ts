@@ -45,7 +45,19 @@ export function useQueryableDatasourceIds(): Set<string> {
   return new Set(sources.filter((d) => d.engine.capabilities.includes("query")).map((d) => d.id));
 }
 export const useEngines = () => useQuery({ queryKey: ["engines"], queryFn: () => unwrap(api.GET("/api/engines")), staleTime: Infinity });
-export const useUsers = () => useQuery({ queryKey: ["users"], queryFn: () => unwrap(api.GET("/api/users")) });
+export const useUsers = (q?: string) => {
+  const term = q?.trim() ?? "";
+  return useQuery({
+    queryKey: term ? ["users", term] : ["users"],
+    queryFn: () => unwrap(api.GET("/api/users", term ? { params: { query: { q: term } } } : undefined)),
+    placeholderData: (prev) => prev,
+  });
+};
+export const useAuthConfig = () => useQuery({
+  queryKey: ["auth-config"],
+  queryFn: () => unwrap(api.GET("/api/auth/config")),
+  staleTime: 60_000,
+});
 export const useDomains = () => useQuery({ queryKey: ["domains"], queryFn: () => unwrap(api.GET("/api/domains")) });
 /** 示例问题：来自可见业务域的配置，没有配置时由后端按可见口径生成（ADR 0010），不写死在前端。 */
 export const useExampleQuestions = (mode: "ask" | "analysis") => useQuery({

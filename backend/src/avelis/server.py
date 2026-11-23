@@ -4,8 +4,8 @@ AVELIS_HOST / AVELIS_PORT / AVELIS_WORKERS 控制监听地址、端口与进程�
 AVELIS_FORWARDED_ALLOW_IPS 指定可信代理，AVELIS_LOG_LEVEL 控制服务日志级别。
 AVELIS_AUTO_MIGRATE=true 时先迁移并建立智能体状态表；
 AVELIS_AUTO_INIT_ADMIN=true 时按 AVELIS_INITIAL_ADMIN_USERNAME（默认 admin）与
-AVELIS_INITIAL_ADMIN_PASSWORD 创建首个管理员；口令未配置或为空时使用 123456，不强制改密，
-显式配置时校验口令并强制首次改密；创建失败时记录日志并跳过。
+AVELIS_INITIAL_ADMIN_PASSWORD 创建首个管理员；口令未配置或为空时生成一次性高强度随机密码并仅记录一次启动日志，
+首次登录均强制修改密码；创建失败时记录日志并跳过。
 两个自动初始化开关默认开启，可显式关闭；前端托管由 AVELIS_FRONTEND_DIR 单独控制。
 """
 

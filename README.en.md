@@ -188,17 +188,21 @@ The [development guide](docs/development.en.md) covers the local demo environmen
 |---|---|
 | Users | [Product tour](docs/product-tour.en.md) |
 | Operators | [Deployment guide](docs/deployment.en.md) · [Configuration reference](docs/configuration.en.md) |
-| Developers | [Development guide](docs/development.en.md) · [Architecture overview](docs/architecture.en.md) · [Documentation guide](docs/documentation-guide.en.md) |
+| Developers | [Development guide](docs/development.en.md) · [Architecture overview](docs/architecture.en.md) · [Development roadmap](docs/roadmap.en.md) · [Documentation guide](docs/documentation-guide.en.md) |
 | Design decisions | [Architecture decision records](docs/decisions/) |
 
 The full index is in [docs/README.en.md](docs/README.en.md). Design decision records (ADRs) are in Simplified Chinese only.
 
 ## Roadmap
 
-Planned directions, without dates:
+Planned directions (delivered in order, without dates); see the [development roadmap](docs/roadmap.en.md) for scope and boundaries:
 
-- External catalogs and materialized views for more engines.
-- Richer Q&A: nested derived metrics, week and month grains, share of total.
+- **Authentication security and sign-in experience**: enforced first-login password change and HTTP security headers, anti-brute-force protection and Cookie auth, standard OIDC sign-in, local TOTP two-factor auth, personal access tokens, and redesigned sign-in, password-change and admin user operations.
+- **Interface polish, accessibility and frontend performance**: end-to-end navigation and retry flows, global command palette and complete CRUD, WCAG AA contrast and keyboard accessibility, streamlined motion, and lazy-loaded routes and locales.
+- **Agent intelligence and evaluation**: hybrid retrieval, domain-shared experiences and a verified query repository, multi-provider streaming with cost quotas, a read-only computation sandbox with broader engine exploration, backward-compatible MCP negotiation and skill security checks.
+- **Data compliance and engineering foundations**: TLS across all eight engines, key rotation, column masking and row-level security, expanded audit logs with hash-chain verification UI, structured observability and database-backed CI.
+- **Large-scale catalog and high availability** (implemented only after all four phases above are verified): sharded hash chains with streaming purge, incremental 10k-table collection and search indexes, multi-slot workers with cross-replica SSE, object storage and Helm deployment.
+- **Ongoing directions**: external catalogs and materialized views for more engines; richer Ask expressions (nested derived metrics, week and month grains, share of total).
 
 Changes are recorded in the [changelog](CHANGELOG.md).
 

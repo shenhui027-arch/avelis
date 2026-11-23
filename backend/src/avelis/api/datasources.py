@@ -298,6 +298,8 @@ def list_runs(datasource_id: str, user: User = Depends(current_user), session: S
 @router.get("/jobs/{job_id}", response_model=S.JobOut)
 def get_job(job_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     job = session.get(Job, job_id) or _404("任务不存在")
+    if not (access.is_admin(session, user) or (job.created_by is not None and job.created_by == user.id)):
+        raise HTTPException(403, "无权访问该任务")
     return {
         "id": job.id,
         "kind": job.kind,

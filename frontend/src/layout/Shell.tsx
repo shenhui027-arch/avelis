@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
-import { api, logout, token, unwrap } from "../api/client";
+import { api, logout, unwrap } from "../api/client";
 import { useAnalysisTasks, useAppSettings, useDatasources } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
@@ -27,7 +27,7 @@ const NAV: { to: string; label: string; icon: string; mod: string; end?: boolean
 ];
 
 export function useMe() {
-  return useQuery({ queryKey: ["me"], queryFn: () => unwrap(api.GET("/api/me")), enabled: !!token.get() });
+  return useQuery({ queryKey: ["me"], queryFn: () => unwrap(api.GET("/api/me")), retry: false });
 }
 
 export function useRoles(): Set<string> {
@@ -37,7 +37,12 @@ export function useRoles(): Set<string> {
 /** 未登录时去登录页，并记住要访问的页面。 */
 export function RequireLogin({ children }: { children: ReactNode }) {
   const location = useLocation();
-  if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  const me = useMe();
+  if (me.isPending) return null;
+  if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  if (me.data.must_change_password && !location.pathname.startsWith("/account/password")) {
+    return <Navigate to="/account/password" replace state={{ from: location.pathname + location.search }} />;
+  }
   return <>{children}</>;
 }
 
@@ -105,6 +110,10 @@ function UserMenu() {
           </div>
           <LanguageMenuGroup />
           <button type="button" role="menuitem" className="av-menu__item"
+            onClick={() => { setOpen(false); navigate("/account/security"); }}>
+            <Icon name="shield" />{t("账号安全")}
+          </button>
+          <button type="button" role="menuitem" className="av-menu__item"
             onClick={() => { setOpen(false); navigate("/account/password"); }}>
             <Icon name="lock" />{t("修改密码")}
           </button>
@@ -126,11 +135,12 @@ function UserMenu() {
 
 /** 站内通知（定时分析完成、失败、任务暂停及原因）：未读计数，点开后标为已读并跳到链接。 */
 function NotificationBell() {
+  const me = useMe();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { open, setOpen, ref } = usePopover();
   const list = useQuery({ queryKey: ["notifications"], queryFn: () => unwrap(api.GET("/api/notifications")),
-    enabled: !!token.get(), refetchInterval: 60_000 });
+    enabled: !!me.data, refetchInterval: 60_000 });
   const items = list.data ?? [];
   const unread = items.filter((n) => !n.read_at).length;
   return (
@@ -286,9 +296,10 @@ function Sidebar() {
 export function Shell() {
   const location = useLocation();
   const me = useMe();
-  if (!token.get()) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  if (me.isPending) return null;
+  if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   // 首次登录或密码被重置：先设置新密码
-  if (me.data?.must_change_password) return <Navigate to="/account/password" replace state={{ from: location.pathname }} />;
+  if (me.data.must_change_password) return <Navigate to="/account/password" replace state={{ from: location.pathname }} />;
   return (
     <div className="av-root av-app">
       <Sidebar />
@@ -302,8 +313,23 @@ export function Shell() {
   );
 }
 
-export function SettingsTabs({ current }: { current: "datasources" | "models" | "users" | "calendar" | "webhooks" | "mcp" }) {
-  const items = [["datasources", t("数据源")], ["models", t("模型配置")], ["users", t("用户")], ["calendar", t("业务日历")], ["webhooks", t("通知订阅")], ["mcp", t("MCP 接入")]] as const;
+export type SettingsTabKey = "datasources" | "models" | "users" | "calendar" | "webhooks" | "mcp" | "auth";
+
+export function SettingsTabs({ current }: { current: SettingsTabKey }) {
+  const me = useMe();
+  const roles = useRoles();
+  const isAdmin = roles.has("admin");
+  const isSteward = isAdmin || roles.has("steward");
+  const canViewUsers = isAdmin || roles.has("steward") || roles.has("reviewer");
+  const items = ([
+    ["datasources", t("数据源"), true],
+    ["models", t("模型配置"), isSteward],
+    ["users", t("用户"), canViewUsers],
+    ["calendar", t("业务日历"), true],
+    ["webhooks", t("通知订阅"), isAdmin],
+    ["mcp", t("MCP 接入"), true],
+    ["auth", t("认证与品牌"), isAdmin],
+  ] as const).filter(([key, , allowed]) => allowed || (!me.data && key === current));
   // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (
     <nav className="av-seg" aria-label={t("设置分区")}>

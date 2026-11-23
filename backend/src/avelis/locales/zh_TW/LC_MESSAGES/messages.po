@@ -2566,3 +2566,136 @@ msgstr "技能 {name} 的正文超出預算，未加入"
 
 msgid "技能文件清单仅显示前 200 项"
 msgstr "技能檔案清單只顯示前 200 項"
+
+
+msgid "OIDC 发现文档获取失败"
+msgstr "OIDC 探索文件取得失敗"
+
+msgid "OIDC 默认角色不合法"
+msgstr "OIDC 預設角色不合法"
+
+msgid "{field} 不支持不安全的协议"
+msgstr "{field} 不支援不安全的通訊協定"
+
+msgid "{field} 不能以 // 开头"
+msgstr "{field} 不能以 // 開頭"
+
+msgid "{field} 包含非法空白或控制字符"
+msgstr "{field} 包含非法空白或控制字元"
+
+msgid "{field} 必须为 http(s) 地址或站内相对路径"
+msgstr "{field} 必須為 http(s) 位址或站內相對路徑"
+
+msgid "{field} 必须为无凭据、查询参数或片段的 HTTP(S) 地址"
+msgstr "{field} 必須為無認證資訊、查詢參數或片段的 HTTP(S) 位址"
+
+msgid "{field} 必须为有效的 HTTP(S) 地址"
+msgstr "{field} 必須為有效的 HTTP(S) 位址"
+
+msgid "不能同时禁用本地登录和所有外部认证方式"
+msgstr "不能同時停用本機登入與所有外部驗證方式"
+
+msgid "不能移除业务域负责人"
+msgstr "無法移除業務域負責人"
+
+msgid "业务域成员不存在"
+msgstr "業務域成員不存在"
+
+msgid "个人访问令牌不存在"
+msgstr "個人存取權杖不存在"
+
+msgid "个人访问令牌已过期"
+msgstr "個人存取權杖已過期"
+
+msgid "个人访问令牌数量已达上限"
+msgstr "個人存取權杖數量已達上限"
+
+msgid "个人访问令牌无效或已吊销"
+msgstr "個人存取權杖無效或已撤銷"
+
+msgid "个人访问令牌无权访问认证与安全管理接口"
+msgstr "個人存取權杖無權存取驗證與安全管理介面"
+
+msgid "个人访问令牌权限不足"
+msgstr "個人存取權杖權限不足"
+
+msgid "修改密码尝试次数过多，请 {minutes} 分钟后再试"
+msgstr "變更密碼嘗試次數過多，請於 {minutes} 分鐘後再試"
+
+msgid "双因素认证会话已使用"
+msgstr "雙因素驗證工作階段已使用"
+
+msgid "双因素认证会话无效或已过期"
+msgstr "雙因素驗證工作階段無效或已過期"
+
+msgid "双因素认证尝试次数过多，请 {minutes} 分钟后再试"
+msgstr "雙因素驗證嘗試次數過多，請於 {minutes} 分鐘後再試"
+
+msgid "双因素认证未配置"
+msgstr "雙因素驗證尚未設定"
+
+msgid "双因素认证验证码无效"
+msgstr "雙因素驗證碼無效"
+
+msgid "反代认证凭据无效"
+msgstr "反向代理驗證憑證無效"
+
+msgid "反代认证请求头名称不合法"
+msgstr "反向代理驗證標頭名稱不合法"
+
+msgid "启用 OIDC 时必须填写 client_id"
+msgstr "啟用 OIDC 時必須填寫 client_id"
+
+msgid "品牌名称不能为空"
+msgstr "品牌名稱不得為空"
+
+msgid "外部认证账号不支持修改本地密码"
+msgstr "外部驗證帳號不支援變更本機密碼"
+
+msgid "外部认证账号不支持重置本地密码"
+msgstr "外部驗證帳號不支援重設本機密碼"
+
+msgid "已启用双因素认证"
+msgstr "已啟用雙因素驗證"
+
+msgid "无权访问该任务"
+msgstr "無權存取該任務"
+
+msgid "未启用 OIDC 登录"
+msgstr "尚未啟用 OIDC 登入"
+
+msgid "未启用双因素认证"
+msgstr "尚未啟用雙因素驗證"
+
+msgid "未启用反代认证"
+msgstr "尚未啟用反向代理驗證"
+
+msgid "未提供有效凭据"
+msgstr "未提供有效憑證"
+
+msgid "未配置共享密钥时不允许通配符代理信任"
+msgstr "未設定共用金鑰時不允許萬用字元代理信任"
+
+msgid "本地账号密码登录已禁用"
+msgstr "本機帳號密碼登入已停用"
+
+msgid "用户不存在或未启用双因素认证"
+msgstr "使用者不存在或尚未啟用雙因素驗證"
+
+msgid "缺少反代用户身份请求头"
+msgstr "缺少反向代理使用者身分標頭"
+
+msgid "请先生成双因素认证密钥"
+msgstr "請先產生雙因素驗證金鑰"
+
+msgid "请提供当前密码或有效双因素验证码"
+msgstr "請提供目前密碼或有效雙因素驗證碼"
+
+msgid "请求来源不在受信任代理列表中"
+msgstr "請求來源不在受信任代理清單中"
+
+msgid "需要双因素认证验证码"
+msgstr "需要雙因素驗證碼"
+
+msgid "首次登录或密码重置后必须修改密码"
+msgstr "首次登入或重設密碼後必須變更密碼"

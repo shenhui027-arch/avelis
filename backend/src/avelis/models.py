@@ -64,10 +64,20 @@ class Chained:
 
 class User(Base):
     __tablename__ = "app_user"
+    __table_args__ = (UniqueConstraint("external_issuer", "external_sub", name="uq_app_user_external_identity"),)
     id: Mapped[str] = pk()
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_provider: Mapped[str] = mapped_column(String(32), default="local", server_default="local", nullable=False)
+    external_issuer: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    totp_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_pending_secret_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false(), nullable=False)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # 管理员创建或重置口令后，首次登录必须修改
     must_change_password: Mapped[bool] = mapped_column(
@@ -77,6 +87,22 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # 在此之前签发的访问令牌一律失效（改口令、重置口令、停用账号时更新）
     sessions_valid_after: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = created()
+
+
+class PersonalAccessToken(Base):
+    """个人访问令牌（PAT）：只存 SHA-256 摘要与短前缀，支持细粒度 scope 与吊销。"""
+
+    __tablename__ = "personal_access_token"
+    id: Mapped[str] = pk()
+    user_id: Mapped[str] = fk("app_user.id")
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = created()
 
 

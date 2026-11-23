@@ -65,7 +65,7 @@
      "认证与用户"
     ],
     "summary": "Login",
-    "description": "失败按“用户名 + 来源地址”计数，连续失败达到上限后锁定一段时间（AVELIS_LOGIN_MAX_FAILURES / _LOCK_MINUTES）。\n锁定期间即使密码正确也拒绝，且不透露账号是否存在。",
+    "description": "失败按“账号 + 来源地址”双维度计数，连续失败达到上限后锁定；锁定期间不透露账号是否存在。",
     "operationId": "login_api_auth_token_post",
     "requestBody": {
      "content": {
@@ -101,13 +101,54 @@
     }
    }
   },
+  "/api/auth/totp/verify": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Verify Login Totp",
+    "operationId": "verify_login_totp_api_auth_totp_verify_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TotpChallengeVerifyIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/auth/refresh": {
    "post": {
     "tags": [
      "认证与用户"
     ],
     "summary": "Refresh",
-    "description": "轮换当前凭证，保留本次登录的起点；登录失败限流不作用于续期。",
+    "description": "轮换当前凭证，保留本次登录的起点；支持 Bearer JWT 与 HttpOnly Cookie。",
     "operationId": "refresh_api_auth_refresh_post",
     "responses": {
      "200": {
@@ -236,27 +277,56 @@
     ],
     "summary": "List Users",
     "operationId": "list_users_api_users_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 128
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/UserOut"
          },
-         "type": "array",
          "title": "Response List Users Api Users Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    },
    "post": {
     "tags": [
@@ -264,15 +334,20 @@
     ],
     "summary": "Create User",
     "operationId": "create_user_api_users_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/UserCreate"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -295,12 +370,7 @@
        }
       }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/users/{user_id}": {
@@ -402,6 +472,583 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{user_id}/reset-password": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Admin Reset Password Random",
+    "description": "管理员重置密码：生成一次性随机临时密码，吊销所有会话，下次登录强制改密。",
+    "operationId": "admin_reset_password_random_api_users__user_id__reset_password_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AdminResetPasswordOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{user_id}/revoke-sessions": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Revoke User Sessions",
+    "description": "管理员强制下线：使目标用户当前所有会话失效。",
+    "operationId": "revoke_user_sessions_api_users__user_id__revoke_sessions_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthOkOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/me/totp": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Totp Status",
+    "operationId": "totp_status_api_me_totp_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TotpStatusOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me/totp/enroll": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Totp Enroll",
+    "operationId": "totp_enroll_api_me_totp_enroll_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TotpEnrollOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me/totp/verify": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Totp Verify Enroll",
+    "operationId": "totp_verify_enroll_api_me_totp_verify_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TotpCodeIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TotpStatusOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me/totp/disable": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Totp Disable",
+    "operationId": "totp_disable_api_me_totp_disable_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TotpDisableIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TotpStatusOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me/tokens": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "List Pats",
+    "operationId": "list_pats_api_me_tokens_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/PatOut"
+         },
+         "type": "array",
+         "title": "Response List Pats Api Me Tokens Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Create Pat",
+    "operationId": "create_pat_api_me_tokens_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PatCreateIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PatCreatedOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/me/tokens/{token_id}": {
+   "delete": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Revoke Pat",
+    "operationId": "revoke_pat_api_me_tokens__token_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "token_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Token Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AuthOkOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/config": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Public Auth Config",
+    "operationId": "public_auth_config_api_auth_config_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PublicAuthConfigOut"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/oidc/login": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Oidc Login",
+    "operationId": "oidc_login_api_auth_oidc_login_get",
+    "parameters": [
+     {
+      "name": "next",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Next"
+      }
+     },
+     {
+      "name": "remember_me",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Remember Me"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/oidc/callback": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Oidc Callback",
+    "operationId": "oidc_callback_api_auth_oidc_callback_get",
+    "parameters": [
+     {
+      "name": "code",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Code"
+      }
+     },
+     {
+      "name": "state",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "State"
+      }
+     },
+     {
+      "name": "error",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Error"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/forward": {
+   "get": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Forward Auth",
+    "operationId": "forward_auth_api_auth_forward_get",
+    "parameters": [
+     {
+      "name": "next",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Next"
+      }
+     },
+     {
+      "name": "remember_me",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Remember Me"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
         }
        }
       }
@@ -1526,6 +2173,62 @@
       }
      }
     },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DomainOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/domains/{domain_id}/members/{user_id}": {
+   "delete": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Remove Member",
+    "operationId": "remove_member_api_domains__domain_id__members__user_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -6346,6 +7049,76 @@
     ]
    }
   },
+  "/api/settings/auth": {
+   "get": {
+    "tags": [
+     "系统设置"
+    ],
+    "summary": "Get Auth Settings",
+    "operationId": "get_auth_settings_api_settings_auth_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AdminAuthSettingsOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "系统设置"
+    ],
+    "summary": "Put Auth Settings",
+    "operationId": "put_auth_settings_api_settings_auth_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AdminAuthSettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AdminAuthSettingsOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/imports": {
    "post": {
     "tags": [
@@ -8624,6 +9397,252 @@
  },
  "components": {
   "schemas": {
+   "AdminAuthSettingsIn": {
+    "properties": {
+     "local_login_enabled": {
+      "type": "boolean",
+      "title": "Local Login Enabled",
+      "default": true
+     },
+     "forward_auth_enabled": {
+      "type": "boolean",
+      "title": "Forward Auth Enabled",
+      "default": false
+     },
+     "forward_auth_header": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Forward Auth Header",
+      "default": "X-Forwarded-User"
+     },
+     "forward_auth_auto_create": {
+      "type": "boolean",
+      "title": "Forward Auth Auto Create",
+      "default": true
+     },
+     "forward_auth_secret": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Forward Auth Secret"
+     },
+     "clear_forward_auth_secret": {
+      "type": "boolean",
+      "title": "Clear Forward Auth Secret",
+      "default": false
+     },
+     "oidc": {
+      "$ref": "#/components/schemas/AdminOidcSettingsIn"
+     },
+     "branding": {
+      "$ref": "#/components/schemas/BrandingSettings"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "AdminAuthSettingsIn"
+   },
+   "AdminAuthSettingsOut": {
+    "properties": {
+     "local_login_enabled": {
+      "type": "boolean",
+      "title": "Local Login Enabled"
+     },
+     "forward_auth_enabled": {
+      "type": "boolean",
+      "title": "Forward Auth Enabled"
+     },
+     "forward_auth_header": {
+      "type": "string",
+      "title": "Forward Auth Header"
+     },
+     "forward_auth_auto_create": {
+      "type": "boolean",
+      "title": "Forward Auth Auto Create"
+     },
+     "has_forward_auth_secret": {
+      "type": "boolean",
+      "title": "Has Forward Auth Secret"
+     },
+     "forward_auth_secret_hint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Forward Auth Secret Hint"
+     },
+     "oidc": {
+      "$ref": "#/components/schemas/AdminOidcSettingsOut"
+     },
+     "branding": {
+      "$ref": "#/components/schemas/BrandingSettings"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "local_login_enabled",
+     "forward_auth_enabled",
+     "forward_auth_header",
+     "forward_auth_auto_create",
+     "has_forward_auth_secret",
+     "oidc",
+     "branding"
+    ],
+    "title": "AdminAuthSettingsOut"
+   },
+   "AdminOidcSettingsIn": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": false
+     },
+     "provider_name": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Provider Name",
+      "default": "SSO"
+     },
+     "issuer_url": {
+      "type": "string",
+      "maxLength": 512,
+      "title": "Issuer Url",
+      "default": ""
+     },
+     "client_id": {
+      "type": "string",
+      "maxLength": 255,
+      "title": "Client Id",
+      "default": ""
+     },
+     "client_secret": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Secret"
+     },
+     "clear_client_secret": {
+      "type": "boolean",
+      "title": "Clear Client Secret",
+      "default": false
+     },
+     "scopes": {
+      "type": "string",
+      "maxLength": 255,
+      "title": "Scopes",
+      "default": "openid profile email"
+     },
+     "auto_create_user": {
+      "type": "boolean",
+      "title": "Auto Create User",
+      "default": true
+     },
+     "default_role": {
+      "type": "string",
+      "maxLength": 32,
+      "title": "Default Role",
+      "default": "analyst"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "AdminOidcSettingsIn"
+   },
+   "AdminOidcSettingsOut": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "provider_name": {
+      "type": "string",
+      "title": "Provider Name"
+     },
+     "issuer_url": {
+      "type": "string",
+      "title": "Issuer Url"
+     },
+     "client_id": {
+      "type": "string",
+      "title": "Client Id"
+     },
+     "has_client_secret": {
+      "type": "boolean",
+      "title": "Has Client Secret"
+     },
+     "client_secret_hint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Secret Hint"
+     },
+     "scopes": {
+      "type": "string",
+      "title": "Scopes"
+     },
+     "auto_create_user": {
+      "type": "boolean",
+      "title": "Auto Create User"
+     },
+     "default_role": {
+      "type": "string",
+      "title": "Default Role"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "enabled",
+     "provider_name",
+     "issuer_url",
+     "client_id",
+     "has_client_secret",
+     "scopes",
+     "auto_create_user",
+     "default_role"
+    ],
+    "title": "AdminOidcSettingsOut"
+   },
+   "AdminResetPasswordOut": {
+    "properties": {
+     "temporary_password": {
+      "type": "string",
+      "title": "Temporary Password"
+     },
+     "user": {
+      "$ref": "#/components/schemas/UserOut"
+     }
+    },
+    "type": "object",
+    "required": [
+     "temporary_password",
+     "user"
+    ],
+    "title": "AdminResetPasswordOut"
+   },
    "AliasCreate": {
     "properties": {
      "datasource_id": {
@@ -11260,6 +12279,18 @@
     ],
     "title": "AuditOut"
    },
+   "AuthOkOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok",
+      "default": true
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "AuthOkOut"
+   },
    "AuthorizationOut": {
     "properties": {
      "id": {
@@ -11330,6 +12361,22 @@
    },
    "Body_login_api_auth_token_post": {
     "properties": {
+     "remember_me": {
+      "type": "boolean",
+      "title": "Remember Me",
+      "default": false
+     },
+     "totp_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Totp Code"
+     },
      "grant_type": {
       "anyOf": [
        {
@@ -11474,6 +12521,67 @@
      "datasource_id"
     ],
     "title": "Body_upload_api_imports_upload_post"
+   },
+   "BrandingSettings": {
+    "properties": {
+     "brand_name": {
+      "type": "string",
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Brand Name",
+      "default": "Avelis"
+     },
+     "brand_logo_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Brand Logo Url"
+     },
+     "login_subtitle": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Login Subtitle"
+     },
+     "terms_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Terms Url"
+     },
+     "privacy_url": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 512
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Privacy Url"
+     }
+    },
+    "type": "object",
+    "title": "BrandingSettings"
    },
    "BusinessCalendarIn": {
     "properties": {
@@ -18295,6 +19403,193 @@
     ],
     "title": "PasswordReset"
    },
+   "PatCreateIn": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "scopes": {
+      "items": {
+       "type": "string",
+       "enum": [
+        "read",
+        "write"
+       ]
+      },
+      "type": "array",
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Scopes"
+     },
+     "expires_in_days": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 3650.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires In Days"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "title": "PatCreateIn"
+   },
+   "PatCreatedOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "prefix": {
+      "type": "string",
+      "title": "Prefix"
+     },
+     "scopes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Scopes"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "token": {
+      "type": "string",
+      "title": "Token"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "prefix",
+     "scopes",
+     "created_at",
+     "token"
+    ],
+    "title": "PatCreatedOut"
+   },
+   "PatOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "prefix": {
+      "type": "string",
+      "title": "Prefix"
+     },
+     "scopes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Scopes"
+     },
+     "expires_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "last_used_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Used At"
+     },
+     "revoked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Revoked At"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "prefix",
+     "scopes",
+     "created_at"
+    ],
+    "title": "PatOut"
+   },
    "PolicyOut": {
     "properties": {
      "send_results": {
@@ -18611,6 +19906,63 @@
     },
     "type": "object",
     "title": "ProviderUpdate"
+   },
+   "PublicAuthConfigOut": {
+    "properties": {
+     "local_login_enabled": {
+      "type": "boolean",
+      "title": "Local Login Enabled"
+     },
+     "forward_auth_enabled": {
+      "type": "boolean",
+      "title": "Forward Auth Enabled",
+      "default": false
+     },
+     "oidc": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PublicOidcOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "branding": {
+      "$ref": "#/components/schemas/BrandingSettings"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "local_login_enabled",
+     "branding"
+    ],
+    "title": "PublicAuthConfigOut"
+   },
+   "PublicOidcOut": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "provider_name": {
+      "type": "string",
+      "title": "Provider Name"
+     },
+     "authorize_url": {
+      "type": "string",
+      "title": "Authorize Url"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "enabled",
+     "provider_name",
+     "authorize_url"
+    ],
+    "title": "PublicOidcOut"
    },
    "PublishCheckOut": {
     "properties": {
@@ -20669,6 +22021,120 @@
     ],
     "title": "TokenOut"
    },
+   "TotpChallengeVerifyIn": {
+    "properties": {
+     "challenge_token": {
+      "type": "string",
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Challenge Token"
+     },
+     "code": {
+      "type": "string",
+      "maxLength": 16,
+      "minLength": 6,
+      "title": "Code"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "challenge_token",
+     "code"
+    ],
+    "title": "TotpChallengeVerifyIn"
+   },
+   "TotpCodeIn": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "maxLength": 16,
+      "minLength": 6,
+      "title": "Code"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "code"
+    ],
+    "title": "TotpCodeIn"
+   },
+   "TotpDisableIn": {
+    "properties": {
+     "current_password": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Password"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 16
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "TotpDisableIn"
+   },
+   "TotpEnrollOut": {
+    "properties": {
+     "secret": {
+      "type": "string",
+      "title": "Secret"
+     },
+     "otpauth_uri": {
+      "type": "string",
+      "title": "Otpauth Uri"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "secret",
+     "otpauth_uri"
+    ],
+    "title": "TotpEnrollOut"
+   },
+   "TotpStatusOut": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "enabled_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "enabled"
+    ],
+    "title": "TotpStatusOut"
+   },
    "TransitionOut": {
     "properties": {
      "from": {
@@ -20727,7 +22193,7 @@
       "type": "string",
       "maxLength": 64,
       "minLength": 2,
-      "pattern": "^[A-Za-z0-9_.-]+$",
+      "pattern": "^[a-z0-9_.-]+$",
       "title": "Username"
      },
      "display_name": {
@@ -20735,6 +22201,18 @@
       "maxLength": 128,
       "minLength": 1,
       "title": "Display Name"
+     },
+     "email": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 255
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Email"
      },
      "password": {
       "type": "string",
@@ -20777,6 +22255,27 @@
      "display_name": {
       "type": "string",
       "title": "Display Name"
+     },
+     "email": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Email"
+     },
+     "auth_provider": {
+      "type": "string",
+      "title": "Auth Provider",
+      "default": "local"
+     },
+     "totp_enabled": {
+      "type": "boolean",
+      "title": "Totp Enabled",
+      "default": false
      },
      "is_active": {
       "type": "boolean",

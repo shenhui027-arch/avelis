@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -17,13 +18,29 @@ from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pwdlib import PasswordHash
+from pwdlib.exceptions import UnknownHashError
 
 from avelis.config import get_settings
 
 JWT_ALGORITHM = "HS256"
 JWT_AUDIENCE = "avelis-api"
+JWT_REFRESH_AUDIENCE = "avelis-refresh"
+JWT_CHALLENGE_AUDIENCE = "avelis-totp-challenge"
 
 _password_hash = PasswordHash.recommended()
+
+
+@lru_cache(maxsize=1)
+def dummy_password_hash() -> str:
+    return _password_hash.hash("avelis-dummy-constant-time-password-9f8e7d6c")
+
+
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
+def hash_pat_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def hash_password(password: str) -> str:
@@ -31,7 +48,14 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return _password_hash.verify(password, password_hash)
+    if not password_hash or not password_hash.startswith("$"):
+        _password_hash.verify(password, dummy_password_hash())
+        return False
+    try:
+        return _password_hash.verify(password, password_hash)
+    except UnknownHashError:
+        _password_hash.verify(password, dummy_password_hash())
+        return False
 
 
 def _derive(secret: str, purpose: bytes) -> bytes:
@@ -108,5 +132,72 @@ def decode_access_token(token: str) -> dict:
         _jwt_key(get_settings().secret),
         algorithms=[JWT_ALGORITHM],
         audience=JWT_AUDIENCE,
+        options={"require": ["sub", "exp", "jti", "aud"]},
+    )
+
+
+def create_refresh_token(
+    user_id: str, username: str, *, auth_time: int | None = None, remember_me: bool = False
+) -> tuple[str, datetime, str]:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    if auth_time is None:
+        auth_time = int(now.timestamp())
+    expires = (datetime.fromtimestamp(auth_time, timezone.utc) + timedelta(hours=settings.session_max_hours)).replace(
+        microsecond=0
+    )
+    jti = uuid.uuid4().hex
+    token = jwt.encode(
+        {
+            "sub": user_id,
+            "name": username,
+            "iat": now,
+            "iat_us": epoch_us(now),
+            "auth_time": auth_time,
+            "remember_me": remember_me,
+            "exp": expires,
+            "jti": jti,
+            "aud": JWT_REFRESH_AUDIENCE,
+        },
+        _jwt_key(settings.secret),
+        algorithm=JWT_ALGORITHM,
+    )
+    return token, expires, jti
+
+
+def decode_refresh_token(token: str) -> dict:
+    return jwt.decode(
+        token,
+        _jwt_key(get_settings().secret),
+        algorithms=[JWT_ALGORITHM],
+        audience=JWT_REFRESH_AUDIENCE,
+        options={"require": ["sub", "exp", "jti", "aud"]},
+    )
+
+
+def create_totp_challenge(user_id: str, *, remember_me: bool = False, ttl_seconds: int = 300) -> str:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    expires = (now + timedelta(seconds=ttl_seconds)).replace(microsecond=0)
+    return jwt.encode(
+        {
+            "sub": user_id,
+            "iat": now,
+            "exp": expires,
+            "jti": uuid.uuid4().hex,
+            "remember_me": remember_me,
+            "aud": JWT_CHALLENGE_AUDIENCE,
+        },
+        _jwt_key(settings.secret),
+        algorithm=JWT_ALGORITHM,
+    )
+
+
+def decode_totp_challenge(token: str) -> dict:
+    return jwt.decode(
+        token,
+        _jwt_key(get_settings().secret),
+        algorithms=[JWT_ALGORITHM],
+        audience=JWT_CHALLENGE_AUDIENCE,
         options={"require": ["sub", "exp", "jti", "aud"]},
     )

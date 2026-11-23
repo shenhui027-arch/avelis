@@ -346,7 +346,7 @@
 .av-domain-detail__table td { height: var(--size-list-row); }
 .av-domain-detail__table td:first-child { white-space: normal; overflow-wrap: anywhere; }
 .av-domain-detail__identifier { display: block; font: var(--type-mono); color: var(--text-tertiary); }
-.av-domain-detail__table .av-domain-detail__actions { width: calc(var(--space-6) * 5); text-align: right; }
+.av-domain-detail__table .av-domain-detail__actions { width: auto; white-space: nowrap; text-align: right; }
 .av-domain-detail__actions .av-btn { min-width: calc(var(--space-8) * 2); }
 .av-domain-detail__muted { color: var(--text-tertiary); }
 .av-domain-member-form { display: grid; gap: var(--space-4); }
@@ -1145,7 +1145,29 @@ button.av-runlog__toggle:hover .av-runlog__title { color: var(--accent-text); }
 .av-webhooks__group { display: flex; flex-direction: column; gap: var(--space-1); }
 .av-webhooks__check { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font: var(--type-body-compact); cursor: pointer; }
 .av-webhooks__secretrow { display: flex; align-items: center; gap: var(--space-2); }
-.av-webhooks__secret { flex: 1; min-width: 0; padding: 6px 10px; overflow-wrap: anywhere; user-select: all; }
+.av-webhooks__secret { flex: 1; min-width: 0; padding: 6px 10px; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; user-select: all; }
+
+/* 账号安全与认证配置 */
+.av-security { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); overflow: auto; }
+.av-security__body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.av-security__totp-active, .av-security__totp-idle, .av-security__enroll { display: flex; flex-direction: column; gap: var(--space-3); max-width: 680px; }
+.av-security__enroll { max-width: 720px; }
+.av-security__enroll-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+.av-security__qr { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
+.av-security__qr-frame { padding: 10px; border-radius: var(--radius-md); border: 1px solid var(--line-default); background: #ffffff; box-shadow: 0 2px 8px rgba(15, 20, 25, 0.06); }
+.av-security__qr-svg { display: block; width: 148px; height: 148px; }
+.av-security__enroll-fields { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+@media (max-width: 640px) {
+  .av-security__enroll-grid { grid-template-columns: minmax(0, 1fr); }
+  .av-security__qr { align-items: flex-start; }
+}
+.av-security__verify-row { display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap; }
+.av-auth-settings { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5); max-width: 820px; }
+.av-auth-settings__section { display: flex; flex-direction: column; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line-subtle); }
+.av-auth-settings__section:last-child { border-bottom: none; padding-bottom: 0; }
+.av-auth-settings__section h3 { margin: 0; font: 500 15px/22px var(--font-sans); color: var(--text-primary); }
+.av-auth-settings__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+@media (max-width: 768px) { .av-auth-settings__grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* 问数结果的图：图 / 表 / 候选图切换在左，导出在右；图表画布不加卡片外框，直接坐在回答卡片里 */
 .av-chartpanel { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }

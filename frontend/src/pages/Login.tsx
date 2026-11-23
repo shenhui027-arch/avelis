@@ -1,65 +1,16 @@
-// 登录：左侧淡蓝点阵面板上是大标题与三张错落的产品示意卡（分析结论、口径、血缘路径），右侧白底登录表单。
-// 会话过期、被锁定、需要改密码都在这里给出明确去向。动效在“减少动态效果”下全部停止（见 login.css）。
+// 登录：左侧建筑感数据叙事舞台（血缘溯源 → 口径校验 → 归因结论联动预览），右侧商业化登录/改密/2FA 表单。
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
-import { api, ApiError, login, token, unwrap } from "../api/client";
-import { errorText } from "../api/hooks";
+import { api, ApiError, login, token, unwrap, verifyTotpLogin } from "../api/client";
+import { errorText, useAuthConfig } from "../api/hooks";
+import {
+  AuthStage, AuthTopControls, PasswordInput, PasswordRulesBar, passwordPolicyChecks, safeBrandingUrl, useCountdown,
+} from "../components/AuthShared";
 import { Hint, Icon } from "../components/Icon";
-import { LogoMark } from "../components/Logo";
-import { Tile } from "../components/ui";
-import { currentLanguage, t } from "../i18n";
-import { LanguageSelect } from "../i18n/LanguageMenu";
+import { t } from "../i18n";
 import "../styles/login.css";
-
-/** 示意数字的缩写写法跟随语言：中文 1284.6 万，英文 12.8 M；数值与单位分开排版。 */
-function compactParts(n: number): { value: string; unit: string } {
-  const parts = new Intl.NumberFormat(currentLanguage(), { notation: "compact", maximumFractionDigits: 1 }).formatToParts(n);
-  return { value: parts.filter((p) => p.type !== "compact" && p.type !== "literal").map((p) => p.value).join(""),
-    unit: parts.filter((p) => p.type === "compact").map((p) => p.value).join("") };
-}
-
-/** 品牌标记：蓝色圆角块里的白色“A”（块内把 Logo 用到的令牌换成白色）。 */
-function BrandMark({ size = 34 }: { size?: number }) {
-  return <span className="av-login__mark" style={{ width: size, height: size }} aria-hidden="true"><LogoMark size={Math.round(size * 0.62)} /></span>;
-}
-
-/** 产品拼贴：分析结论、口径卡、血缘路径三张示意卡错落叠放，说明产品在做什么。数字与名称都是中性的示意。 */
-function Collage() {
-  const bars = [40, 55, 48, 62, 58, 72, 66, 80, 96];
-  const kpi = compactParts(12_846_000);
-  return (
-    <div className="av-login__collage" aria-hidden="true">
-      <div className="av-login__c av-login__c--metric">
-        <div className="av-login__c-hd"><Tile icon="chart" tone="catalog" size="sm" />{t("口径")}</div>
-        <b className="av-login__metric">39</b><small>{t("已发布")}</small>
-      </div>
-      <div className="av-login__c av-login__c--answer">
-        <div className="av-login__c-hd"><BrandMark size={22} />{t("分析完成")}
-          <span className="av-login__ok"><Icon name="check" small />{t("来源已校验")}</span></div>
-        <div className="av-login__kpi">
-          <div><small>{t("本期")}</small><b>{kpi.value}<em>{kpi.unit}</em></b></div>
-          <div><small>{t("环比")}</small><b className="is-up">+12.4%</b></div>
-          <div className="av-login__spark-bars">{bars.map((h, i) => <i key={i} style={{ height: `${h}%` }} />)}</div>
-        </div>
-        <p>{t("变化主要来自 ")}<mark>{t("两个成员")}</mark>{t(" 的增长，合计贡献 83%")}{t("，口径与数据均可追溯")}</p>
-      </div>
-      <div className="av-login__c av-login__c--lineage">
-        <div className="av-login__c-hd"><Tile icon="lineage" tone="lineage" size="sm" />{t("核心指标的来源")}</div>
-        <svg viewBox="0 0 340 90" className="av-login__graph">
-          <rect x="4" y="12" width="84" height="26" rx="7" className="is-node" /><text x="14" y="29">src_events</text>
-          <rect x="4" y="52" width="84" height="26" rx="7" className="is-node" /><text x="14" y="69">src_users</text>
-          <rect x="128" y="32" width="92" height="26" rx="7" className="is-mid" /><text x="138" y="49" className="is-mid">dwd_fact</text>
-          <rect x="250" y="32" width="86" height="26" rx="7" className="is-end" /><text x="262" y="49" className="is-end">{t("核心指标")}</text>
-          <path d="M88 25 C110 25 106 45 128 45" className="is-edge" />
-          <path d="M88 65 C110 65 106 45 128 45" className="is-path" />
-          <path d="M220 45 L250 45" className="is-path" />
-        </svg>
-      </div>
-    </div>
-  );
-}
 
 /** 登录卡片上的改密：先用当前密码登录，再改密并换用新凭证；不需要先进入系统。 */
 function PasswordForm({ target, onBack }: { target: string; onBack: () => void }) {
@@ -68,18 +19,20 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
   const [form, setForm] = useState({ username: "", current: "", next: "", confirm: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // 表单离开后，迟到的响应不能再清除、改写之后建立的会话，也不能再跳转
+  const lockout = useCountdown(0);
   const alive = useRef(true);
   useEffect(() => {
-    alive.current = true;  // StrictMode 会先卸载再挂载一次，重新挂载时要恢复
+    alive.current = true;
     return () => { alive.current = false; };
   }, []);
+
   const mismatch = form.confirm.length > 0 && form.next !== form.confirm;
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+  const rules = passwordPolicyChecks(form.next, form.username);
+  const setField = (key: keyof typeof form) => (val: string) => setForm((prev) => ({ ...prev, [key]: val }));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (form.next !== form.confirm) return;
+    if (!rules.valid || form.next !== form.confirm || lockout.remaining > 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -87,17 +40,24 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
       let issued;
       try {
         issued = await unwrap(api.POST("/api/me/password", {
-          body: { current_password: form.current, new_password: form.next } }));
+          body: { current_password: form.current, new_password: form.next },
+        }));
       } catch (e) {
-        if (alive.current) token.clear();  // 改密没成功就不留下刚才的登录凭证
+        if (alive.current) token.clear();
         throw e;
       }
       if (!alive.current) return;
       token.issue(issued);
       queryClient.clear();
-      navigate(target, { replace: true });  // 与登录一致：回到登录前想去的页面（如 MCP 授权确认页）
+      navigate(target, { replace: true });
     } catch (e) {
-      if (alive.current) setError(e instanceof ApiError ? e.message : errorText(e));
+      if (!alive.current) return;
+      if (e instanceof ApiError) {
+        if (e.status === 429 && e.retryAfter) lockout.start(e.retryAfter);
+        setError(e.message);
+      } else {
+        setError(errorText(e));
+      }
     } finally {
       if (alive.current) setBusy(false);
     }
@@ -111,32 +71,153 @@ function PasswordForm({ target, onBack }: { target: string; onBack: () => void }
       </div>
       <label className="av-field">
         <span className="av-label">{t("账号")}</span>
-        <span className="av-login__input"><Icon name="users" small />
-          <input autoComplete="username" autoFocus value={form.username} placeholder={t("输入账号")} onChange={set("username")} required /></span>
+        <span className="av-login__input">
+          <Icon name="users" small />
+          <input
+            autoComplete="username"
+            autoFocus
+            value={form.username}
+            placeholder={t("输入账号")}
+            onChange={(e) => setField("username")(e.target.value)}
+            required
+          />
+        </span>
       </label>
       <label className="av-field">
         <span className="av-label">{t("当前密码")}</span>
-        <span className="av-login__input"><Icon name="lock" small />
-          <input type="password" autoComplete="current-password" value={form.current} onChange={set("current")} required /></span>
+        <PasswordInput
+          autoComplete="current-password"
+          value={form.current}
+          placeholder={t("输入当前密码")}
+          onChange={setField("current")}
+        />
       </label>
       <label className="av-field">
         <span className="av-label">{t("新密码")}</span>
-        <span className="av-login__input"><Icon name="key" small />
-          <input type="password" autoComplete="new-password" value={form.next} placeholder={t("至少 8 位，不能包含账号")}
-            onChange={set("next")} required minLength={8} /></span>
+        <PasswordInput
+          icon="key"
+          autoComplete="new-password"
+          value={form.next}
+          placeholder={t("至少 8 位，不能包含账号")}
+          minLength={8}
+          onChange={setField("next")}
+        />
       </label>
+      <PasswordRulesBar password={form.next} confirm={form.confirm} username={form.username} />
       <label className="av-field">
         <span className="av-label">{t("确认新密码")}</span>
-        <span className="av-login__input"><Icon name="key" small />
-          <input type="password" autoComplete="new-password" value={form.confirm} aria-invalid={mismatch} onChange={set("confirm")} required /></span>
+        <PasswordInput
+          icon="key"
+          autoComplete="new-password"
+          value={form.confirm}
+          placeholder={t("再次输入新密码")}
+          invalid={mismatch}
+          onChange={setField("confirm")}
+        />
         {mismatch ? <span className="av-help av-help--danger">{t("两次输入不一致")}</span> : null}
       </label>
-      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
-      <button className="av-login__submit" type="submit"
-        disabled={busy || !form.username || !form.current || form.next.length < 8 || form.next !== form.confirm}>
+      {lockout.remaining > 0 ? (
+        <div className="av-banner av-banner--warn" role="alert">
+          <Icon name="clock" small />
+          {t("尝试次数过多，请 {{time}} 后重试", { time: lockout.formatted })}
+        </div>
+      ) : error ? (
+        <div className="av-banner av-banner--danger" role="alert">{error}</div>
+      ) : null}
+      <button
+        className="av-login__submit"
+        type="submit"
+        disabled={busy || lockout.remaining > 0 || !form.username || !form.current || !rules.valid || form.next !== form.confirm}
+      >
         {busy ? t("保存中…") : <>{t("保存并登录")}<Icon name="arrow" small /></>}
       </button>
-      <p className="av-login__foot"><button type="button" className="av-login__switch" disabled={busy} onClick={onBack}>{t("返回登录")}</button></p>
+      <p className="av-login__foot">
+        <button type="button" className="av-login__switch" disabled={busy} onClick={onBack}>{t("返回登录")}</button>
+      </p>
+    </form>
+  );
+}
+
+/** 2FA 验证码步骤：密码校验通过但账号开启了 TOTP 时触发。 */
+function TotpChallengeForm({
+  username,
+  challengeToken,
+  target,
+  onCancel,
+}: {
+  username: string;
+  challengeToken: string;
+  target: string;
+  onCancel: () => void;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const lockout = useCountdown(0);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const cleaned = code.replace(/\s+/g, "");
+    if (!cleaned || lockout.remaining > 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await verifyTotpLogin(challengeToken, cleaned);
+      queryClient.clear();
+      navigate(result.mustChangePassword ? "/account/password" : target, {
+        replace: true,
+        state: result.mustChangePassword ? { from: target } : undefined,
+      });
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 429 && e.retryAfter) lockout.start(e.retryAfter);
+        setError(e.message);
+      } else {
+        setError(t("无法连接后端"));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="av-login__card" onSubmit={submit} noValidate>
+      <div className="av-login__card-hd">
+        <h2>{t("双因素认证")}</h2>
+        <p>{t("请输入验证器应用中账号 {{username}} 的 6 位动态验证码", { username })}</p>
+      </div>
+      <label className="av-field">
+        <span className="av-label">{t("动态验证码")}</span>
+        <span className="av-login__input">
+          <Icon name="shield" small />
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={8}
+            value={code}
+            placeholder={t("6 位数字验证码")}
+            onChange={(e) => setCode(e.target.value)}
+            required
+          />
+        </span>
+      </label>
+      {lockout.remaining > 0 ? (
+        <div className="av-banner av-banner--warn" role="alert">
+          <Icon name="clock" small />
+          {t("验证失败次数过多，请 {{time}} 后重试", { time: lockout.formatted })}
+        </div>
+      ) : error ? (
+        <div className="av-banner av-banner--danger" role="alert">{error}</div>
+      ) : null}
+      <button className="av-login__submit" type="submit" disabled={busy || lockout.remaining > 0 || code.trim().length < 6}>
+        {busy ? t("验证中…") : <>{t("验证并登录")}<Icon name="arrow" small /></>}
+      </button>
+      <p className="av-login__foot">
+        <button type="button" className="av-login__switch" disabled={busy} onClick={onCancel}>{t("返回登录")}</button>
+      </p>
     </form>
   );
 }
@@ -145,28 +226,75 @@ export function Login() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
-  // 回到登录前想去的页面；直接打开登录页时进工作台
+  const authConfig = useAuthConfig();
+  const cfg = authConfig.data;
+
   const from = (useLocation().state as { from?: string } | null)?.from ?? params.get("from") ?? "/";
   const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";
   const expired = params.get("reason") === "expired";
+  const oidcError = params.get("error");
+  const initialStep = Number(params.get("step") ?? "0") || 0;
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [reveal, setReveal] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [error, setError] = useState<{ text: string; locked: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [challenge, setChallenge] = useState<{ token: string; username: string } | null>(null);
+  const lockout = useCountdown(0);
+  const usernameRef = useRef<HTMLInputElement | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+
+  const userMissing = attempted && !username.trim();
+  const passMissing = attempted && !password;
+
+  const brandName = cfg?.branding?.brand_name?.trim() || "Avelis";
+  const localEnabled = cfg?.local_login_enabled ?? true;
+  const oidc = cfg?.oidc?.enabled ? cfg.oidc : null;
+  const termsUrl = safeBrandingUrl(cfg?.branding?.terms_url);
+  const privacyUrl = safeBrandingUrl(cfg?.branding?.privacy_url);
+  const subtitle = cfg?.branding?.login_subtitle?.trim() || t("使用你的 {{brand}} 账号", { brand: brandName });
+  const oidcUrl = oidc
+    ? `${oidc.authorize_url}?next=${encodeURIComponent(target)}&remember_me=${rememberMe ? "true" : "false"}`
+    : null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (lockout.remaining > 0) return;
+    if (!username.trim() || !password) {
+      setAttempted(true);
+      setError(null);
+      if (!username.trim()) usernameRef.current?.focus();
+      else passwordRef.current?.focus();
+      return;
+    }
+    setAttempted(false);
     setBusy(true);
     setError(null);
     try {
-      const result = await login(username, password);
-      queryClient.clear();  // 换账号登录：丢弃上一个会话的缓存
-      navigate(result.mustChangePassword ? "/account/password" : target,
-        { replace: true, state: result.mustChangePassword ? { from: target } : undefined });
+      const result = await login(username, password, { rememberMe });
+      queryClient.clear();
+      navigate(result.mustChangePassword ? "/account/password" : target, {
+        replace: true,
+        state: result.mustChangePassword ? { from: target } : undefined,
+      });
     } catch (e) {
-      setError(e instanceof ApiError ? { text: e.message, locked: e.status === 429 } : { text: t("无法连接后端"), locked: false });
+      if (e instanceof ApiError) {
+        if ((e.totpRequired || e.code === "totp_required") && e.challengeToken) {
+          setChallenge({ token: e.challengeToken, username });
+          return;
+        }
+        if (e.status === 429) {
+          if (e.retryAfter) lockout.start(e.retryAfter);
+          setError({ text: e.message, locked: true });
+        } else {
+          setError({ text: e.message, locked: false });
+        }
+      } else {
+        setError({ text: t("无法连接后端"), locked: false });
+      }
     } finally {
       setBusy(false);
     }
@@ -174,51 +302,146 @@ export function Login() {
 
   return (
     <div className="av-root av-login">
-      {/* 左：品牌色面板（标题 + 产品示意）；右：登录表单。两栏同高，窄屏时品牌面板收成顶部色带 */}
-      <section className="av-login__brand" aria-label="Avelis">
-        <span className="av-login__logo"><BrandMark /><b>Avelis</b></span>
-        <div className="av-login__brand-body">
-          <h1>{t("让每一条数据")}<br />{t("都有出处")}</h1>
-          <Collage />
-        </div>
-      </section>
+      <AuthStage branding={cfg?.branding} initialStep={initialStep} />
       <main className="av-login__side">
-        <div className="av-login__side-top"><LanguageSelect className="av-login__lang" /></div>
+        <AuthTopControls />
         <section className="av-login__panel">
-          {changing ? <PasswordForm target={target} onBack={() => setChanging(false)} /> : (
-          <form className="av-login__card" onSubmit={submit} noValidate>
-            <div className="av-login__card-hd">
-              <h2>{t("登录")}</h2>
-              <p>{t("使用你的 Avelis 账号")}</p>
-            </div>
-            {expired && !error ? (
-              <div className="av-banner av-banner--info" role="status"><Icon name="info" />{t("会话已过期或已在其他位置失效，请重新登录")}</div>
-            ) : null}
-            <label className="av-field">
-              <span className="av-label">{t("账号")}</span>
-              <span className="av-login__input"><Icon name="users" small />
-                <input autoComplete="username" autoFocus value={username} placeholder={t("输入账号")}
-                  onChange={(e) => setUsername(e.target.value)} required /></span>
-            </label>
-            <label className="av-field">
-              <span className="av-label">{t("密码")}</span>
-              <span className="av-login__input"><Icon name="lock" small />
-                <input type={reveal ? "text" : "password"} autoComplete="current-password" value={password} placeholder={t("输入密码")}
-                  onChange={(e) => setPassword(e.target.value)} required />
-                <button type="button" className="av-login__reveal" aria-pressed={reveal}
-                  onClick={() => setReveal(!reveal)}>{reveal ? t("隐藏") : t("显示")}</button></span>
-            </label>
-            {error ? (
-              <div className={`av-banner ${error.locked ? "av-banner--warn" : "av-banner--danger"}`} role="alert">{error.text}</div>
-            ) : null}
-            <button className="av-login__submit" type="submit" disabled={busy || !username || !password}>
-              {busy ? t("登录中…") : <>{t("登录")}<Icon name="arrow" small /></>}
-            </button>
-            <p className="av-login__foot">
-              <button type="button" className="av-login__switch" disabled={busy} onClick={() => setChanging(true)}>{t("修改密码")}</button>
-              <span className="av-login__forgot">{t("忘记密码")}<Hint text={t("忘记密码请联系管理员重置")} /></span>
-            </p>
-          </form>
+          {changing ? (
+            <PasswordForm target={target} onBack={() => setChanging(false)} />
+          ) : challenge ? (
+            <TotpChallengeForm
+              username={challenge.username}
+              challengeToken={challenge.token}
+              target={target}
+              onCancel={() => { setChallenge(null); setPassword(""); }}
+            />
+          ) : (
+            <form className="av-login__card" onSubmit={submit} noValidate>
+              <div className="av-login__card-hd">
+                <h2>{t("登录")}</h2>
+                <p>{subtitle}</p>
+              </div>
+              {oidcError && !error ? (
+                <div className="av-banner av-banner--danger" role="alert">
+                  <Icon name="info" small />
+                  {t("单点登录失败（{{reason}}），请重试或联系管理员", { reason: oidcError })}
+                </div>
+              ) : null}
+              {expired && !error && !oidcError ? (
+                <div className="av-banner av-banner--info" role="status">
+                  <Icon name="info" small />
+                  {t("会话已过期或已在其他位置失效，请重新登录")}
+                </div>
+              ) : null}
+
+              {oidc && oidcUrl ? (
+                <a className="av-login__sso" href={oidcUrl}>
+                  <Icon name="shield" small />
+                  <span>{t("使用 {{provider}} 登录", { provider: oidc.provider_name })}</span>
+                </a>
+              ) : null}
+
+              {oidc && localEnabled ? (
+                <div className="av-login__divider" aria-hidden="true"><span>{t("或使用账号密码")}</span></div>
+              ) : null}
+
+              {localEnabled ? (
+                <>
+                  <label className="av-field">
+                    <span className="av-label">{t("账号")}</span>
+                    <span className={`av-login__input${userMissing ? " is-invalid" : ""}`}>
+                      <Icon name="users" small />
+                      <input
+                        ref={usernameRef}
+                        autoComplete="username"
+                        autoFocus
+                        value={username}
+                        placeholder={t("输入账号")}
+                        aria-invalid={userMissing || undefined}
+                        aria-describedby={userMissing ? "login-username-error" : undefined}
+                        onChange={(e) => setUsername(e.target.value)}
+                        required
+                      />
+                    </span>
+                    {userMissing ? <span id="login-username-error" className="av-help av-help--danger" role="alert">{t("请输入账号")}</span> : null}
+                  </label>
+                  <label className="av-field">
+                    <span className="av-label">{t("密码")}</span>
+                    <PasswordInput
+                      inputRef={passwordRef}
+                      autoComplete="current-password"
+                      value={password}
+                      placeholder={t("输入密码")}
+                      invalid={passMissing}
+                      describedBy={passMissing ? "login-password-error" : undefined}
+                      onChange={setPassword}
+                    />
+                    {passMissing ? <span id="login-password-error" className="av-help av-help--danger" role="alert">{t("请输入密码")}</span> : null}
+                  </label>
+                  <div className="av-login__row">
+                    <label className="av-login__remember">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                      />
+                      <span>{t("记住登录（7 天）")}</span>
+                    </label>
+                    <span className="av-login__forgot">
+                      {t("忘记密码")}
+                      <Hint text={t("忘记密码请联系管理员重置")} />
+                    </span>
+                  </div>
+                  {lockout.remaining > 0 ? (
+                    <div className="av-banner av-banner--warn" role="alert">
+                      <Icon name="clock" small />
+                      {t("账号暂时锁定，请 {{time}} 后再试", { time: lockout.formatted })}
+                    </div>
+                  ) : error ? (
+                    <div className={`av-banner ${error.locked ? "av-banner--warn" : "av-banner--danger"}`} role="alert">
+                      {error.text}
+                    </div>
+                  ) : null}
+                  <button
+                    className="av-login__submit"
+                    type="submit"
+                    disabled={busy || lockout.remaining > 0}
+                  >
+                    {busy ? t("登录中…") : <>{t("登录")}<Icon name="arrow" small /></>}
+                  </button>
+                  <p className="av-login__foot">
+                    <button
+                      type="button"
+                      className="av-login__switch"
+                      disabled={busy}
+                      onClick={() => { setAttempted(false); setChanging(true); }}
+                    >
+                      {t("修改密码")}
+                    </button>
+                  </p>
+                </>
+              ) : !oidc ? (
+                <div className="av-banner av-banner--info" role="status">
+                  {t("本地登录已禁用，请联系管理员配置单点登录")}
+                </div>
+              ) : (
+                <label className="av-login__remember">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  <span>{t("记住登录（7 天）")}</span>
+                </label>
+              )}
+
+              {termsUrl || privacyUrl ? (
+                <footer className="av-login__legal">
+                  {termsUrl ? <a href={termsUrl} target="_blank" rel="noreferrer">{t("服务条款")}</a> : null}
+                  {privacyUrl ? <a href={privacyUrl} target="_blank" rel="noreferrer">{t("隐私政策")}</a> : null}
+                </footer>
+              ) : null}
+            </form>
           )}
         </section>
       </main>

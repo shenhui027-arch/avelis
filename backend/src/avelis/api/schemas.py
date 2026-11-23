@@ -1604,3 +1604,130 @@ class LineageNoteGenerateOut(Out):
     notes: list[LineageNoteOut] = Field(default_factory=list)
     # 没有生成时的原因：no_model（没有可用模型）、policy（已关闭向模型发送代码片段）、nothing（没有需要写的字段）
     skipped: Literal["no_model", "policy", "nothing"] | None = None
+
+
+# --- 认证扩展、白标、OIDC、TOTP 2FA 与个人访问令牌 --------------------------------
+
+
+class AuthOkOut(Out):
+    ok: bool = True
+
+
+class PublicOidcOut(Out):
+    enabled: bool
+    provider_name: str
+    authorize_url: str
+
+
+class BrandingSettings(BaseModel):
+    brand_name: str = Field(default="Avelis", min_length=1, max_length=80)
+    brand_logo_url: str | None = Field(default=None, max_length=512)
+    login_subtitle: str | None = Field(default=None, max_length=200)
+    terms_url: str | None = Field(default=None, max_length=512)
+    privacy_url: str | None = Field(default=None, max_length=512)
+
+
+class PublicAuthConfigOut(Out):
+    local_login_enabled: bool
+    forward_auth_enabled: bool = False
+    oidc: PublicOidcOut | None = None
+    branding: BrandingSettings
+
+
+class AdminOidcSettingsOut(Out):
+    enabled: bool
+    provider_name: str
+    issuer_url: str
+    client_id: str
+    has_client_secret: bool
+    client_secret_hint: str | None = None
+    scopes: str
+    auto_create_user: bool
+    default_role: str
+
+
+class AdminOidcSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    provider_name: str = Field(default="SSO", max_length=64)
+    issuer_url: str = Field(default="", max_length=512)
+    client_id: str = Field(default="", max_length=255)
+    client_secret: str | None = Field(default=None, max_length=512, repr=False)
+    clear_client_secret: bool = False
+    scopes: str = Field(default="openid profile email", max_length=255)
+    auto_create_user: bool = True
+    default_role: str = Field(default="analyst", max_length=32)
+
+
+class AdminAuthSettingsOut(Out):
+    local_login_enabled: bool
+    forward_auth_enabled: bool
+    forward_auth_header: str
+    forward_auth_auto_create: bool
+    has_forward_auth_secret: bool
+    forward_auth_secret_hint: str | None = None
+    oidc: AdminOidcSettingsOut
+    branding: BrandingSettings
+
+
+class AdminAuthSettingsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    local_login_enabled: bool = True
+    forward_auth_enabled: bool = False
+    forward_auth_header: str = Field(default="X-Forwarded-User", min_length=1, max_length=64)
+    forward_auth_auto_create: bool = True
+    forward_auth_secret: str | None = Field(default=None, max_length=512, repr=False)
+    clear_forward_auth_secret: bool = False
+    oidc: AdminOidcSettingsIn = Field(default_factory=AdminOidcSettingsIn)
+    branding: BrandingSettings = Field(default_factory=BrandingSettings)
+
+
+class TotpStatusOut(Out):
+    enabled: bool
+    enabled_at: str | None = None
+
+
+class TotpEnrollOut(Out):
+    secret: str
+    otpauth_uri: str
+
+
+class TotpCodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str = Field(min_length=6, max_length=16)
+
+
+class TotpDisableIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str | None = Field(default=None, max_length=128, repr=False)
+    code: str | None = Field(default=None, max_length=16)
+
+
+class TotpChallengeVerifyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_token: str = Field(min_length=1, max_length=2048, repr=False)
+    code: str = Field(min_length=6, max_length=16)
+
+
+class PatOut(Out):
+    id: str
+    name: str
+    prefix: str
+    scopes: list[str]
+    expires_at: str | None = None
+    last_used_at: str | None = None
+    revoked_at: str | None = None
+    created_at: str
+
+
+class PatCreateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    scopes: list[Literal["read", "write"]] = Field(default_factory=lambda: ["read"], min_length=1, max_length=4)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+
+
+class PatCreatedOut(PatOut):
+    token: str = Field(repr=False)

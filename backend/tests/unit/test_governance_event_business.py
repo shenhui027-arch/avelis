@@ -667,9 +667,54 @@ def test_reconcile_between_abandonment_transactions_keeps_exactly_one_failure(st
 
 
 def test_login_failure_threshold_is_emitted_once_when_limit_is_reached(state, monkeypatch):
+    class MemoryPipeline:
+        def __init__(self, store):
+            self.store = store
+            self.commands = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def get(self, name):
+            self.commands.append(("get", name))
+            return self
+
+        def ttl(self, name):
+            self.commands.append(("ttl", name))
+            return self
+
+        def incr(self, name):
+            self.commands.append(("incr", name))
+            return self
+
+        def expire(self, name, seconds, nx=False):
+            self.commands.append(("expire", name, seconds, nx))
+            return self
+
+        def execute(self):
+            results = []
+            for cmd in self.commands:
+                op = cmd[0]
+                if op == "get":
+                    results.append(self.store.get(cmd[1]))
+                elif op == "ttl":
+                    results.append(self.store.ttl(cmd[1]))
+                elif op == "incr":
+                    results.append(self.store.incr(cmd[1]))
+                elif op == "expire":
+                    results.append(self.store.expire(cmd[1], cmd[2]))
+            return results
+
     class MemoryRedis:
         def __init__(self):
             self.values = {}
+
+        def pipeline(self, transaction=True):
+            assert transaction is True
+            return MemoryPipeline(self)
 
         def get(self, name):
             return self.values.get(name)

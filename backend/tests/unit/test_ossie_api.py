@@ -2,6 +2,7 @@
 
 import json
 import tracemalloc
+from dataclasses import replace
 from time import perf_counter
 from types import SimpleNamespace
 from urllib.parse import unquote
@@ -17,6 +18,7 @@ from sqlalchemy.pool import StaticPool
 from avelis.api import interchange
 from avelis.api.app import create_app
 from avelis.api.deps import current_user, get_session
+from avelis.config import get_settings
 from avelis.db import Base
 from avelis.governance.errors import Forbidden, GovernanceError
 from avelis.models import AuditEvent, Domain, DomainMember, Metric, MetricVersion, User
@@ -49,7 +51,7 @@ def api(monkeypatch):
             if isinstance(column.type, JSONB):
                 column.type = JSON()
     metadata.create_all(engine)
-    app = create_app()
+    app = create_app(settings=replace(get_settings(), docs_enabled=True))
     calls = []
 
     def export_model(session, actor, domain_id, metric_ids=None):

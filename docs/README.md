@@ -18,6 +18,7 @@
 |---|---|
 | [开发指南](development.md) | 后端与前端开发命令、本地演示环境、单元测试、一条命令复现验收 |
 | [架构与治理说明](architecture.md) | 组成、数据模型、关键机制、治理规则、运行与已知边界 |
+| [开发路线图](roadmap.md) | M1 → M5 五阶段开发计划（计划中）、执行顺序与边界约束 |
 | [引擎核验记录](engines/) | 各数据库引擎的实机核验：[StarRocks 3.5.14](engines/starrocks.md) |
 | [文档规范](documentation-guide.md) | README 与文档的结构、语言、术语、链接与图片写法 |
 | [贡献指南](../CONTRIBUTING.md) | 开发环境、PR 流程、测试要求 |

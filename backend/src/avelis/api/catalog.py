@@ -212,6 +212,26 @@ def set_member(
     return domain_view(session, d)
 
 
+@router.delete("/domains/{domain_id}/members/{user_id}", response_model=S.DomainOut)
+def remove_member(
+    domain_id: str, user_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    d = session.get(Domain, domain_id) or _404("业务域不存在")
+    access.require_domain_owner(session, user, domain_id)
+    if user_id == d.owner_id:
+        raise HTTPException(409, "不能移除业务域负责人")
+    row = session.scalar(
+        select(DomainMember).where(DomainMember.domain_id == domain_id, DomainMember.user_id == user_id)
+    )
+    if row is None:
+        raise HTTPException(404, "业务域成员不存在")
+    removed_role = row.role
+    session.delete(row)
+    session.flush()
+    audit.record(session, user, "domain.member_remove", "domain", domain_id, member=user_id, role=removed_role)
+    return domain_view(session, d)
+
+
 @router.put("/domains/{domain_id}/example-questions", response_model=S.DomainOut)
 def set_example_questions(
     domain_id: str,

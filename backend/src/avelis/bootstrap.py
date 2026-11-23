@@ -2,7 +2,8 @@
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
   uv run python -m avelis.bootstrap init-admin     创建首个启用的管理员（AVELIS_INITIAL_ADMIN_USERNAME 默认 admin，
-                                                   未配置密码时使用 123456；显式配置密码时首次登录必须改密）
+                                                   未配置密码时生成一次性高强度随机密码并仅记录一次启动日志；
+                                                   首次登录均强制修改密码）
   uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
@@ -20,10 +21,12 @@
 from __future__ import annotations
 
 import logging
+import secrets
+import string
 import sys
 
 from alembic import command
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.pool import NullPool
 
 from avelis import audit
@@ -32,7 +35,7 @@ from avelis.db import get_engine, session_scope, utcnow
 from avelis.devtools import alembic_config
 from avelis.governance.access import ROLES
 from avelis.models import User, UserRole
-from avelis.security import hash_password, session_cutoff_now, verify_password
+from avelis.security import hash_password, normalize_username, session_cutoff_now, verify_password
 
 # 演示准备与验收脚本经 API 操作时使用的管理员；不占用给人登录的 admin
 AUTOMATION_ADMIN = "ops_admin"
@@ -79,12 +82,35 @@ def validate_initial_admin_password(username: str, password: str) -> None:
         raise InitialAdminError("AVELIS_INITIAL_ADMIN_PASSWORD 至少包含 4 种不同字符")
 
 
+def _generate_initial_password(username: str) -> str:
+    symbols = "!@#$%^&*-_=+"
+    alphabet = string.ascii_letters + string.digits + symbols
+    rng = secrets.SystemRandom()
+    for _ in range(16):
+        chars = [
+            secrets.choice(string.ascii_uppercase),
+            secrets.choice(string.ascii_lowercase),
+            secrets.choice(string.digits),
+            secrets.choice(symbols),
+            *(secrets.choice(alphabet) for _ in range(16)),
+        ]
+        rng.shuffle(chars)
+        candidate = "".join(chars)
+        try:
+            validate_initial_admin_password(username, candidate)
+            return candidate
+        except InitialAdminError:
+            continue
+    raise InitialAdminError("无法生成符合策略的初始随机密码")
+
+
 def init_admin() -> str | None:
     """仅在没有启用的管理员时创建首个管理员，不修改已有账号。"""
     env = get_settings().env
-    username = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "admin")
-    password = env.get("AVELIS_INITIAL_ADMIN_PASSWORD", "")
-    must_change_password = bool(password)
+    raw_username = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "admin")
+    username = normalize_username(raw_username)
+    configured_password = env.get("AVELIS_INITIAL_ADMIN_PASSWORD", "")
+    generated_password = ""
     with session_scope() as session:
         session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "avelis:bootstrap:init-admin"}
@@ -98,29 +124,34 @@ def init_admin() -> str | None:
         if existing is not None:
             print("已存在管理员，跳过")
             return None
-        if session.scalar(select(User.id).where(User.username == username)) is not None:
-            raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
-        if not username.strip():
+        if not username:
             raise InitialAdminError("AVELIS_INITIAL_ADMIN_USERNAME 不能为空")
-        if must_change_password:
-            validate_initial_admin_password(username, password)
+        if session.scalar(select(User.id).where(func.lower(User.username) == username)) is not None:
+            raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
+        if configured_password:
+            validate_initial_admin_password(username, configured_password)
+        else:
+            generated_password = _generate_initial_password(username)
         user = User(
             username=username,
             display_name="管理员",
-            password_hash=hash_password(password or "123456"),
+            password_hash=hash_password(configured_password or generated_password),
             is_active=True,
-            must_change_password=must_change_password,
+            must_change_password=True,
         )
         session.add(user)
         session.flush()
         session.add(UserRole(user_id=user.id, role="admin"))
         audit.record(session, None, "user.create", "user", user.id, username=username, roles=["admin"], via="cli")
         user_id = user.id
-    if must_change_password:
-        print("初始管理员已创建，首次登录必须修改密码")
-    else:
-        logger.warning("使用默认初始管理员 %s，默认口令请登录后在界面修改", username)
-        print("初始管理员已创建")
+    if generated_password:
+        logger.warning(
+            "未配置 AVELIS_INITIAL_ADMIN_PASSWORD，已为初始管理员 %s 生成一次性随机口令"
+            "（仅记录一次，首次登录必须修改）：%s",
+            username,
+            generated_password,
+        )
+    print("初始管理员已创建，首次登录必须修改密码")
     return user_id
 
 
@@ -131,8 +162,9 @@ def ensure_admin(
     password = get_settings().env.get("AVELIS_DEMO_USER_PASSWORD", "")
     if len(password) < 8:
         raise SystemExit("AVELIS_DEMO_USER_PASSWORD 未设置或过短；运行 uv run scripts/demo.py init-env")
+    username = normalize_username(username)
     with session_scope() as session:
-        user = session.scalar(select(User).where(User.username == username))
+        user = session.scalar(select(User).where(func.lower(User.username) == username))
         if user is None:
             user = User(username=username, display_name=display_name, password_hash=hash_password(password))
             session.add(user)
@@ -192,7 +224,7 @@ def ensure_superadmin(reset_password: bool = False) -> str | None:
             if reset_password:
                 raise SystemExit(LOCAL_ONLY)
             return None
-        user = session.scalar(select(User).where(User.username == SUPERADMIN))
+        user = session.scalar(select(User).where(func.lower(User.username) == SUPERADMIN))
         if user is None:
             user = User(username=SUPERADMIN, display_name="超级管理员", password_hash=hash_password(password))
             session.add(user)
@@ -219,14 +251,14 @@ def model_operator() -> str:
     env = get_settings().env
     if len(env.get("AVELIS_DEMO_USER_PASSWORD", "")) >= 8:
         return ensure_admin(superadmin=False)  # 登记模型不需要本地超级管理员
-    preferred = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "").strip() or "admin"
+    preferred = normalize_username(env.get("AVELIS_INITIAL_ADMIN_USERNAME", "")) or "admin"
     with session_scope() as session:
         admins = (
             select(User)
             .join(UserRole, UserRole.user_id == User.id)
             .where(UserRole.role == "admin", User.is_active.is_(True))
         )
-        admin = session.scalar(admins.where(User.username == preferred)) or session.scalar(
+        admin = session.scalar(admins.where(func.lower(User.username) == preferred)) or session.scalar(
             admins.order_by(User.created_at, User.id).limit(1)
         )
         if admin is None:

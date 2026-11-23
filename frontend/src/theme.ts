@@ -37,5 +37,5 @@ export function setThemePref(next: ThemePref) {
 }
 
 export function useThemePref(): ThemePref {
-  return useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => pref);
+  return useSyncExternalStore((l) => { listeners.add(l); return () => listeners.delete(l); }, () => pref, () => pref);
 }

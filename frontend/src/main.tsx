@@ -13,6 +13,7 @@ import "./i18n";
 import { RequireLogin, Shell } from "./layout/Shell";
 import { ChangePassword } from "./pages/account/ChangePassword";
 import { OAuthConsent } from "./pages/account/OAuthConsent";
+import { SecurityPage } from "./pages/account/SecurityPage";
 import { AskPage } from "./pages/ask/AskPage";
 import { AnalysisPage } from "./pages/analysis/AnalysisPage";
 import { CatalogPage } from "./pages/catalog/CatalogPage";
@@ -21,6 +22,7 @@ import { ImportPage } from "./pages/lineage/ImportPage";
 import { LineagePage } from "./pages/lineage/LineagePage";
 import { Login } from "./pages/Login";
 import { Forbidden, NotFound, RouteError } from "./pages/PageState";
+import { AuthSettingsPage } from "./pages/settings/AuthSettingsPage";
 import { DatasourcesPage } from "./pages/settings/DatasourcesPage";
 import { ModelSettings } from "./pages/settings/ModelSettings";
 import { UsersPage } from "./pages/settings/UsersPage";
@@ -78,6 +80,8 @@ const router = createBrowserRouter([
       { path: "settings/calendar", element: <CalendarPage /> },
       { path: "settings/mcp", element: <McpPage /> },
       { path: "settings/webhooks", element: <WebhooksPage /> },
+      { path: "settings/auth", element: <AuthSettingsPage /> },
+      { path: "account/security", element: <SecurityPage /> },
       { path: "forbidden", element: <Forbidden /> },
       { path: "*", element: <NotFound /> },
     ],

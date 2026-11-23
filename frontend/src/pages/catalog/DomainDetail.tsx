@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router";
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction, useAssetSearch, useDomains, useMetrics, useUsers } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Banner, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, Tile, useMessage } from "../../components/ui";
+import { Banner, ConfirmDialog, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, Tile, useMessage } from "../../components/ui";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { OssieExportButton } from "./OssieInterchange";
@@ -31,10 +31,14 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   const [tab, setTab] = useState<DomainTab>("metrics");
   const [searches, setSearches] = useState({ metrics: "", assets: "", members: "" });
   const [member, setMember] = useState<MemberEditor | null>(null);
+  const [removing, setRemoving] = useState<{ user_id: string; name: string } | null>(null);
   const [message, setMessage] = useMessage();
   const [memberMessage, setMemberMessage] = useMessage();
   const saveMember = useAction((body: { user_id: string; role: string }) => unwrap(api.PUT("/api/domains/{domain_id}/members", {
     params: { path: { domain_id: domainId } }, body,
+  })), ["domains", "users"]);
+  const removeMember = useAction((userId: string) => unwrap(api.DELETE("/api/domains/{domain_id}/members/{user_id}", {
+    params: { path: { domain_id: domainId, user_id: userId } },
   })), ["domains", "users"]);
   const isOwner = !!d && (me.data?.id === d.owner_id || !!me.data?.roles.includes("admin"));
   const canMaintain = isOwner || (!!d && d.members.some((m) => m.user_id === me.data?.id && m.role === "maintainer"));
@@ -122,7 +126,12 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               emptyAction={query ? clearSearch : isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}>{t("添加成员")}</button> : undefined} compact>
               {() => <div className="av-table-wrap"><table className="av-table av-domain-detail__table"><thead><tr><th>{t("成员")}</th><th>{t("账号")}</th><th>{t("权限")}</th><th className="av-domain-detail__actions">{t("操作")}</th></tr></thead><tbody>
                 {filteredMembers.map((m) => <tr key={m.user_id}><td><span className="av-crumb"><span className="av-avatar">{m.display_name.slice(0, 1)}</span><b>{m.display_name}</b></span></td><td className="av-mono">{m.username}</td><td><span className="av-tag">{ROLE[m.role] ?? m.role}</span></td>
-                  <td className="av-domain-detail__actions">{isOwner && m.user_id !== d.owner_id && m.role !== "owner" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => openMember({ user_id: m.user_id, role: m.role, name: m.display_name })}>{t("编辑权限")}</button> : <span className="av-domain-detail__muted">—</span>}</td></tr>)}
+                  <td className="av-domain-detail__actions">{isOwner && m.user_id !== d.owner_id && m.role !== "owner" ? (
+                    <span className="av-actions">
+                      <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => openMember({ user_id: m.user_id, role: m.role, name: m.display_name })}>{t("编辑权限")}</button>
+                      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setRemoving({ user_id: m.user_id, name: m.display_name })}>{t("移除")}</button>
+                    </span>
+                  ) : <span className="av-domain-detail__muted">—</span>}</td></tr>)}
               </tbody></table></div>}
             </QueryState> : null}
           </div>
@@ -150,6 +159,20 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               <Banner message={memberMessage} />
             </form>
           </Drawer> : null}
+          {removing ? (
+            <ConfirmDialog
+              danger
+              title={t("移除成员 {{name}}？", { name: removing.name })}
+              body={t("移除后该用户将不再拥有此业务域的访问权限。")}
+              confirm={t("移除")}
+              onCancel={() => setRemoving(null)}
+              onConfirm={async () => {
+                await removeMember.mutateAsync(removing.user_id);
+                setRemoving(null);
+                setMessage({ ok: true, text: t("已移除成员 {{name}}", { name: removing.name }) });
+              }}
+            />
+          ) : null}
         </div>
       ) : <Empty text={t("业务域不存在")} compact />}
     </QueryState>
