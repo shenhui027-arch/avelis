@@ -24,10 +24,12 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import operator
 import ssl
 import time
+from concurrent.futures import ThreadPoolExecutor
 from html import escape
 from types import SimpleNamespace
 from typing import Annotated, Any, Literal, TypedDict
@@ -43,9 +45,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import charts
+from avelis import charts, modelcfg, usage
 from avelis.analysis import conversation_context, investigation, live
-from avelis.analysis.tools import AnalysisToolbox, ChartArgs, Scope, SkillScope
+from avelis.analysis.tools import CONCURRENT_READ_ONLY_TOOLS, AnalysisToolbox, ChartArgs, Scope, SkillScope
 from avelis.analysis.verify import ground_report
 from avelis.ask import service
 from avelis.ask.agent import SKILL_CONTEXT_ID, SKILL_REFERENCE_NOTE, explain_answer
@@ -63,20 +65,26 @@ from avelis.governance.errors import GovernanceError
 from avelis.i18n import current_locale, gettext, reply_language_instruction
 from avelis.llm_protocol import (
     ModelProtocolError,
+    _text,
+    extract_thinking,
+    is_failover_error,
     protocol_problem,
     response_finish_reason,
+    sanitize_messages_for_target,
     stream_reply,
     streams_live,
 )
 from avelis.models import AnalysisRun, Asset, Datasource, MetricVersion, User
 
 REVISION_TOOL_CALLS = 6
+MAX_CONCURRENT_TOOLS = 4
 UNDERSTAND_MAX_TOKENS = 1000  # 理解阶段只输出 scope：关闭思考、限制输出长度（ADR 0012，系统固定）
 # E0 只验证过 max_tokens=8、200；起始剩余额度约 30,716 未经真实模型验证，直接发送有被提供方以 400 拒绝的风险。
 # E1 的 362 次请求中有 5 次输出超过 8,192，最大 14,165，不能统一限制为 8,192。
 # 仅在剩余额度确实偏紧时由预算设置输出上限，不发送未验证的大值；提供方默认上限造成的 length 仍属接入错误。
 BUDGET_OUTPUT_CEILING = 8192
-REPORT_RESERVE_SECONDS = 30  # 剩余时间少于此值时只接受 submit_report
+REPORT_RESERVE_SECONDS = 45  # 剩余时间少于此值时只接受 submit_report（为 revise 保留缓冲）
+REVISION_SECONDS_FLOOR = 30  # verify 触发 revise 的最低剩余时间
 MODEL_TIMEOUT_SECONDS = 60
 PROPOSAL_MAX_TOKENS = 3000
 CONTEXT_RECENT_MESSAGES = 6
@@ -95,7 +103,7 @@ SYSTEM_PROMPT = (
    结论依赖趋势、排名或构成时，用 chart 把关键数据集放进报告。
    分析窗口给了对比期时，query_metric 用 compare=custom 并传 compare_start、compare_end；"""
     """previous_period 是紧邻的同长度区间，
-   previous_calendar 取上一自然期，只适用于整月、整季或整年。
+   previous_calendar 取上一自然期，只适用于整月、整季或整年；time_grain 与 compare 不能同时传入。
 3. “为什么变了”：系统预检已按固定顺序排查过，结果在上下文包里：
    (1) 口径与数据本身：口径详情、changes（元数据变更与口径版本流转）、data_health；它们的结果也是数据集（上下文证据），
        治理原因的结论引用它们；
@@ -109,11 +117,13 @@ SYSTEM_PROMPT = (
     """time_grain 可用 day、week、month、quarter、year，
    不能比 data_grain 更细，周从周一开始，季用季初日期。再用 lineage 查看口径的主表定位原因。
    口径覆盖不到的数据（工具里有 query_sql 时）：先用 describe_asset、lineage 读字段注释与关联键，再用 query_sql 写一条
-   SELECT，用 PostgreSQL 写法的受限子集（写出列名，表写 库.表；函数只用聚合、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，
-   日期加减写 列 ± INTERVAL 'n' DAY；等值 JOIN；列名与 describe_asset 返回的一致，"""
-    """有大写字母的加双引号，如 "ColumnName"）。
-   不用填数据源，也不用管目标数据库：系统按表所在的数据源生成方言；一条查询只能用同一个数据源的表。"""
-    """purpose 里说明为什么不用口径；写过滤条件前可用 sample_values 看取值。
+   SELECT，用 PostgreSQL 写法的受限子集（写出列名，表写 库.表；函数只用聚合、窗口 ROW_NUMBER/RANK/DENSE_RANK/LAG/LEAD
+   及聚合 OVER、COALESCE、NULLIF、CASE、CAST、DATE_TRUNC，日期加减写 列 ± INTERVAL 'n' DAY；等值 JOIN；"""
+    """列名与 describe_asset 返回的一致，有大写字母的加双引号，如 "ColumnName"）。
+   不用填数据源，也不用管目标数据库：系统按表所在的数据源生成方言；一条查询只能用同一个数据源的表，"""
+    """跨数据源表分别查询后用 sandbox_calc 合并。purpose 里说明为什么不用口径；写过滤条件前可用 sample_values 看取值。
+   需要跨数据集合并或复杂确定性计算时使用 sandbox_calc"""
+    """（受控只读 Python 沙箱，把结果赋值给 result；非白名单常量会标为假设计算）。
    探索结果带“探索查询（未经口径审核）”标记；被拒绝时按返回的错误与可用列改正，不要尝试绕过。
 4. “什么关系 / 怎么做”：预检已按 scope 的维度取数并做了 segment_compare（多指标时还有 correlate）；需要时再按其他维度
    取数比较。相关不等于因果，建议必须写明前提与验证方式。
@@ -141,9 +151,11 @@ SYSTEM_PROMPT = (
      {{"dataset": "D5", "column": "{metric}", "match": {{"{dimension}": "{member}"}}}}, "，较上期下降 ",
      {{"dataset": "D19", "summary": "total.change", "direction": "down"}}]；
    - 文字片段里不写数量：阿拉伯数字（含日期）写成引用对象，本次已有的数据集编号（如 D5）可以直接写；
-     中文数字后面接量词或单位（“三家”“两个地区”
-     “五成”“八折”）、“百分之……”“……分之……”也不写，个数用 CountRef；“第二”“九月下旬”“两期”“两渠道”这类没有量词的
-     说法可以；数值后面不要再写“元、万、%、倍”（系统会输出）；两个数值之间要有文字隔开；“首位”“最大”代替“Top 3”；
+     中文数字后面接量词或单位（“三家”“两个地区”“两项”“四个”“八五折”
+     “五成”“八折”）、“百分之……”“……分之……”也不写，个数用 CountRef（或改写为“多项”“若干”“多个”“折扣活动”）；"""
+    """“第二”“九月下旬”“两期”“两渠道”这类没有量词的
+     说法可以；数值后面不要再写“元、万、%、倍”（系统会输出）；两个数值之间要有文字隔开；"""
+    """“首位”“最大”代替“Top 3”；提交前逐段自检确认无中文数量词；
    - fact 与 calc 的引用 = refs 与引用片段涉及的数据集；需要两数相减、求和、占比等派生数字时先用 derive 算出，再引用它；
      没有经过工具的推算数字不要写进 fact / calc；不写“约 X”的估计值：需要区间、均值时用 describe；
    - inference 与 recommendation 写 premise；recommendation 写 validation；其中可以有数字（假设或方案，不核验）；
@@ -152,7 +164,14 @@ SYSTEM_PROMPT = (
      conclusion 写结论类型：ranked_reasons（有排序的原因）、offsetting（成员变化相互抵消）、
      no_material_change（没有实质变化）、insufficient_evidence（证据不足）。结论类型就是同一 scope 的 explain_change
      判定（结果 summary 里的 conclusion），由系统核对，不要自行改判；不要为了给出原因而编造；
-   - ranked_reasons 时 causes 按影响大小列出原因，第一项是首要原因；offsetting 时前两项是最大的减少项与增加项。
+   - ranked_reasons 时 causes 只列推动净变化的主因（与总变化同方向，或经证据验证的根因事件/因子），"""
+    """不要用反向成员或微小长尾成员凑数；
+     offsetting 时前两项是最大的减少项与增加项。乘法因子（如订单数、进店人数）只说明“怎么变”，不说明“为什么变”：
+     当变化在地区/类目等维度分布均匀，或上下文包里存在同域可用资产（如活动/调价/营销记录表）时，"""
+    """用 query_sql 查证并把已核实事件行 evidence_id 放首位；
+     当 data_health 或成员覆盖度（coverage 的 missing_count / members_with_gaps）显示某日成员缺失数据行时，"""
+    """把数据缺失治理原因（type=governance 或受影响实体 evidence_id）放首位，不得把临时 derive 差值标成 type=calendar；
+     当日历折算显示天数差异或日趋势在节假日/周末整体走高时，标注 type=calendar 并引用日历折算或日趋势数据集。
      每项：type（member 成员 / factor 因子 / calendar 日历 / governance 治理事件）、entity 按编码写：
      成员 {{"metric_code": "<被解释的指标编码>", "dimension": "{dimension}", "member": "{member}"}}"""
     """，因子 {{"factor_metric_code": "<因子的指标编码>"}}（explain_change 自动给出的因子拆解，
@@ -220,9 +239,13 @@ UNDERSTAND_PROMPT = (
   仍按 lookup / change / relation 分类，不能写 chart；
 - chart_dataset：只从同对话 chart_targets 的 dataset 选择。只有一张时可不填；多张图时只有用户明确说了图题、
   数据集编号、顺序或可唯一辨认的内容才选对应编号，否则在 clarification 追问要改哪张，不猜；
-- metric_codes：所问的指标编码，只能取自候选口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
+- metric_codes：所问的指标编码，只能取自候选口径；优先精确语义匹配"""
+    """（如“销量/件数”与“销售额/金额”、“均价”与“客单价”区分开）；
+  如果没有已发布口径匹配所问概念（如只有总额/客单价而问具体商品均价），可留空 []，"""
+    """不要硬凑不兼容的口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
 - 候选口径的 ai_context.instructions 写明适用与不适用的情况；按它判断是否选用该口径，拿不准时据此向用户澄清；
-- filters：问题限定的范围，写成指标维度名与取值（取值照问题里的写法，例如某个地区名）；不要把问题没提到的范围写进来；
+- filters：问题中明确限定的每一个维度条件（如渠道/品类/区域/城市/门店）都必须提取进 filters，"""
+    """不要漏掉更细切片（如“线上”“食品”），取值照问题里的写法；不要把问题没提到的范围写进来；
 - dimensions：取数时的分组或关系类问题要对比的维度名（取自该指标的维度）；
 - time_grain：只在问题要求按日、周、月、季或年列出时填写 day、week、month、quarter、year；"""
     """周用周一日期，季用季初日期 YYYY-MM-DD；
@@ -528,13 +551,21 @@ def _invoke(
     output_budget_limited: bool = False,
     context_window: int | None = None,
     context_prepared: bool = False,
+    model: Any = None,
+    phase_kwargs: dict[str, Any] | None = None,
+    tool_choice: str | None = None,
+    phase_name: str | None = None,
 ) -> AIMessage | None:
     """请求一次模型，每次尝试记一个 model 步骤：耗时、token 数、终止原因与本轮发出的工具调用（ADR 0012 度量）。
-    传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；每次尝试都计入 Budget.used_model_requests。
-    预算上限造成的截断记为预算截止；其他接入协议错误记下错误码并抛出 ModelProtocolError。
-    text / thinking 完整保存，仅用于步骤展示，不改写回复对象，也不参与核验或协议回传。"""
+    传输层的临时错误重试一次（剩余时间足够且请求次数未到上限时）；若配置了备选模型且命中容灾错误则自动降级切换。"""
     budget = toolbox.budget
     retried = False
+    raw_fb = getattr(model, "fallbacks", None) if model is not None else None
+    fallbacks = tuple(raw_fb) if isinstance(raw_fb, (list, tuple)) else ()
+    candidates = [model, *fallbacks] if model is not None else [None]
+    cand_idx = 0
+    failover_from: str | None = None
+    initial_adapter = getattr(toolbox, "adapter", None) or getattr(model, "adapter", None)
     while True:
         if not _can_call_model(toolbox):
             return None
@@ -575,19 +606,26 @@ def _invoke(
             return None  # 与请求次数用完一致：停止请求，交给核验生成未完成报告。
         budget.used_model_requests += 1
         started = time.monotonic()
+        active_cand = candidates[cand_idx]
+        active_adapter = getattr(active_cand, "adapter", None) or getattr(toolbox, "adapter", None)
+        domain_id = usage.resolve_metric_codes_domain_id(
+            getattr(toolbox, "session", None),
+            getattr(getattr(toolbox, "scope", None), "metric_codes", None),
+        )
         try:
             sink = _live_sink(toolbox)
+            prepared_messages = sanitize_messages_for_target(messages, bound) if failover_from is not None else messages
             if sink is not None and streams_live(bound):
                 # 流式：思考中的推理文字实时写入（live），整体时限与非流式的请求超时一致
                 sink.model_started(getattr(toolbox, "_seq", 0))
                 reply: AIMessage = stream_reply(
                     bound,
-                    messages,
+                    prepared_messages,
                     sink.model_delta,
                     deadline=started + max(1.0, min(_model_timeout_seconds(), budget.remaining())),
                 )
             else:
-                reply = bound.invoke(messages)
+                reply = bound.invoke(prepared_messages)
         except Exception as exc:
             transient = _is_transient_error(exc)
             retry = (
@@ -597,28 +635,65 @@ def _invoke(
                 and not budget.model_blocked()
                 and not toolbox.stopped
             )
+            will_failover = (
+                not retry and cand_idx + 1 < len(candidates) and is_failover_error(exc) and _can_call_model(toolbox)
+            )
             toolbox._step(
                 "model",
                 "model",
                 {},
                 "error",
                 {
-                    "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                    "error": f"{type(exc).__name__}: {modelcfg.redact_error(str(exc))[:300]}",
                     **({"error_code": "model_transport"} if transient else {}),
                     "retry": retry,
+                    **({"failover": True} if will_failover else {}),
                 },
                 started=started,
             )
             if retry:
                 retried = True
                 continue
+            if will_failover:
+                failover_from = failover_from or initial_adapter or active_adapter
+                cand_idx += 1
+                retried = False
+                fb = candidates[cand_idx]
+                fb_model, output_budget_limited = _model_for(fb, budget, **(phase_kwargs or {}))
+                if tools is not None:
+                    bind_kw = {"tool_choice": tool_choice} if tool_choice else {}
+                    bound = fb_model.bind_tools(tools, **bind_kw)
+                else:
+                    bound = fb_model
+                context_window = getattr(fb, "context_window", context_window)
+                if hasattr(toolbox, "adapter") and getattr(fb, "adapter", None):
+                    toolbox.adapter = fb.adapter
+                continue
+            usage.record_usage(
+                getattr(toolbox, "session", None),
+                user_id=getattr(getattr(toolbox, "user", None), "id", None),
+                domain_id=domain_id,
+                purpose="analysis",
+                phase=phase_name,
+                provider_id=getattr(active_cand, "provider_id", None),
+                provider_code=getattr(active_cand, "provider_code", None),
+                model_id=getattr(active_cand, "model_id", None) or active_adapter or "unknown",
+                adapter=active_adapter,
+                run_id=getattr(getattr(toolbox, "run", None), "id", None),
+                usage=None,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                status="error",
+                failover_from=failover_from,
+                routing_tier=getattr(active_cand, "routing_tier", None),
+                error_code=type(exc).__name__,
+            )
             raise
         if reply is not None and any(getattr(message, "id", None) == SKILL_CONTEXT_ID for message in messages):
             toolbox.record_skill_injection()
-        usage = model_usage(reply)
-        budget.used_input_tokens += usage["input_tokens"] or 0
-        budget.used_output_tokens += usage["output_tokens"] or 0
-        budget.remember_model_input(messages, usage["input_tokens"])
+        used_usage = model_usage(reply)
+        budget.used_input_tokens += used_usage["input_tokens"] or 0
+        budget.used_output_tokens += used_usage["output_tokens"] or 0
+        budget.remember_model_input(messages, used_usage["input_tokens"])
         problem = protocol_problem(reply)
         names = [
             c.get("name") for c in [*(reply.tool_calls or []), *(getattr(reply, "invalid_tool_calls", None) or [])]
@@ -630,31 +705,42 @@ def _invoke(
             error = {"error_code": "budget_output_tokens", "error": "模型回复因剩余输出 token 额度而截断"}
         else:
             error = {"error_code": problem.code, "error": problem.message} if problem else {}
-        text = (
-            reply.content
-            if isinstance(reply.content, str)
-            else "".join(
-                block if isinstance(block, str) else block.get("text", "")
-                for block in reply.content
-                if isinstance(block, str) or isinstance(block, dict) and block.get("type") == "text"
-            )
-        )
-        thinking = (reply.additional_kwargs or {}).get("reasoning_content")
+        text = _text(reply.content)
+        thinking = extract_thinking(reply) or None
         toolbox._step(
             "model",
             "model",
             {},
             "error" if problem else "ok",
             {
-                **usage,
+                **used_usage,
                 "tool_calls": len(names),
                 "tools": names,
                 **({"finish_reason": finish} if finish else {}),
                 "text": text,
                 **({"thinking": thinking} if isinstance(thinking, str) and thinking else {}),
+                **({"adapter": active_adapter, "failover_from": failover_from} if failover_from else {}),
                 **error,
             },
             started=started,
+        )
+        usage.record_usage(
+            getattr(toolbox, "session", None),
+            user_id=getattr(getattr(toolbox, "user", None), "id", None),
+            domain_id=domain_id,
+            purpose="analysis",
+            phase=phase_name,
+            provider_id=getattr(active_cand, "provider_id", None),
+            provider_code=getattr(active_cand, "provider_code", None),
+            model_id=getattr(active_cand, "model_id", None) or active_adapter or "unknown",
+            adapter=active_adapter,
+            run_id=getattr(getattr(toolbox, "run", None), "id", None),
+            usage=used_usage,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status="failover" if failover_from else ("error" if problem else "ok"),
+            failover_from=failover_from,
+            routing_tier=getattr(active_cand, "routing_tier", None),
+            error_code=problem.code if problem else None,
         )
         if budget_cutoff:
             return None  # 截断内容和工具调用不执行，由现有预算截止路径生成未完成报告。
@@ -701,6 +787,43 @@ def model_usage(reply: AIMessage) -> dict[str, int | None]:
     }
 
 
+def _remaining_tool_slots(toolbox: AnalysisToolbox) -> int:
+    budget = toolbox.budget
+    return max(
+        0,
+        (budget.tool_calls - budget.report_reserve)
+        - (budget.used_tools + (budget.reports_total - budget.used_reports)),
+    )
+
+
+def _tool_chunks(calls: list[dict], toolbox: AnalysisToolbox, *, only_report: bool) -> list[tuple[bool, list[dict]]]:
+    if only_report or not toolbox.can_parallelize_tools():
+        return [(False, [c]) for c in calls]
+    slots = _remaining_tool_slots(toolbox)
+    chunks: list[tuple[bool, list[dict]]] = []
+    buf: list[dict] = []
+    for call in calls:
+        is_ro = call.get("name") in CONCURRENT_READ_ONLY_TOOLS and isinstance(call.get("args"), dict)
+        if not is_ro:
+            if buf:
+                chunks.append((len(buf) >= 2, buf))
+                buf = []
+            chunks.append((False, [call]))
+            continue
+        if call["name"] != "view_dataset":
+            if slots <= 0:
+                if buf:
+                    chunks.append((len(buf) >= 2, buf))
+                    buf = []
+                chunks.append((False, [call]))
+                continue
+            slots -= 1
+        buf.append(call)
+    if buf:
+        chunks.append((len(buf) >= 2, buf))
+    return chunks
+
+
 def _round(
     state: AnalysisState, toolbox: AnalysisToolbox, model, *, only_report: bool = False, context_prepared: bool = False
 ) -> list[AnyMessage]:
@@ -719,6 +842,8 @@ def _round(
         output_budget_limited=output_budget_limited,
         context_window=getattr(model, "context_window", None),
         context_prepared=context_prepared,
+        model=model,
+        phase_name="reason",
     )
     appended = [
         message for message in state["messages"] if id(message) not in before and message.id != CONTEXT_SUMMARY_ID
@@ -726,15 +851,33 @@ def _round(
     if reply is None:
         return appended
     out: list[AnyMessage] = [*appended, reply]
-    for call in reply.tool_calls or []:
+    for parallel, chunk in _tool_chunks(list(reply.tool_calls or []), toolbox, only_report=only_report):
         toolbox.check_executor()
         if toolbox.stopped:
             break
         sink = _live_sink(toolbox)
-        if sink is not None:
-            sink.tool_started(getattr(toolbox, "_seq", 0), call["name"], call["args"])
-        result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
-        out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+        if parallel:
+            toolbox.prepare_parallel_dispatch()
+            if sink is not None:
+                sink.tool_started(getattr(toolbox, "_seq", 0), chunk[0]["name"], chunk[0]["args"])
+            with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_TOOLS, len(chunk))) as pool:
+                futures = [
+                    pool.submit(
+                        contextvars.copy_context().run,
+                        toolbox.run_in_worker,
+                        lambda c=call: toolbox.dispatch(c["name"], c["args"], only_report=only_report),
+                    )
+                    for call in chunk
+                ]
+                results = [fut.result() for fut in futures]
+            for call, result in zip(chunk, results):
+                out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+        else:
+            call = chunk[0]
+            if sink is not None:
+                sink.tool_started(getattr(toolbox, "_seq", 0), call["name"], call["args"])
+            result = toolbox.dispatch(call["name"], call["args"], only_report=only_report)
+            out.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
     # 参数无法解析的调用（LangChain 放在 invalid_tool_calls）也必须逐个回复，否则下一轮请求会因缺少工具消息被拒（400）；
     # 回复用 dispatch 的结果：其中有出错的 JSON 路径与原因、还能否重交
     for call in getattr(reply, "invalid_tool_calls", None) or []:
@@ -1105,6 +1248,20 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
                 "\n仅在目录中的方法与本轮问题相关时填写 skills，最多 3 个；没有相关技能时留空。\n"
                 + SKILL_REFERENCE_NOTE
             )
+        feedback_text = ""
+        if feedback:
+            visible_summary = [
+                {
+                    "code": c.code,
+                    "name": c.name,
+                    "dimensions": [d["name"] for d in (c.dimensions or [])],
+                }
+                for c in getattr(toolbox.catalog, "cards", [])[:25]
+            ]
+            feedback_text = (
+                f"\n上一次的范围在系统预检里没有数据：{feedback}。"
+                f"可用口径及维度：{json.dumps(visible_summary, ensure_ascii=False)}。请重新选择指标或范围。"
+            )
         messages = [
             SystemMessage(prompt),
             HumanMessage(
@@ -1113,7 +1270,7 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
                 + followup
                 + _conversation_text(inherited)
                 + skill_catalog
-                + (f"\n上一次的范围在系统预检里没有数据：{feedback}。请重新选择指标或范围。" if feedback else "")
+                + feedback_text
             ),
         ]
         messages[1] = HumanMessage(_reply_context(messages[1].content, ctx))
@@ -1131,6 +1288,10 @@ def understand(state: AnalysisState, config) -> dict[str, Any]:
                 tools=[tool],
                 output_budget_limited=output_budget_limited,
                 context_window=getattr(model, "context_window", None),
+                model=model,
+                phase_kwargs={"effort": "off", "max_tokens": UNDERSTAND_MAX_TOKENS},
+                tool_choice="submit_scope",
+                phase_name="understand",
             )
             call = next((c for c in reply.tool_calls or [] if c["name"] == "submit_scope"), None) if reply else None
             raw = call["args"] if call else None
@@ -1273,6 +1434,8 @@ def lookup(state: AnalysisState, config) -> dict[str, Any]:
             tools=tools,
             output_budget_limited=limited,
             context_window=getattr(resolved, "context_window", None),
+            model=resolved,
+            phase_name="lookup",
         )
 
     def run():
@@ -1491,6 +1654,10 @@ def chart_edit(state: AnalysisState, config) -> dict[str, Any]:
             tools=[tool],
             output_budget_limited=limited,
             context_window=getattr(model, "context_window", None),
+            model=model,
+            phase_kwargs={"effort": "off", "max_tokens": UNDERSTAND_MAX_TOKENS},
+            tool_choice="chart",
+            phase_name="chart_edit",
         )
         calls = reply.tool_calls or [] if reply is not None else []
         invalid = getattr(reply, "invalid_tool_calls", None) or []
@@ -1587,6 +1754,7 @@ def propose(state: AnalysisState, config) -> dict[str, Any]:
             "phase": "checkpoint",
         }
     toolbox.recall_experiences(state["question"], scope)
+    toolbox.recall_vqr(state["question"], scope)
     refs = _upstream_refs(toolbox, scope)
     proposal, problem = None, None
     tool = StructuredTool.from_function(
@@ -1622,6 +1790,10 @@ def propose(state: AnalysisState, config) -> dict[str, Any]:
         tools=[tool],
         output_budget_limited=limited,
         context_window=getattr(model, "context_window", None),
+        model=model,
+        phase_kwargs={"effort": "off", "max_tokens": PROPOSAL_MAX_TOKENS},
+        tool_choice="submit_proposal",
+        phase_name="propose",
     )
     if reply is not None:
         try:
@@ -1813,7 +1985,7 @@ def reason(state: AnalysisState, config) -> dict[str, Any]:
     notes: list[str] = []
     revised = False
     while True:
-        out = act({"messages": messages}, config)
+        out = act({"messages": messages, "revised": revised}, config)
         messages = out["messages"]
         notes += out["notes"]
         if verify({"revised": revised}, config)["phase"] != "revise":
@@ -1856,8 +2028,19 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
         estimate = _prepare_context(messages, toolbox, toolbox.tools(), getattr(model, "context_window", None))
         if not _can_call_model(toolbox):
             break
-        closing = budget.remaining() < REPORT_RESERVE_SECONDS
-        last_request = budget.used_model_requests >= budget.model_requests - 1
+        reserve_for_revise = state.get("revised") is False and budget.model_requests >= 4
+        closing = budget.remaining() < (
+            REPORT_RESERVE_SECONDS if state.get("revised") is False else REVISION_SECONDS_FLOOR
+        )
+        last_request = budget.used_model_requests >= budget.model_requests - (2 if reserve_for_revise else 1)
+        tool_reserve = (
+            state.get("revised") is False
+            and budget.tool_calls >= 6
+            and (
+                budget.used_tools + (budget.reports_total - budget.used_reports)
+                >= budget.tool_calls - budget.report_reserve - 1
+            )
+        )
         last_tokens = (
             budget.input_tokens is not None
             and estimate is not None
@@ -1865,6 +2048,7 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
         )
         over = (
             budget.exhausted()
+            or ("工具调用次数即将用完" if tool_reserve else None)
             or ("分析时长即将用完" if closing else None)
             or ("模型请求次数即将用完" if last_request else None)
             or ("token 即将用完" if last_tokens else None)
@@ -2016,7 +2200,7 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
             not state.get("revised")
             and not report.get("incomplete")
             and not toolbox.stopped
-            and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS
+            and toolbox.budget.remaining() > REVISION_SECONDS_FLOOR
         ):
             feedback = _investigation_feedback(toolbox)
             toolbox.investigation_feedback = feedback
@@ -2026,7 +2210,7 @@ def verify(state: AnalysisState, config) -> dict[str, Any]:
         and not report.get("incomplete")
         and not toolbox.stopped
         and not toolbox.budget.model_blocked()
-        and toolbox.budget.remaining() > REPORT_RESERVE_SECONDS
+        and toolbox.budget.remaining() > REVISION_SECONDS_FLOOR
     ):
         return {"phase": "revise"}
     return {"phase": "done"}
@@ -2065,8 +2249,10 @@ def revise(state: AnalysisState, config) -> dict[str, Any]:
         "核验发现以下问题：\n"
         + "\n".join(lines)
         + "\n请修订：引用解析失败的，按提示改正数据集编号、列名、汇总路径、match 或 row"
-        "（求和、差额、占比先用 derive 算出再引用）；文字片段里的数量、单位改成引用对象，或改写为不含数量的说法"
-        "（对比双方写“本期 / 上期”或“两期相比”，例如“两期之差为100元”改写为 "
+        "（求和、差额、占比先用 derive 算出再引用）；文字片段里的数量、单位、中文数量词"
+        "（如“两个”“两项”“三家”“四个”“八五折”）"
+        "改成引用对象（CountRef / NumberRef），或改写为不含数量的说法（如“多项”“若干”“多个”“折扣活动”，"
+        "对比双方写“本期 / 上期”或“两期相比”，例如“两期之差为100元”改写为 "
         '["两期相比，差额为 ", {"dataset": "D7", "summary": "value"}]）；'
         "方向不一致的改正 direction 与前面的“增长 / 下降”；估计值、推算值改写为 inference。"
         "然后重新调用 submit_report 提交完整报告（保留其余结论）。"

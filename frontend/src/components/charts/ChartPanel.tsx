@@ -2,6 +2,7 @@
 import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { useNumberStyle } from "../../api/hooks";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { Icon } from "../Icon";
 import { t } from "../../i18n";
 import { formatValue } from "../../numbers";
@@ -47,9 +48,11 @@ export function ChartPanel({ charts, title, children }: { charts: ChartSpec[]; t
       </div>
       {view === "chart" && spec.title ? <h3 className="av-chartpanel__title">{spec.title}</h3> : null}
       {view === "table" ? table : <>
-        <Suspense fallback={<div className="av-chartpanel__loading" />}>
-          <EChart ref={canvas} spec={spec} style={style} label={title} />
-        </Suspense>
+        <ErrorBoundary compact label={t("图表渲染失败")}>
+          <Suspense fallback={<div className="av-chartpanel__loading" />}>
+            <EChart ref={canvas} spec={spec} style={style} label={title} />
+          </Suspense>
+        </ErrorBoundary>
         <ChartNote spec={spec} fullTable={children != null} />
       </>}
     </section>

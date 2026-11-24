@@ -3,10 +3,10 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router";
 
-import { token, type Schemas } from "../../api/client";
+import { apiFetch, type Schemas } from "../../api/client";
 import { errorText, useAction, useDomains } from "../../api/hooks";
 import { Banner, Drawer, Hint, Icon, Pill, Select, useMessage } from "../../components/ui";
-import { currentLanguage, t } from "../../i18n";
+import { t } from "../../i18n";
 import { useMe, useRoles } from "../../layout/Shell";
 
 type Report = Schemas["OssieImportReport"];
@@ -15,9 +15,7 @@ const ACTION_LABEL: Record<string, string> = { created: t("新建口径"), new_v
 
 /** 下载一个业务域的 Ossie 语义模型文件（只含当前用户可见的已发布口径）。 */
 export async function downloadOssie(domainId: string): Promise<void> {
-  const resp = await fetch(`/api/interchange/ossie/export?${new URLSearchParams({ domain_id: domainId })}`, {
-    headers: { Authorization: `Bearer ${token.get() ?? ""}`, "Accept-Language": currentLanguage() } });
-  if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail ?? t("导出失败（{{status}}）", { status: resp.status }));
+  const resp = await apiFetch(`/api/interchange/ossie/export?${new URLSearchParams({ domain_id: domainId })}`);
   const disposition = resp.headers.get("Content-Disposition") ?? "";
   const encoded = /filename\*=UTF-8''([^;]+)/.exec(disposition)?.[1];
   const name = encoded ? decodeURIComponent(encoded) : /filename="([^"]+)"/.exec(disposition)?.[1] ?? "domain.ossie.yaml";
@@ -47,8 +45,7 @@ async function postImport(file: File, domainId: string, dryRun: boolean): Promis
   form.append("file", file);
   form.append("domain_id", domainId);
   form.append("dry_run", String(dryRun));
-  const resp = await fetch("/api/interchange/ossie/import", { method: "POST", body: form,
-    headers: { Authorization: `Bearer ${token.get() ?? ""}`, "Accept-Language": currentLanguage() } });
+  const resp = await apiFetch("/api/interchange/ossie/import", { method: "POST", body: form, throwOnError: false });
   const body = await resp.json().catch(() => ({}));
   // 400 / 403 也返回完整的校验报告；其他错误只有 detail
   if (!resp.ok && !Array.isArray(body.errors)) throw new Error(body.detail ?? t("导入失败（{{status}}）", { status: resp.status }));

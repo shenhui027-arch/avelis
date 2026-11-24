@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { api, token, unwrap, type Schemas } from "../../api/client";
+import { api, apiFetch, unwrap, type Schemas } from "../../api/client";
 import { errorText, useDatasources, useTimeZone } from "../../api/hooks";
-import { Banner, Count, DateInput, Hint, Icon, Pager, Pill, QueryState, Select, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
+import { Banner, Count, Crumbs, DateInput, Hint, Icon, Pager, Pill, QueryState, Select, Status, shortName, useMessage, Tile, type KitTone } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { recordQuery, type RecordFilters } from "./recordFilters";
 import { AssetPicker } from "../../components/AssetPicker";
-import { currentLanguage, t } from "../../i18n";
+import { t } from "../../i18n";
 
 type Record = Schemas["ChangeRecordOut"];
 type Verify = Schemas["HistoryVerifyOut"];
@@ -50,22 +50,53 @@ export function Actor({ e }: { e: { actor_db_user?: string | null; attribution_s
 }
 
 const PAGE = 50;
+const FILTER_KEYS: (keyof RecordFilters)[] = [
+  "datasource_id", "asset_id", "column", "kind", "actor", "attribution_status", "since", "until",
+];
 
 export function ChangeRecords() {
   const tz = useTimeZone();
   const me = useMe();
   const sources = useDatasources();
-  // 从资产档案页的“全部变更”进来时，地址里的 asset_id 作为初始筛选
-  const [params] = useSearchParams();
-  const [filters, setFilters] = useState<RecordFilters>({ datasource_id: "", asset_id: params.get("asset_id") ?? "", column: "", kind: "", actor: "", attribution_status: "", since: "", until: "" });
+  // 筛选条件双向同步到 URL 查询参数，保留 view=records 以便刷新或分享
+  const [params, setParams] = useSearchParams();
+  const filters: RecordFilters = {
+    datasource_id: params.get("datasource_id") ?? "",
+    asset_id: params.get("asset_id") ?? "",
+    column: params.get("column") ?? "",
+    kind: params.get("kind") ?? "",
+    actor: params.get("actor") ?? "",
+    attribution_status: params.get("attribution_status") ?? "",
+    since: params.get("since") ?? "",
+    until: params.get("until") ?? "",
+  };
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
-  const set = (k: keyof typeof filters) => (v: string) => { setFilters((f) => ({ ...f, [k]: v, ...(k === "datasource_id" ? { asset_id: "" } : {}) })); setOffset(0); };
+  const set = (k: keyof typeof filters) => (v: string) => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", "records");
+      if (v) next.set(k, v); else next.delete(k);
+      if (k === "datasource_id") next.delete("asset_id");
+      return next;
+    }, { replace: true });
+    setOffset(0);
+  };
+  const hasFilters = FILTER_KEYS.some((k) => Boolean(filters[k]));
+  const resetFilters = () => {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const k of FILTER_KEYS) next.delete(k);
+      next.set("view", "records");
+      return next;
+    }, { replace: true });
+    setOffset(0);
+  };
   const { query, invalid } = recordQuery(filters, tz);
   const records = useQuery({
     queryKey: ["change-events", query, offset],
     placeholderData: (prev) => prev,
-    queryFn: () => unwrap(api.GET("/api/change-events", { params: { query: { ...query, limit: PAGE, offset } } })),
+    queryFn: ({ signal }: { signal: AbortSignal }) => unwrap(api.GET("/api/change-events", { params: { query: { ...query, limit: PAGE, offset } }, signal })),
   });
   // 条目减少导致当前页越界为空时退回有效末页，避免范围倒挂或卡在空页
   useEffect(() => {
@@ -82,9 +113,8 @@ export function ChangeRecords() {
   const download = async (format: "csv" | "json") => {
     setBusy(true);
     try {
-      const params = new URLSearchParams({ ...query, format } as { [k: string]: string });
-      const resp = await fetch(`/api/change-events/export?${params}`, { headers: { Authorization: `Bearer ${token.get() ?? ""}`, "Accept-Language": currentLanguage() } });
-      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).detail ?? t("导出失败（{{status}}）", { status: resp.status }));
+      const q = new URLSearchParams({ ...query, format } as { [k: string]: string });
+      const resp = await apiFetch(`/api/change-events/export?${q}`);
       const url = URL.createObjectURL(await resp.blob());
       const link = document.createElement("a");
       link.href = url;
@@ -114,6 +144,7 @@ export function ChangeRecords() {
     <section className="av-pane" aria-label={t("变更记录")} style={{ gridColumn: "2 / -1" }}>
       <div className="av-pane__body">
         <div className="av-page">
+          <Crumbs back={{ label: t("变更集"), to: "/changes" }} items={[t("变更记录")]} />
           <div className="av-pagehd">
             <div className="av-pagehd__title"><h1>{t("变更记录")} <Hint text={t("数据库结构与定义的每一次变化都留底：只追加、哈希链防篡改，默认保留 3 年。数据库用户来自数据库自己的 DDL 审计，匹配不上时如实写“未知”")} /></h1></div>
             <div className="av-actions">
@@ -149,6 +180,9 @@ export function ChangeRecords() {
             </Select>
             <DateInput label={t("起始日期（业务时区）")} placeholder={t("起始日期")} value={filters.since} invalid={invalid.includes("since")} title={invalid.includes("since") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={set("since")} />
             <DateInput label={t("截止日期（不含，业务时区）")} placeholder={t("截止日期")} value={filters.until} invalid={invalid.includes("until")} title={invalid.includes("until") ? t("{{tz}} 中没有这一天", { tz }) : undefined} onChange={set("until")} />
+            <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={!hasFilters} onClick={resetFilters}>
+              <Icon name="refresh" small />{t("重置筛选")}
+            </button>
           </div>
 
           <section className="av-panel">

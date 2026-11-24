@@ -36,6 +36,7 @@ BASE_TOOLS = [
     "describe",
     "segment_compare",
     "outliers",
+    "sandbox_calc",
     "submit_report",
 ]
 CLUE_NOTE = "只是发现线索，不是批准的关联，跨表比较走探索查询校验或分别查询后合并"

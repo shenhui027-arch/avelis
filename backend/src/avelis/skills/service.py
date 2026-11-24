@@ -417,6 +417,11 @@ def _require_admin(session: Session, actor: User) -> None:
         raise Forbidden(Msg("只有管理员可以审核技能"))
 
 
+def _forbid_self_review(skill: Skill, version: SkillVersion, actor: User) -> None:
+    if actor.id in (version.uploaded_by, skill.owner_id):
+        raise Forbidden(Msg("禁止自审：技能上传人或所有者不能审核自己提交的版本"))
+
+
 def _sync_publication(session: Session, skill_id: str, name: str, version: int | None) -> None:
     try:
         # 提交后重新取得行锁，避免较早的请求覆盖较新的上架状态。
@@ -443,6 +448,7 @@ def approve(session: Session, actor: User, version_id: str) -> dict:
     _require_admin(session, actor)
     skill, version = _lock_version(session, version_id)
     _require_pending(version)
+    _forbid_self_review(skill, version, actor)
     skill_id, name, number = skill.id, skill.name, version.version
     body = storage.skill_md_body(name, number)
     storage.zip_path(name, number)
@@ -475,6 +481,7 @@ def reject(session: Session, actor: User, version_id: str, reason: str) -> dict:
         raise Invalid(Msg("技能请求参数无效"))
     skill, version = _lock_version(session, version_id)
     _require_pending(version)
+    _forbid_self_review(skill, version, actor)
     now = utcnow()
     version.status, version.reviewed_by, version.reviewed_at = "rejected", actor.id, now
     version.review_note = reason

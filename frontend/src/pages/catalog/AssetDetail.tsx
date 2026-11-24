@@ -1,11 +1,11 @@
 // 资产详情：档案（默认，ADR 0022）、字段（推导校验码、业务含义确认）、定义与解析、粒度、同一张表、版本。
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { api, ApiError, unwrap } from "../../api/client";
 import { errorText, useAction, useAsset, useDomains, useDossier, useTimeZone, type AssetDetail as AssetDetailT } from "../../api/hooks";
 import {
-  Banner, Code, CommentDoc, Crumbs, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, Skeleton, Status, Tabs, useMessage,
+  Banner, Code, CommentDoc, Crumbs, Empty, Hint, Icon, KIND_LABEL, Pill, Plat, QueryState, Select, shortName, Skeleton, Status, Tabs, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
@@ -26,6 +26,9 @@ export function AssetDetail({ assetId }: { assetId: string }) {
 
 function AssetContent({ a }: { a: AssetDetailT }) {
   const [tab, setTab] = useState<Tab>("dossier");
+  useEffect(() => {
+    document.title = `${shortName(a.qualified)} · ${t("数据资产")} · Avelis`;
+  }, [a.qualified]);
   const [message, setMessage] = useMessage();
   const dossier = useDossier(a.id);
   const external = a.kind === "external_table" || a.kind === "catalog_table" || a.linked_from.length > 0;

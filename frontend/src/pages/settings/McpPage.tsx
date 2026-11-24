@@ -2,9 +2,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { api, ApiError, unwrap } from "../../api/client";
+import { api, ApiError, apiFetch, unwrap } from "../../api/client";
 import { useAction, useTimeZone } from "../../api/hooks";
-import { Banner, ConfirmDialog, Empty, Hint, Pager, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
+import { Banner, ConfirmDialog, Crumbs, Empty, Hint, Pager, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
@@ -19,11 +19,11 @@ export function McpPage() {
   const [message, setMessage] = useMessage();
   const [confirm, setConfirm] = useState<{ kind: "authorization" | "client"; id: string; name: string } | null>(null);
   const mine = useQuery({ queryKey: ["oauth-authorizations"], retry: false,
-    queryFn: () => unwrap(api.GET("/api/oauth/authorizations")) });
+    queryFn: ({ signal }) => unwrap(api.GET("/api/oauth/authorizations", { signal })) });
   // 接口分页但不返回总数：多取一条判断是否还有下一页；翻页时不拿上一页占位，页码与数据始终对应
   const [offset, setOffset] = useState(0);
   const clients = useQuery({ queryKey: ["oauth-clients", offset], enabled: isAdmin, retry: false,
-    queryFn: () => unwrap(api.GET("/api/oauth/clients", { params: { query: { limit: CLIENT_PAGE + 1, offset } } })) });
+    queryFn: ({ signal }) => unwrap(api.GET("/api/oauth/clients", { params: { query: { limit: CLIENT_PAGE + 1, offset } }, signal })) });
   const hasNext = (clients.data?.length ?? 0) > CLIENT_PAGE;
   // 清理任务可能在翻页间隙删掉客户端：非第一页取回为空就退回上一页，免得停在没有翻页按钮的空页
   useEffect(() => {
@@ -37,15 +37,15 @@ export function McpPage() {
   const disabled = mine.error instanceof ApiError && mine.error.status === 404;
   // 连接地址以服务端声明的资源 URI 为准（RFC 9728 元数据里的 resource，即对外地址 + /mcp）；令牌只接受这个精确地址
   const resource = useQuery({ queryKey: ["mcp-resource"], enabled: !disabled, retry: false, staleTime: Infinity,
-    queryFn: async () => {
-      const resp = await fetch("/.well-known/oauth-protected-resource/mcp");
-      if (!resp.ok) throw new Error(String(resp.status));
+    queryFn: async ({ signal }) => {
+      const resp = await apiFetch("/.well-known/oauth-protected-resource/mcp", { signal });
       return (await resp.json()) as { resource: string };
     } });
   const endpoint = resource.data?.resource ?? `${window.location.origin}/mcp`;
 
   return (
     <div className="av-fill">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("MCP 接入")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="mcp" /></div>
       </div>

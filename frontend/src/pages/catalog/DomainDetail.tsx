@@ -3,17 +3,24 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useAssetSearch, useDomains, useMetrics, useUsers } from "../../api/hooks";
+import { errorText, useAction, useAssetSearch, useDomains, useExperiences, useMetrics, useUsers } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Banner, ConfirmDialog, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Select, Status, Tile, useMessage } from "../../components/ui";
+import { Banner, ConfirmDialog, Crumbs, Drawer, Empty, Hint, Icon, Pager, QueryState, Seg, Select, Status, Tile, useMessage } from "../../components/ui";
+import { ExperienceList } from "../analysis/AnalysisInteractions";
 import { useMe } from "../../layout/Shell";
 import { t } from "../../i18n";
 import { OssieExportButton } from "./OssieInterchange";
 
 const ROLE: Record<string, string> = { owner: t("负责人"), maintainer: t("维护者"), viewer: t("可查询") };
 const ASSET_PAGE = 100;
-const TABS = [{ value: "metrics", label: t("指标") }, { value: "assets", label: t("资产") }, { value: "members", label: t("成员") }] as const;
+const TABS = [
+  { value: "metrics", label: t("指标") },
+  { value: "assets", label: t("资产") },
+  { value: "members", label: t("成员") },
+  { value: "experiences", label: t("共享经验") },
+] as const;
 type DomainTab = typeof TABS[number]["value"];
+type ExpReviewFilter = "" | "approved" | "pending" | "rejected";
 type MemberEditor = { user_id: string; role: string; name?: string };
 
 export function DomainDetail({ domainId }: { domainId: string }) {
@@ -28,8 +35,13 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   const metrics = useMetrics();
   const me = useMe();
   const d = domains.data?.find((x) => x.id === domainId);
+  useEffect(() => {
+    if (d) document.title = `${d.name} · ${t("业务域")} · Avelis`;
+  }, [d]);
   const [tab, setTab] = useState<DomainTab>("metrics");
-  const [searches, setSearches] = useState({ metrics: "", assets: "", members: "" });
+  const [searches, setSearches] = useState({ metrics: "", assets: "", members: "", experiences: "" });
+  const [expStatus, setExpStatus] = useState<ExpReviewFilter>("");
+  const domainExperiences = useExperiences({ scope: "domain", domain_id: domainId });
   const [member, setMember] = useState<MemberEditor | null>(null);
   const [removing, setRemoving] = useState<{ user_id: string; name: string } | null>(null);
   const [message, setMessage] = useMessage();
@@ -58,7 +70,12 @@ export function DomainDetail({ domainId }: { domainId: string }) {
   }, [assets.isSuccess, assets.isPlaceholderData, assets.data, assetOffset]);
   const filteredMetrics = domainMetrics.filter((m) => `${m.name} ${m.code} ${m.owner.display_name}`.toLocaleLowerCase().includes(query));
   const filteredMembers = (d?.members ?? []).filter((m) => `${m.display_name} ${m.username} ${ROLE[m.role] ?? m.role}`.toLocaleLowerCase().includes(query));
-  const counts = { metrics: metrics.isSuccess ? domainMetrics.length : "—", assets: firstPage.isSuccess ? (firstPage.data.length > ASSET_PAGE ? `${ASSET_PAGE}+` : firstPage.data.length) : "—", members: d?.members.length ?? "—" };
+  const counts = {
+    metrics: metrics.isSuccess ? domainMetrics.length : "—",
+    assets: firstPage.isSuccess ? (firstPage.data.length > ASSET_PAGE ? `${ASSET_PAGE}+` : firstPage.data.length) : "—",
+    members: d?.members.length ?? "—",
+    experiences: domainExperiences.isSuccess ? domainExperiences.data.filter((e) => e.status === "active").length : "—",
+  };
   const clearSearch = <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSearches({ ...searches, [tab]: "" })}>{t("清除搜索")}</button>;
   const openMember = (value: MemberEditor) => { setMemberMessage(null); setMember(value); };
   const closeMember = () => { if (!saveMember.isPending) setMember(null); };
@@ -108,6 +125,19 @@ export function DomainDetail({ domainId }: { domainId: string }) {
               <label className="av-domain-detail__search"><span className="av-label">{t("搜索")}{TABS.find((item) => item.value === tab)?.label}</span>
                 <input type="search" className="av-input" value={searches[tab]} onChange={(event) => setSearches({ ...searches, [tab]: event.target.value })} />
               </label>
+              {tab === "experiences" ? (
+                <Seg<ExpReviewFilter>
+                  label={t("经验状态")}
+                  value={expStatus}
+                  onChange={setExpStatus}
+                  options={[
+                    { value: "", label: t("全部") },
+                    { value: "approved", label: t("已批准") },
+                    { value: "pending", label: t("待审核") },
+                    { value: "rejected", label: t("已驳回") },
+                  ]}
+                />
+              ) : null}
               {tab === "members" && isOwner ? <button type="button" className="av-btn av-btn--primary" onClick={() => openMember({ user_id: "", role: "viewer" })}><Icon name="plus" />{t("添加成员")}</button> : null}
             </div>
             {tab === "metrics" ? <QueryState query={metrics} isEmpty={() => filteredMetrics.length === 0} emptyText={query ? t("没有匹配的指标") : t("此业务域暂无指标")} emptyAction={query ? clearSearch : undefined} compact>
@@ -134,6 +164,14 @@ export function DomainDetail({ domainId }: { domainId: string }) {
                   ) : <span className="av-domain-detail__muted">—</span>}</td></tr>)}
               </tbody></table></div>}
             </QueryState> : null}
+            {tab === "experiences" ? (
+              <ExperienceList
+                scope="domain"
+                domainId={domainId}
+                reviewStatus={expStatus || undefined}
+                search={searches.experiences}
+              />
+            ) : null}
           </div>
           {member ? <Drawer title={member.name ? t("编辑成员权限") : t("添加成员")} onClose={closeMember} footer={<>
             <button type="button" className="av-btn av-btn--secondary" disabled={saveMember.isPending} onClick={closeMember}>{t("取消")}</button>

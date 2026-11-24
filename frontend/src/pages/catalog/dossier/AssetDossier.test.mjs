@@ -31,6 +31,8 @@ function load(file) {
     if (name.endsWith("api/hooks")) return load("../../../api/hooks.ts");
     if (name.endsWith("components/ui")) return load("../../../components/ui.tsx");
     if (name === "./controls") return load("../../../components/controls.tsx");
+    if (name === "./overlay") return load("../../../components/overlay.ts");
+    if (name === "./overlayStack") return load("../../../components/overlayStack.ts");
     if (name === "./Icon") return { Icon: () => null, Hint: ({ text }) => React.createElement("i", { "data-hint": text }) };
     if (name.endsWith("changes/ChangeRecords")) return changeRecords;
     if (name.endsWith("/i18n")) return { currentLanguage: () => "zh-CN",

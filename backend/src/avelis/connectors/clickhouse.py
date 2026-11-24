@@ -199,7 +199,7 @@ class ClickHouseConnector:
     def execute_select(
         self, sql_text: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
     ) -> QueryResult:
-        settings: dict[str, Any] = {"max_execution_time": int(timeout_seconds)}
+        settings: dict[str, Any] = {"max_execution_time": int(timeout_seconds), "readonly": 2}
         if timezone is not None:
             # 请求级设置，HTTP 客户端复用时也不会污染后续查询。
             settings["session_timezone"] = checked_timezone(timezone)
@@ -215,6 +215,26 @@ class ClickHouseConnector:
         finally:
             client.close()
         return QueryResult(columns=columns, rows=rows[:max_rows], truncated=len(rows) > max_rows)
+
+    def execute_explore(
+        self,
+        sql_text: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号（readonly=2），max_execution_time 与 max_memory_usage 约束。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        return self.execute_select(
+            sql_text,
+            timeout_seconds=timeout_seconds,
+            mem_limit_bytes=mem_limit_bytes,
+            max_rows=max_rows,
+            timezone=timezone,
+        )
 
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         names = [(d, n) for d, n in tables if IDENT.match(d) and IDENT.match(n)]
@@ -238,7 +258,9 @@ class ClickHouseConnector:
         found = {f"{d}.{t}": ts for d, t, ts in rows}
         return {f"{d}.{n}": found.get(f"{d}.{n}") for d, n in names}
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 库.表 当前的列（名称、类型，按位置）、视图定义与 UUID；对象不存在时列为空。"""
         names = [(d, n) for d, n in objects if IDENT.match(d) and IDENT.match(n)]
         out: dict[tuple[str, str], dict[str, Any]] = {
@@ -246,13 +268,17 @@ class ClickHouseConnector:
         }
         if not names:
             return out
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        timeout = int(timeout_seconds or 30)
         dbs, tables = sorted({d for d, _ in names}), sorted({n for _, n in names})
-        client = self._client(timeout=30)
+        client = self._client(timeout=timeout)
         try:
             for db, name, engine, uuid, as_select in client.query(
                 "SELECT database, name, engine, toString(uuid), as_select FROM system.tables "
                 "WHERE database IN {dbs:Array(String)} AND name IN {tables:Array(String)}",
                 parameters={"dbs": dbs, "tables": tables},
+                settings={"max_execution_time": timeout},
             ).result_rows:
                 if (db, name) in out:
                     out[(db, name)]["physical_id"] = _identity(uuid, _kind(engine))

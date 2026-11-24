@@ -9,7 +9,7 @@ import { statusOf } from "./ui";
 export function useRuns(id: string) {
   return useQuery({
     queryKey: ["runs", id],
-    queryFn: () => unwrap(api.GET("/api/datasources/{datasource_id}/runs", { params: { path: { datasource_id: id } } })),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/datasources/{datasource_id}/runs", { params: { path: { datasource_id: id } }, signal })),
   });
 }
 

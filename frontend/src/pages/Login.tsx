@@ -228,6 +228,9 @@ export function Login() {
   const [params] = useSearchParams();
   const authConfig = useAuthConfig();
   const cfg = authConfig.data;
+  useEffect(() => {
+    document.title = `${t("登录")} · ${cfg?.branding?.brand_name || "Avelis"}`;
+  }, [cfg?.branding?.brand_name]);
 
   const from = (useLocation().state as { from?: string } | null)?.from ?? params.get("from") ?? "/";
   const target = from.startsWith("/") && !from.startsWith("//") ? from : "/";

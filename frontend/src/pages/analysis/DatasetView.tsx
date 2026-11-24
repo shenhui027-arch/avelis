@@ -65,8 +65,8 @@ export function useOpenDataset() {
 function useDetail(runId: string, ref: string, offset: number) {
   return useQuery({
     queryKey: ["analysis-dataset", runId, ref, offset], placeholderData: (prev) => prev,
-    queryFn: () => unwrap(api.GET("/api/analysis/runs/{run_id}/datasets/{ref}", {
-      params: { path: { run_id: runId, ref }, query: { offset, limit: PAGE } } })) as Promise<Detail>,
+    queryFn: ({ signal }: { signal: AbortSignal }) => unwrap(api.GET("/api/analysis/runs/{run_id}/datasets/{ref}", {
+      params: { path: { run_id: runId, ref }, query: { offset, limit: PAGE } }, signal })) as Promise<Detail>,
   });
 }
 
@@ -112,8 +112,8 @@ export function DatasetView({ runId, refId, onClose, onOpen, onDownload, canReru
           }}><Icon name="download" small />{downloading ? t("下载中…") : "CSV"}</button>
         </div> : null}
       </header>
-      {downloadError ? <div className="av-banner av-banner--danger">{downloadError}</div> : null}
-      {forbidden ? <Empty text={t("你已没有该数据的访问权限")} /> : detail.isError ? <div className="av-banner av-banner--danger">{errorText(detail.error)}</div> : null}
+      {downloadError ? <div className="av-banner av-banner--danger" role="alert">{downloadError}</div> : null}
+      {forbidden ? <Empty text={t("你已没有该数据的访问权限")} /> : detail.isError ? <div className="av-banner av-banner--danger" role="alert">{errorText(detail.error)}</div> : null}
       {d ? <div className="av-dsview__bd">
         <p className="av-caption av-dsview__meta">
           {t("共 {{count}} 行", { count: d.total })}{d.truncated ? t(" · 结果被截断，不代表来源全集") : ""}
@@ -164,7 +164,7 @@ function RerunDrawer({ runId, d, onClose, onDone }: { runId: string; d: Detail; 
           onSuccess: (out) => { void queryClient.invalidateQueries({ queryKey: ["analysis-dataset", runId] }); onDone((out as Detail).ref); },
           onError: (e) => setError(errorText(e)) })}>{go.isPending ? t("取数中…") : t("重跑")}</button>
     </div>}>
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       <p className="av-caption">{t("同样的口径、维度和筛选，换一个时间窗口重新取数。按现在可用的口径版本和你当前的权限执行，结果作为新的数据集保存在这次分析里，报告不变。")}</p>
       <div className="av-dsview__dates">{field("start", t("开始"))}{field("end", t("结束"))}</div>
       {custom ? <div className="av-dsview__dates">{field("cs", t("对比开始"))}{field("ce", t("对比结束"))}</div>

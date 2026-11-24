@@ -521,3 +521,351 @@ def test_changes_return_structural_summary_without_historical_sql_or_attribution
     ]
     snapshot = json.dumps(result)
     assert "hidden_asset" not in snapshot and "SELECT" not in snapshot and "private_sql_marker" not in snapshot
+
+
+def _add_second_metric(session, code="metric_d", expr="COUNT(*)", dimensions=None):
+    session.add(
+        Metric(
+            id=f"id-{code}",
+            code=code,
+            name=f"指标_{code}",
+            domain_id="visible",
+            owner_id="reader",
+            created_by="reader",
+        )
+    )
+    session.add(
+        MetricVersion(
+            id=f"id-{code}-v1",
+            metric_id=f"id-{code}",
+            version_no=1,
+            status="published",
+            description="第二指标",
+            base_asset_id="asset",
+            expression=expr,
+            time_column="b.day_a",
+            timezone="UTC",
+            created_by="reader",
+            unit="单",
+            dimensions=dimensions
+            if dimensions is not None
+            else [{"name": "dim_a", "column": "b.dim_a", "label": "维度甲"}],
+        )
+    )
+    session.flush()
+
+
+def test_ask_metric_supports_multi_metric_list_and_csv(toolbox, monkeypatch):
+    _add_second_metric(toolbox.session, "metric_d", "COUNT(*)")
+
+    class Connector:
+        def freshness(self, tables):
+            return {"as_of": "2026-01-31T00:00:00Z"}
+
+        def execute_select(self, sql, **kwargs):
+            toolbox.calls.append({"sql": sql, **kwargs})
+            cols = sqlglot.parse_one(sql, read="postgres").named_selects
+            if "COUNT(*)" in sql:
+                return QueryResult(columns=cols, rows=[["east", 5], ["west", 2]], truncated=False)
+            return QueryResult(columns=cols, rows=[["east", 100], ["west", 200]], truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    res_list = toolbox.tool.ask_metric(
+        metrics=["metric_a", "metric_d", "metric_a"],
+        start_date=START,
+        end_date=END,
+        dimensions=["dim_a"],
+    )
+    assert res_list["status"] == "answered", res_list
+    assert [m["code"] for m in res_list["metrics"]] == ["metric_a", "metric_d"]
+    assert res_list["metric"]["code"] == "metric_a"
+    assert len(res_list["result"]["rows"]) == 2
+    assert len(res_list["result"]["columns"]) == 3
+
+    res_csv = toolbox.tool.ask_metric(
+        metrics="metric_a, metric_d",
+        start_date=START,
+        end_date=END,
+        dimensions=["dim_a"],
+    )
+    assert res_csv["status"] == "answered", res_csv
+    assert [m["code"] for m in res_csv["metrics"]] == ["metric_a", "metric_d"]
+
+
+def test_ask_metric_multi_metric_validation_and_policy_definitions(toolbox, monkeypatch):
+    _add_second_metric(toolbox.session, "metric_d")
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric(start_date=START, end_date=END)
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric(metrics=["metric_a", ""], start_date=START, end_date=END)
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric(metrics=["m1", "m2", "m3", "m4", "m5"], start_date=START, end_date=END)
+    with pytest.raises(NotFound):
+        toolbox.tool.ask_metric(metrics=["metric_a", "metric_b"], start_date=START, end_date=END)
+
+    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False}))
+    monkeypatch.setattr(service, "query_connector", lambda *args: pytest.fail("compile-only must not connect"))
+    compiled = toolbox.tool.ask_metric(
+        metrics=["metric_a", "metric_d"],
+        start_date=START,
+        end_date=END,
+        dimensions=["dim_a"],
+    )
+    assert compiled["status"] == "compiled"
+    assert [d["expression"] for d in compiled["definitions"]] == ["SUM(b.value_a)", "COUNT(*)"]
+    assert compiled["definition"]["expression"] == "SUM(b.value_a)"
+
+
+def test_ask_metric_order_and_limit_alignment(toolbox, monkeypatch):
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            toolbox.calls.append({"sql": sql, **kwargs})
+            rows = [["west", 50], ["east", 200]] if "ASC" in sql.upper() else [["east", 200], ["west", 50]]
+            return QueryResult(columns=["dim_a", "value"], rows=rows[: kwargs["max_rows"]], truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    asc = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        order="asc",
+        limit=10,
+    )
+    assert asc["status"] == "answered"
+    assert "ORDER BY value ASC" in asc["sql"]
+    assert "LIMIT 10" in asc["sql"]
+    assert asc["result"]["rows"][0][0] == "west"
+
+    # limit > MAX_LIMIT (100) must not fail Intent validation; falls back to query_max_rows + 1 & client slice
+    over_intent = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        order="desc",
+        limit=150,
+    )
+    assert over_intent["status"] == "answered"
+    assert f"LIMIT {toolbox.settings.query_max_rows + 1}" in over_intent["sql"]
+    assert "ORDER BY value DESC" in over_intent["sql"]
+
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric("metric_a", START, END, order="desc")
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric("metric_a", START, END, dimensions=["dim_a"], order="sideways")
+    with pytest.raises(Invalid):
+        toolbox.tool.ask_metric(
+            "metric_a", START, END, dimensions=["dim_a"], compare="previous_period", time_grain="day"
+        )
+
+
+def test_ask_metric_aligns_filters_and_surfaces_unresolved_warnings(toolbox, monkeypatch):
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            toolbox.calls.append({"sql": sql, **kwargs})
+            if "DISTINCT" in sql.upper():
+                return QueryResult(columns=["dim_a"], rows=[["east"], ["west"]], truncated=False)
+            return QueryResult(columns=["dim_a", "value"], rows=[["east", 120]], truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    aligned = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        filters=[{"dimension": "dim_a", "values": ["EAST"]}],
+    )
+    assert aligned["status"] == "answered", aligned
+    assert "'east'" in aligned["sql"]
+    assert aligned["filter_alignment"]["explanations"][0]["method"] == "normalized"
+    assert "warnings" not in aligned
+
+    unresolved = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        filters=[DimensionFilter(dimension="dim_a", values=["north"])],
+    )
+    assert unresolved["status"] == "answered", unresolved
+    assert unresolved["filter_alignment"]["unresolved"][0]["candidates"] == ["east", "west"]
+    assert unresolved["warnings"] and "north" in unresolved["warnings"][0]
+
+
+def test_ask_metric_multi_metric_alignment_conflict_becomes_unresolved(toolbox, monkeypatch):
+    _add_second_metric(
+        toolbox.session,
+        "metric_d",
+        dimensions=[{"name": "dim_a", "column": "b.dim_a", "label": "维度甲"}],
+    )
+    # Give metric_d a different base asset so _dimension_values returns different casing
+    toolbox.session.add(
+        Asset(
+            id="asset_2",
+            datasource_id="ds",
+            kind="table",
+            catalog_name="catalog",
+            db_name="schema_a",
+            name="asset_2",
+            domain_id="visible",
+            current_version_id="asset_2-v1",
+        )
+    )
+    toolbox.session.add(
+        AssetVersion(
+            id="asset_2-v1",
+            asset_id="asset_2",
+            version_no=1,
+            observed_run_id="run",
+            last_seen_run_id="run",
+            kind="table",
+            catalog_name="catalog",
+            db_name="schema_a",
+            name="asset_2",
+            content_hash="hash2",
+        )
+    )
+    for ordinal, (name, data_type) in enumerate((("value_a", "numeric"), ("day_a", "date"), ("dim_a", "text"))):
+        toolbox.session.add(AssetColumn(id="asset_2" + name, asset_id="asset_2", name=name))
+        toolbox.session.add(
+            ColumnVersion(
+                id="asset_2" + name + "v",
+                asset_version_id="asset_2-v1",
+                column_id="asset_2" + name,
+                ordinal=ordinal,
+                name=name,
+                data_type=data_type,
+            )
+        )
+    v2 = toolbox.session.get(MetricVersion, "id-metric_d-v1")
+    v2.base_asset_id = "asset_2"
+    toolbox.session.flush()
+
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            if "DISTINCT" in sql.upper():
+                if "asset_2" in sql:
+                    return QueryResult(columns=["dim_a"], rows=[["East"]], truncated=False)
+                return QueryResult(columns=["dim_a"], rows=[["east"]], truncated=False)
+            cols = sqlglot.parse_one(sql, read="postgres").named_selects
+            return QueryResult(columns=cols, rows=[], truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    result = toolbox.tool.ask_metric(
+        metrics=["metric_a", "metric_d"],
+        start_date=START,
+        end_date=END,
+        dimensions=["dim_a"],
+        filters=[DimensionFilter(dimension="dim_a", values=["EAST"])],
+    )
+    assert result["status"] == "answered", result
+    unresolved = result["filter_alignment"]["unresolved"]
+    assert len(unresolved) == 1
+    assert set(unresolved[0]["candidates"]) == {"east", "East"}
+    assert result["warnings"]
+
+
+def test_ask_metric_alignment_skipped_when_send_results_disabled(toolbox, monkeypatch):
+    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False}))
+    monkeypatch.setattr(service, "query_connector", lambda *args: pytest.fail("compile-only must not connect"))
+    res = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        filters=[DimensionFilter(dimension="dim_a", values=["EAST"])],
+    )
+    assert res["status"] == "compiled"
+    assert "filter_alignment" not in res
+    assert "'EAST'" in res["sql"]
+
+
+@pytest.mark.parametrize("grouped", [True, False])
+def test_client_slice_truncation_clears_insights_and_updates_message(toolbox, monkeypatch, grouped):
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            cols = sqlglot.parse_one(sql, read="postgres").named_selects
+            rows = (
+                [["east", 100], ["west", 200], ["north", 300]]
+                if grouped
+                else [["2026-01", 100], ["2026-02", 200], ["2026-03", 300]]
+            )
+            return QueryResult(columns=cols, rows=rows, truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+    res = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"] if grouped else None,
+        time_grain=None if grouped else "month",
+        limit=1,
+    )
+    assert res["status"] == "answered"
+    assert res["result"]["row_count"] == 1
+    assert res["result"]["truncated"] is True
+    assert res["result"]["insights"] == []
+    assert "共 1 行" in res["message"]
+    assert "已截断" in res["message"]
+    assert "共 3 行" not in res["message"]
+
+
+def test_client_slice_above_max_limit_clears_insights_and_updates_message(toolbox, monkeypatch):
+    _add_second_metric(toolbox.session, "metric_d", "COUNT(*)")
+
+    class Connector:
+        def freshness(self, tables):
+            return {}
+
+        def execute_select(self, sql, **kwargs):
+            cols = sqlglot.parse_one(sql, read="postgres").named_selects
+            rows = [[f"d{i}", 180 - i] for i in range(180)]
+            return QueryResult(columns=cols, rows=rows, truncated=False)
+
+    monkeypatch.setattr(service, "query_connector", lambda *args: Connector())
+
+    single = toolbox.tool.ask_metric(
+        "metric_a",
+        START,
+        END,
+        dimensions=["dim_a"],
+        order="desc",
+        limit=150,
+    )
+    assert single["status"] == "answered"
+    assert single["result"]["row_count"] == 150
+    assert single["result"]["truncated"] is True
+    assert single["result"]["insights"] == []
+    assert "共 150 行" in single["message"]
+    assert "已截断" in single["message"]
+    assert "共 180 行" not in single["message"]
+
+    multi = toolbox.tool.ask_metric(
+        metrics=["metric_a", "metric_d"],
+        start_date=START,
+        end_date=END,
+        dimensions=["dim_a"],
+        order="desc",
+        limit=150,
+    )
+    assert multi["status"] == "answered"
+    assert multi["result"]["row_count"] == 150
+    assert multi["result"]["truncated"] is True
+    assert multi["result"]["insights"] == []
+    assert "共 150 行" in multi["message"]
+    assert "已截断" in multi["message"]
+    assert "从高到低" in multi["message"]
+    assert "共 180 行" not in multi["message"]

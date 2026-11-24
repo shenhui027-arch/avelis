@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import contextvars
+import queue
+import threading
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from avelis import charts
+from avelis import audit, charts, usage
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
+from avelis.api.sse import KEEPALIVE_FRAME, format_sse, sse_response
 from avelis.ask import agent
 from avelis.ask.insights import build as build_insights
 from avelis.ask.intent import Intent
 from avelis.ask.service import _result_contract, filter_alignment_restricted, project_alignment_clarifications
+from avelis.db import utcnow
 from avelis.governance import access
+from avelis.governance.errors import GovernanceError
+from avelis.i18n import translate
 from avelis.models import Answer, AskThread, AuditEvent, Metric, MetricVersion, User
 
 router = APIRouter(prefix="/api", tags=["问数与审计"])
@@ -148,12 +158,116 @@ def answer_view(a: Answer, session: Session | None = None, *, user: User | None 
         else a.steps,
         "explanation": None if restricted else a.explanation,
         "explanation_source": None if restricted else a.explanation_source,
+        "feedback_rating": getattr(a, "feedback_rating", None),
+        "feedback_note": getattr(a, "feedback_note", None),
+        "feedback_at": a.feedback_at.isoformat() if getattr(a, "feedback_at", None) else None,
     }
 
 
+def _stream_ask(body: Question, request: Request, user: User, session: Session):
+    from sqlalchemy.orm import sessionmaker
+
+    from avelis import db
+
+    out: queue.Queue[tuple[str, dict | None]] = queue.Queue()
+    user_id = user.id
+    bind = session.get_bind() if isinstance(session, Session) else None
+    worker_factory = (
+        sessionmaker(bind=bind, expire_on_commit=False, future=True)
+        if bind is not None
+        else (
+            db.session_factory()
+            if not hasattr(session, "_is_coroutine") and hasattr(db, "session_factory")
+            else None
+        )
+    )
+
+    def emit(event: str, payload: dict) -> None:
+        out.put((event, payload))
+
+    def worker() -> None:
+        # SSE 在独立线程内使用独立数据库 Session，避免与请求线程 teardown 并发碰撞
+        own_session = isinstance(session, Session) and bind is not None
+        worker_session = worker_factory() if own_session and worker_factory is not None else session
+        try:
+            worker_user = (
+                worker_session.get(User, user_id, populate_existing=True)
+                if own_session and user_id
+                else user
+            ) or user
+            answer = agent.run_turn(worker_session, worker_user, body.question, body.thread_id, on_event=emit)
+            view = answer_view(answer, worker_session, user=worker_user)
+            if hasattr(worker_session, "commit"):
+                worker_session.commit()
+            out.put(("done", view))
+        except GovernanceError as exc:
+            if hasattr(worker_session, "rollback"):
+                worker_session.rollback()
+            out.put(("error", {"code": "governance_error", "message": translate(exc.message), "detail": exc.detail}))
+        except Exception as exc:  # noqa: BLE001
+            if hasattr(worker_session, "rollback"):
+                worker_session.rollback()
+            out.put(("error", {"code": "ask_error", "message": type(exc).__name__}))
+        finally:
+            if own_session and hasattr(worker_session, "close"):
+                worker_session.close()
+            out.put(("__end__", None))
+
+    if isinstance(session, Session) and hasattr(session, "close"):
+        session.close()
+
+    thread = threading.Thread(target=contextvars.copy_context().run, args=(worker,), daemon=True)
+    thread.start()
+
+    async def event_stream() -> AsyncIterator[str]:
+        loop = asyncio.get_running_loop()
+        seq = 0
+        idle_ticks = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                event, payload = await loop.run_in_executor(None, out.get, True, 1.0)
+                idle_ticks = 0
+            except queue.Empty:
+                idle_ticks += 1
+                if idle_ticks >= 15:
+                    idle_ticks = 0
+                    yield KEEPALIVE_FRAME
+                continue
+            if event == "__end__":
+                break
+            seq += 1
+            yield format_sse(event, payload, event_id=seq)
+
+    return sse_response(event_stream())
+
+
 @router.post("/ask", response_model=S.AnswerOut)
-def ask(body: Question, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def ask(
+    body: Question,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    usage.enforce_llm_preflight(request, session, user, action="ask")
+    if "text/event-stream" in (request.headers.get("accept") or "").lower():
+        return _stream_ask(body, request, user, session)
     return answer_view(agent.run_turn(session, user, body.question, body.thread_id), session, user=user)
+
+
+@router.post(
+    "/ask/stream",
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
+def ask_stream(
+    body: Question,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    usage.enforce_llm_preflight(request, session, user, action="ask")
+    return _stream_ask(body, request, user, session)
 
 
 @router.get("/ask/threads", response_model=list[S.ThreadOut])
@@ -178,12 +292,22 @@ def get_thread(thread_id: str, user: User = Depends(current_user), session: Sess
     if t is None or t.user_id != user.id:
         raise HTTPException(404, "会话不存在")
     answers = session.scalars(select(Answer).where(Answer.thread_id == t.id).order_by(Answer.asked_at))
+    compacted_summary, compacted_at = agent.thread_compaction_info(session, t.id)
     return {
         "id": t.id,
         "title": t.title,
         "status": t.status,
         "answers": [answer_view(a, session, user=user) for a in answers],
+        "compacted_summary": compacted_summary,
+        "compacted_at": compacted_at,
     }
+
+
+@router.post("/ask/threads/{thread_id}/compact", response_model=S.ThreadCompactOut)
+def compact_thread(thread_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    result = agent.compact_thread(session, user, thread_id)
+    session.commit()
+    return result
 
 
 @router.get("/answers", response_model=list[S.AnswerOut])
@@ -201,6 +325,33 @@ def get_answer(answer_id: str, user: User = Depends(current_user), session: Sess
     a = session.get(Answer, answer_id)
     if a is None or (a.asked_by != user.id and not access.is_admin(session, user)):
         raise HTTPException(404, "答案不存在或无权访问")
+    return answer_view(a, session, user=user)
+
+
+@router.post("/answers/{answer_id}/feedback", response_model=S.AnswerOut)
+def answer_feedback(
+    answer_id: str,
+    body: S.AnswerFeedbackIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    a = session.get(Answer, answer_id)
+    if a is None or a.asked_by != user.id:
+        raise HTTPException(404, "答案不存在或无权访问")
+    if a.status == "clarify":
+        raise HTTPException(409, "追问中间状态不支持反馈")
+    if body.rating is None:
+        a.feedback_rating = None
+        a.feedback_note = None
+        a.feedback_at = None
+        a.feedback_by = None
+    else:
+        a.feedback_rating = body.rating
+        a.feedback_note = (body.note or "").strip() or None
+        a.feedback_at = utcnow()
+        a.feedback_by = user.id
+    audit.record(session, user, "answer.feedback", "answer", a.id, rating=a.feedback_rating)
+    session.commit()
     return answer_view(a, session, user=user)
 
 

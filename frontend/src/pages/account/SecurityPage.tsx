@@ -21,7 +21,7 @@ export function SecurityPage() {
   const [message, setMessage] = useMessage();
 
   // --- TOTP 2FA ---
-  const totp = useQuery({ queryKey: ["me-totp"], queryFn: () => unwrap(api.GET("/api/me/totp")) });
+  const totp = useQuery({ queryKey: ["me-totp"], queryFn: ({ signal }) => unwrap(api.GET("/api/me/totp", { signal })) });
   const [enrollData, setEnrollData] = useState<Schemas["TotpEnrollOut"] | null>(null);
   const [verifyCode, setVerifyCode] = useState("");
   const [copiedSecret, setCopiedSecret] = useState(false);
@@ -63,7 +63,7 @@ export function SecurityPage() {
   );
 
   // --- 个人访问令牌（PAT） ---
-  const tokens = useQuery({ queryKey: ["me-tokens"], queryFn: () => unwrap(api.GET("/api/me/tokens")) });
+  const tokens = useQuery({ queryKey: ["me-tokens"], queryFn: ({ signal }) => unwrap(api.GET("/api/me/tokens", { signal })) });
   const [creatingPat, setCreatingPat] = useState(false);
   const [createdToken, setCreatedToken] = useState<{ name: string; token: string } | null>(null);
   const [revoking, setRevoking] = useState<Pat | null>(null);

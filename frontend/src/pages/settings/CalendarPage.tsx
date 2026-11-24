@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
-import { Banner, Hint, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
+import { Banner, Crumbs, Hint, PaneHeader, Pill, QueryState, useMessage } from "../../components/ui";
 import { t } from "../../i18n";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 
@@ -23,7 +23,7 @@ export function CalendarPage() {
   const roles = useRoles();
   const isAdmin = roles.has("admin");
   const calendar = useQuery({ queryKey: ["business-calendar"],
-    queryFn: () => unwrap(api.GET("/api/settings/business-calendar")) });
+    queryFn: ({ signal }) => unwrap(api.GET("/api/settings/business-calendar", { signal })) });
   const [weekend, setWeekend] = useState<number[]>([5, 6]);
   const [holidays, setHolidays] = useState("");
   const [workdays, setWorkdays] = useState("");
@@ -45,6 +45,7 @@ export function CalendarPage() {
 
   return (
     <div className="av-fill">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("业务日历")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="calendar" /></div>
         <div className="av-actions">

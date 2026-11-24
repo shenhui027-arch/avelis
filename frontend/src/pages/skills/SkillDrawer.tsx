@@ -17,6 +17,22 @@ type SkillVersion = Schemas["SkillVersionOut"];
 type SkillFile = Schemas["SkillFileOut"];
 type DetailTab = "readme" | "files" | "versions";
 
+const ACRONYMS = new Set(["sql", "kpi", "api", "etl", "bi", "csv", "pdf", "llm", "mcp", "ui", "id"]);
+
+export function formatSkillTitle(slug: string, frontmatter?: Record<string, unknown> | null): string {
+  const custom = typeof frontmatter?.title === "string" && frontmatter.title.trim()
+    ? frontmatter.title.trim()
+    : typeof frontmatter?.display_name === "string" && frontmatter.display_name.trim()
+      ? frontmatter.display_name.trim()
+      : "";
+  if (custom) return custom;
+  return slug
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ") || slug;
+}
+
 const MD_COMPONENTS: Components = {
   a: ({ href, children }) =>
     href && /^(https?:|mailto:)/i.test(href)
@@ -276,24 +292,9 @@ export function SkillDrawer({
     setMessage(null);
   }, [skillId, setMessage]);
 
-  // 确认框（下架 / 驳回）打开时，在捕获阶段拦截 Esc 只关闭确认框，避免触发底层 Drawer 退场关闭
-  useEffect(() => {
-    if (!confirmingDelist && !rejecting) return;
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229 || e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (delistingRef.current || rejectingBusyRef.current) return;
-      if (rejecting) setRejecting(false);
-      else if (confirmingDelist) setConfirmingDelist(false);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [confirmingDelist, rejecting]);
-
   const detailQuery = useQuery({
     queryKey: ["skills", "detail", skillId],
-    queryFn: () => unwrap(api.GET("/api/skills/{skill_id}", { params: { path: { skill_id: skillId } } })),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills/{skill_id}", { params: { path: { skill_id: skillId } }, signal })),
   });
 
   const detail: SkillDetail | undefined = detailQuery.data;
@@ -316,16 +317,16 @@ export function SkillDrawer({
   const altReadmeQuery = useQuery({
     queryKey: ["skills", "file", skillId, activeVersion?.version, "SKILL.md"],
     enabled: tab === "readme" && isOtherVersion,
-    queryFn: () => unwrap(api.GET("/api/skills/{skill_id}/versions/{version}/files", {
-      params: { path: { skill_id: skillId, version: activeVersion!.version }, query: { path: "SKILL.md" } },
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills/{skill_id}/versions/{version}/files", {
+      params: { path: { skill_id: skillId, version: activeVersion!.version }, query: { path: "SKILL.md" } }, signal,
     })),
   });
 
   const fileQuery = useQuery({
     queryKey: ["skills", "file", skillId, activeVersion?.version, selectedPath],
     enabled: tab === "files" && !!activeVersion && !!selectedPath,
-    queryFn: () => unwrap(api.GET("/api/skills/{skill_id}/versions/{version}/files", {
-      params: { path: { skill_id: skillId, version: activeVersion!.version }, query: { path: selectedPath! } },
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills/{skill_id}/versions/{version}/files", {
+      params: { path: { skill_id: skillId, version: activeVersion!.version }, query: { path: selectedPath! } }, signal,
     })),
   });
 
@@ -433,7 +434,8 @@ export function SkillDrawer({
                 <div className="av-skill-dhead">
                   <div className="av-skill-dhead__row">
                     <Tile tone="ask" icon="skill" />
-                    <span className="av-skill-dhead__name">{d.name}</span>
+                    <span className="av-skill-dhead__name">{formatSkillTitle(d.name, fm)}</span>
+                    <span className="av-tag av-mono">{d.name}</span>
                     <SkillStatusPill status={d.status} />
                     <span className="av-tag">v{ver.version}</span>
                   </div>
@@ -472,7 +474,7 @@ export function SkillDrawer({
                 <Banner message={message} />
 
                 {ver.has_scripts || scriptCount > 0 ? (
-                  <div className="av-banner av-banner--warn">
+                  <div className="av-banner av-banner--warn" role="status">
                     {t("包含 {{count}} 个脚本：只保存，不会执行", { count: scriptCount })}
                   </div>
                 ) : null}
@@ -502,7 +504,7 @@ export function SkillDrawer({
                         {(fc) => (
                           <>
                             {fc.truncated ? (
-                              <div className="av-banner av-banner--info">{t("文件内容较长，仅显示前 256 KB")}</div>
+                              <div className="av-banner av-banner--info" role="status">{t("文件内容较长，仅显示前 256 KB")}</div>
                             ) : null}
                             <div className="av-skill-md">
                               <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
@@ -539,7 +541,7 @@ export function SkillDrawer({
                           {(fc) => (
                             <>
                               {fc.truncated ? (
-                                <div className="av-banner av-banner--info">{t("文件内容较长，仅显示前 256 KB")}</div>
+                                <div className="av-banner av-banner--info" role="status">{t("文件内容较长，仅显示前 256 KB")}</div>
                               ) : null}
                               {fc.binary ? (
                                 <div className="av-skill-preview__binary">{t("二进制文件，不提供预览")}</div>

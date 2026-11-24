@@ -65,7 +65,7 @@ function useCronPreview(expr: string) {
   useEffect(() => { const timer = setTimeout(() => setDebounced(expr), 300); return () => clearTimeout(timer); }, [expr]);
   return useQuery({
     queryKey: ["cron-preview", debounced], enabled: !!debounced, staleTime: 30_000,
-    queryFn: () => unwrap(api.GET("/api/analysis/cron/preview", { params: { query: { expr: debounced, count: 5 } } })) as Promise<Preview>,
+    queryFn: ({ signal }) => unwrap(api.GET("/api/analysis/cron/preview", { params: { query: { expr: debounced, count: 5 } }, signal })) as Promise<Preview>,
   });
 }
 

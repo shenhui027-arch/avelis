@@ -325,7 +325,7 @@ def big_catalog(n_extra):
 
 
 def test_candidate_retrieval_scores_bigrams_and_carries_the_domain(monkeypatch):
-    """候选检索：中文按字的二元组计分（问题里写“食品类目……销量”也能命中“类目销量”）；可见口径超过 30 个时取前 10 个，
+    """候选检索：中文按字的二元组计分（问题里写“食品类目……销量”也能命中“类目销量”）；可见口径超过 30 个时取前 15 个，
     不超过时全部给出；每个候选带业务域，同名口径可以区分。不针对任何题目。"""
     from avelis.models import Domain
 
@@ -339,7 +339,7 @@ def test_candidate_retrieval_scores_bigrams_and_carries_the_domain(monkeypatch):
     box.session.store[(Domain, "dA")] = SimpleNamespace(id="dA", name="域甲")
     box.session.store[(Domain, "dB")] = SimpleNamespace(id="dB", name="域乙")
     top = box.candidate_metrics("食品类目上月的销量为什么升高？")
-    assert len(top) == 10 and top[0]["code"] == "m_units" and top[1]["code"] == "m_sales"
+    assert len(top) == 15 and top[0]["code"] == "m_units" and top[1]["code"] == "m_sales"
     aov = {c["code"]: c["domain"] for c in box.candidate_metrics("客单价为什么下降？")[:2]}
     assert aov == {"m_aov": "域甲", "x_aov": "域乙"}  # 同名口径带业务域
     small = make_box(budget=Budget(), catalog=big_catalog(10), monkeypatch=monkeypatch)

@@ -40,3 +40,5 @@ Thumbs.db
 .brand-qa-chrome/
 .worktrees/
 .tmp/
+test-results/
+playwright-report/

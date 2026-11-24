@@ -102,7 +102,11 @@ def test_metric_time_migration_is_the_single_head_after_conversations():
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
     # 治理事件（ADR 0018）接在语义提示之后，MCP OAuth（ADR 0019）接在治理事件之后，迁移链仍只有一个 head
-    assert scripts.get_heads() == ["0027_auth_extensions"]
+    assert scripts.get_heads() == ["0030_m3b_multi_model_ledger"]
+    assert all(len(rev.revision) <= 32 for rev in scripts.walk_revisions())
+    assert scripts.get_revision("0030_m3b_multi_model_ledger").down_revision == "0029_vqr_domain_exp_feedback"
+    assert scripts.get_revision("0029_vqr_domain_exp_feedback").down_revision == "0028_analysis_task_options"
+    assert scripts.get_revision("0028_analysis_task_options").down_revision == "0027_auth_extensions"
     assert scripts.get_revision("0027_auth_extensions").down_revision == "0026_skills"
     assert scripts.get_revision("0026_skills").down_revision == "0025_lineage_note"
     assert scripts.get_revision("0025_lineage_note").down_revision == "0024_event_outbox_dead_retention"
@@ -629,7 +633,12 @@ def test_connector_business_timezone_sessions(monkeypatch, kind):
         ]
     elif kind == "clickhouse":
         assert settings_seen == [
-            {"max_execution_time": 3, "max_memory_usage": 1024, "session_timezone": "Asia/Kathmandu"}
+            {
+                "max_execution_time": 3,
+                "readonly": 2,
+                "max_memory_usage": 1024,
+                "session_timezone": "Asia/Kathmandu",
+            }
         ]
     else:
         assert connection.statements == ["SELECT 1", "ROLLBACK"]

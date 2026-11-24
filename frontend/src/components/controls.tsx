@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { errorText } from "../api/hooks";
 import { currentLanguage, t } from "../i18n";
 import { Icon } from "./Icon";
+import { hasOverlayAbove, useOverlay } from "./overlay";
 
 // --- 浮层定位 -----------------------------------------------------------------------
 
@@ -24,8 +25,9 @@ type Place = { top?: number; bottom?: number; left: number; minWidth: number; ma
 /** 浮层贴着触发器：下方放得下整个浮层（最高 height）就向下，否则放在空间更大的一侧并限高滚动；
  *  滚动与窗口变化时跟随，点外部关闭。 */
 function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, floating: RefObject<HTMLElement | null>,
-  onClose: () => void, minWidth = 0, height = MAX_LIST_HEIGHT): Place | null {
+  onClose: () => void, minWidth = 0, height = MAX_LIST_HEIGHT, onEscape?: () => void): { place: Place | null; overlayId: RefObject<symbol | null> } {
   const [place, setPlace] = useState<Place | null>(null);
+  const overlayId = useOverlay(open, onEscape ?? onClose);
   useLayoutEffect(() => {
     if (!open) { setPlace(null); return; }
     const update = (e?: Event) => {
@@ -47,17 +49,18 @@ function useFloating(open: boolean, anchor: RefObject<HTMLElement | null>, float
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => { window.removeEventListener("resize", update); window.removeEventListener("scroll", update, true); };
-  }, [open, anchor, minWidth, height]);
+  }, [open, anchor, floating, minWidth, height]);
   useEffect(() => {
     if (!open) return;
     const outside = (e: MouseEvent) => {
+      if (hasOverlayAbove(overlayId.current)) return;
       const target = e.target as Node;
       if (!anchor.current?.contains(target) && !floating.current?.contains(target)) onClose();
     };
     window.addEventListener("mousedown", outside);
     return () => window.removeEventListener("mousedown", outside);
-  }, [open, anchor, floating, onClose]);
-  return place;
+  }, [open, anchor, floating, onClose, overlayId]);
+  return { place, overlayId };
 }
 
 function Floating({ place, innerRef, className, children, ...rest }: {
@@ -108,7 +111,7 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
   const typed = useRef({ text: "", at: 0 });
   const listId = useId();
   const close = useMemo(() => () => setOpen(false), []);
-  const place = useFloating(open, anchor, list, close);
+  const { place } = useFloating(open, anchor, list, close);
 
   const enabled = (i: number) => i >= 0 && i < options.length && !options[i].disabled;
   const step = (from: number, dir: 1 | -1) => {
@@ -129,10 +132,9 @@ export function Select({ value, onChange, children, disabled, label, style, id, 
       End: () => open && setActive(step(options.length, -1)),
       Enter: () => (open ? pick(active) : show()),
       " ": () => (open ? pick(active) : show()),
-      Escape: () => setOpen(false),
     };
     if (e.key === "Tab") { setOpen(false); return; }
-    if (keys[e.key] && (e.key !== "Escape" || open)) { e.preventDefault(); e.stopPropagation(); keys[e.key](); return; }
+    if (keys[e.key]) { e.preventDefault(); e.stopPropagation(); keys[e.key](); return; }
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       // 按字母跳到以它开头的选项，与原生下拉一致
       const now = Date.now();
@@ -192,7 +194,7 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
   const items: SearchOption[] = [...(clearLabel ? [{ value: "", label: clearLabel }] : []), ...options,
     ...(onMore ? [{ value: MORE, label: loading ? t("加载中…") : t("加载更多") }] : [])];
   const close = useMemo(() => () => { setOpen(false); setText(""); onSearch(""); }, [onSearch]);
-  const place = useFloating(open, anchor, list, close);
+  const { place } = useFloating(open, anchor, list, close);
   const pick = (o: SearchOption) => {
     if (o.value === MORE) { if (!loading) onMore?.(); return; }
     onChange(o.value); close(); anchor.current?.blur();
@@ -214,7 +216,6 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
           // 列表打开时回车只用来确认选项：没选中有效项也要拦下，不能提交外层表单（否则会带着旧选择保存）
           else if (e.key === "Enter" && open) { e.preventDefault(); if (active >= 0 && active < items.length) pick(items[active]); }
-          else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); close(); }
           else if (e.key === "Tab") close();
         }} />
       <AnimatePresence>{open && place ? (
@@ -240,8 +241,12 @@ export function SearchSelect({ value, selected, options, loading, onSearch, onCh
 const pad = (n: number) => String(n).padStart(2, "0");
 const iso = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
 function parseDate(value: string): { y: number; m: number; d: number } | null {
-  const hit = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  return hit ? { y: Number(hit[1]), m: Number(hit[2]) - 1, d: Number(hit[3]) } : null;
+  const hit = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!hit) return null;
+  const y = Number(hit[1]), m = Number(hit[2]) - 1, d = Number(hit[3]);
+  const dt = new Date(Date.UTC(y, m, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m || dt.getUTCDate() !== d) return null;
+  return { y, m, d };
 }
 function today(): { y: number; m: number; d: number } {
   const n = new Date();
@@ -262,37 +267,83 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
   const [open, setOpen] = useState(false);
   const picked = parseDate(value);
   const [focus, setFocus] = useState(() => picked ?? today());
+  const [draft, setDraft] = useState(value);
+  const [draftInvalid, setDraftInvalid] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const wasReady = useRef(false);
+  const focusGridRef = useRef(false);
   const close = useMemo(() => () => setOpen(false), []);
-  const place = useFloating(open, anchor, panel, close, 280, DATEPICK_HEIGHT);
+  const closeAndFocus = useMemo(() => () => { setOpen(false); anchor.current?.focus(); }, []);
+  const { place, overlayId } = useFloating(open, anchor, panel, close, 280, DATEPICK_HEIGHT, closeAndFocus);
   const lang = currentLanguage();
   const monthTitle = new Intl.DateTimeFormat(lang, { year: "numeric", month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(focus.y, focus.m, 1)));
   // 周一开头
   const weekdays = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(lang, { weekday: "narrow", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, 1 + i))));
+  const weekdaysFull = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(lang, { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, 1 + i))));
+  const monthOptions = Array.from({ length: 12 }, (_, m) => ({
+    value: String(m),
+    label: new Intl.DateTimeFormat(lang, { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2024, m, 1))),
+  }));
   const lead = (new Date(Date.UTC(focus.y, focus.m, 1)).getUTCDay() + 6) % 7;
   const cells = Array.from({ length: 42 }, (_, i) => shift(focus.y, focus.m, 1, i - lead));
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
   const now = today();
+  const minYear = Math.min(1970, focus.y - 10, now.y - 20);
+  const maxYear = Math.max(2040, focus.y + 10, now.y + 10);
+  const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i);
   const same = (a: { y: number; m: number; d: number } | null, b: { y: number; m: number; d: number }) => !!a && a.y === b.y && a.m === b.m && a.d === b.d;
 
-  const openPanel = () => { if (disabled) return; setFocus(picked ?? today()); setOpen(true); };
+  useEffect(() => {
+    setDraft(value);
+    setDraftInvalid(false);
+  }, [value, open]);
+
+  const openPanel = () => {
+    if (disabled) return;
+    setFocus(picked ?? today());
+    setDraft(value);
+    setDraftInvalid(false);
+    setOpen(true);
+  };
   const choose = (c: { y: number; m: number; d: number } | null) => { onChange(c ? iso(c.y, c.m, c.d) : ""); setOpen(false); anchor.current?.focus(); };
   const month = (delta: number) => setFocus((f) => {
     const y = f.y + Math.floor((f.m + delta) / 12), m = ((f.m + delta) % 12 + 12) % 12;
     return { y, m, d: Math.min(f.d, daysIn(y, m)) };
   });
-  useEffect(() => { if (open && place) panel.current?.querySelector<HTMLButtonElement>("[data-focus='true']")?.focus(); }, [open, place, focus]);
+  useEffect(() => {
+    const ready = !!(open && place);
+    if (ready && (!wasReady.current || focusGridRef.current)) {
+      focusGridRef.current = false;
+      panel.current?.querySelector<HTMLButtonElement>("[data-focus='true']")?.focus();
+    }
+    wasReady.current = ready;
+  }, [open, place, focus]);
+
+  const onDialogKey = (e: ReactKeyboardEvent) => {
+    if (e.key !== "Tab" || hasOverlayAbove(overlayId.current)) return;
+    const items = Array.from(
+      panel.current?.querySelectorAll<HTMLElement>("input, button, [tabindex]:not([tabindex='-1'])") ?? [],
+    ).filter((el) => !el.hasAttribute("disabled") && el.tabIndex !== -1);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    const inside = panel.current?.contains(document.activeElement);
+    if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first.focus(); }
+  };
 
   const onGridKey = (e: ReactKeyboardEvent) => {
     const moves: Record<string, () => void> = {
       ArrowLeft: () => setFocus((f) => shift(f.y, f.m, f.d, -1)), ArrowRight: () => setFocus((f) => shift(f.y, f.m, f.d, 1)),
       ArrowUp: () => setFocus((f) => shift(f.y, f.m, f.d, -7)), ArrowDown: () => setFocus((f) => shift(f.y, f.m, f.d, 7)),
       PageUp: () => month(-1), PageDown: () => month(1),
-      Escape: () => { setOpen(false); anchor.current?.focus(); },
     };
-    // 日历挂在 body 上，Tab 会跑出所在抽屉：收起日历、焦点回到触发按钮，再由浏览器按顺序移到下一个控件
-    if (e.key === "Tab") { anchor.current?.focus(); setOpen(false); return; }
-    if (moves[e.key]) { e.preventDefault(); e.stopPropagation(); moves[e.key](); }
+    if (moves[e.key]) {
+      e.preventDefault();
+      e.stopPropagation();
+      focusGridRef.current = true;
+      moves[e.key]();
+    }
   };
 
   return (
@@ -305,20 +356,77 @@ export function DateInput({ value, onChange, label, placeholder, disabled, inval
       </button>
       <Icon name="calendar" small />
       <AnimatePresence>{open && place ? (
-        <Floating key="float" place={place} innerRef={panel} role="dialog" aria-label={label ?? t("选择日期")} className="av-datepick" onKeyDown={onGridKey}>
+        <Floating key="float" place={place} innerRef={panel} role="dialog" aria-label={label ?? t("选择日期")} className="av-datepick" onKeyDown={onDialogKey}>
+          <input
+            type="text"
+            className="av-input av-mono av-datepick__input"
+            value={draft}
+            placeholder="YYYY-MM-DD"
+            aria-label={t("输入日期（YYYY-MM-DD）")}
+            aria-invalid={draftInvalid || undefined}
+            onChange={(e) => {
+              const next = e.target.value;
+              setDraft(next);
+              const parsed = parseDate(next);
+              if (parsed) {
+                setDraftInvalid(false);
+                setFocus(parsed);
+              } else if (!next.trim()) {
+                setDraftInvalid(false);
+              }
+            }}
+            onBlur={() => {
+              const trimmed = draft.trim();
+              if (!trimmed) { setDraftInvalid(false); return; }
+              const parsed = parseDate(trimmed);
+              if (parsed) {
+                setDraftInvalid(false);
+                const nextIso = iso(parsed.y, parsed.m, parsed.d);
+                if (nextIso !== value) onChange(nextIso);
+              } else {
+                setDraftInvalid(true);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              const trimmed = draft.trim();
+              if (!trimmed && clearable) { choose(null); return; }
+              const parsed = parseDate(trimmed);
+              if (parsed) { setDraftInvalid(false); choose(parsed); }
+              else setDraftInvalid(true);
+            }}
+          />
           <div className="av-datepick__hd">
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon" aria-label={t("上个月")} onClick={() => month(-1)}><Icon name="back" small /></button>
-            <span className="av-datepick__title">{monthTitle}</span>
+            <div className="av-datepick__ym">
+              <Select label={t("年份")} className="av-datepick__sel" value={String(focus.y)}
+                onChange={(v) => setFocus((f) => ({ ...f, y: Number(v), d: Math.min(f.d, daysIn(Number(v), f.m)) }))}>
+                {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+              </Select>
+              <Select label={t("月份")} className="av-datepick__sel" value={String(focus.m)}
+                onChange={(v) => setFocus((f) => ({ ...f, m: Number(v), d: Math.min(f.d, daysIn(f.y, Number(v))) }))}>
+                {monthOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </Select>
+            </div>
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-btn--icon av-datepick__next" aria-label={t("下个月")} onClick={() => month(1)}><Icon name="back" small /></button>
           </div>
-          <div className="av-datepick__grid" role="grid">
-            {weekdays.map((w, i) => <span key={`w${i}`} className="av-datepick__wd" aria-hidden="true">{w}</span>)}
-            {cells.map((c) => (
-              <button key={iso(c.y, c.m, c.d)} type="button" tabIndex={same(focus, c) ? 0 : -1} data-focus={same(focus, c)}
-                aria-label={iso(c.y, c.m, c.d)} aria-pressed={same(picked, c)}
-                className={`av-datepick__day${c.m !== focus.m ? " is-outside" : ""}${same(now, c) ? " is-today" : ""}`}
-                onClick={() => choose(c)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(focus); } }}>{c.d}</button>
+          <div className="av-datepick__grid" role="grid" aria-label={monthTitle} onKeyDown={onGridKey}>
+            <div className="av-datepick__row" role="row">
+              {weekdays.map((w, i) => <span key={`w${i}`} role="columnheader" aria-label={weekdaysFull[i]} className="av-datepick__wd">{w}</span>)}
+            </div>
+            {weeks.map((week, wi) => (
+              <div key={wi} className="av-datepick__row" role="row">
+                {week.map((c) => (
+                  <div key={iso(c.y, c.m, c.d)} role="gridcell" aria-selected={same(picked, c) || undefined}>
+                    <button type="button" tabIndex={same(focus, c) ? 0 : -1} data-focus={same(focus, c)}
+                      aria-label={iso(c.y, c.m, c.d)} aria-pressed={same(picked, c)}
+                      className={`av-datepick__day${c.m !== focus.m ? " is-outside" : ""}${same(now, c) ? " is-today" : ""}`}
+                      onClick={() => choose(c)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(focus); } }}>{c.d}</button>
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
           <div className="av-datepick__ft">
@@ -347,7 +455,7 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
   const needle = value.trim().toLowerCase();
   const items = suggestions.filter((s) => s.toLowerCase().includes(needle) && s !== value).slice(0, 50);
   const visible = open && items.length > 0;
-  const place = useFloating(visible, anchor, list, close);
+  const { place } = useFloating(visible, anchor, list, close);
   const pick = (s: string) => { onChange(s); setOpen(false); setActive(-1); };
   useEffect(() => { if (visible && place) list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [visible, place, active]);
 
@@ -363,7 +471,6 @@ export function SuggestInput({ value, onChange, suggestions, className, label, r
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, items.length - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
           else if (e.key === "Enter" && visible && active >= 0 && active < items.length) { e.preventDefault(); pick(items[active]); }
-          else if (e.key === "Escape" && visible) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
           else if (e.key === "Tab") setOpen(false);
         }} />
       <AnimatePresence>{visible && place ? (
@@ -393,13 +500,14 @@ export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCance
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
+  const bodyId = useId();
   // 首次渲染时记下触发者：autoFocus 在 effect 之前就把焦点移进了对话框
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
-  // 模态：Tab 只在对话框内循环，Esc 取消，关闭后焦点回到打开它的按钮（与 Drawer 一致）
+  const overlayId = useOverlay(true, () => { if (!busy) cancel.current(); });
+  // 模态：Tab 只在对话框内循环，Esc 由浮层栈处理，关闭后焦点回到打开它的按钮（与 Drawer 一致）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { cancel.current(); return; }
-      if (e.key !== "Tab") return;
+      if (e.key !== "Tab" || hasOverlayAbove(overlayId.current)) return;
       const items = Array.from(dialog.current?.querySelectorAll<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ?? [])
         .filter((el) => !el.hasAttribute("disabled"));
       if (!items.length) { e.preventDefault(); return; }
@@ -410,17 +518,18 @@ export function ConfirmDialog({ title, body, confirm, danger, onConfirm, onCance
     };
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
-  }, [opener]);
+  }, [opener, overlayId]);
   return createPortal(
-    <div className="av-root av-dialog__scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div ref={dialog} className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}>
+    <div className="av-root av-dialog__scrim" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onCancel(); }}>
+      <div ref={dialog} className="av-dialog" role="alertdialog" aria-modal="true" aria-label={title}
+        aria-describedby={body ? bodyId : undefined}>
         <h2>{title}</h2>
-        {body ? <p>{body}</p> : null}
+        {body ? <p id={bodyId}>{body}</p> : null}
         {children}
-        {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+        {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
         <div className="av-actions">
-          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={onCancel} disabled={busy}>{t("取消")}</button>
-          <button type="button" className={`av-btn av-btn--sm ${danger ? "av-btn--danger" : "av-btn--primary"}`} autoFocus disabled={busy}
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" autoFocus={!!danger} onClick={onCancel} disabled={busy}>{t("取消")}</button>
+          <button type="button" className={`av-btn av-btn--sm ${danger ? "av-btn--danger" : "av-btn--primary"}`} autoFocus={!danger} disabled={busy}
             onClick={async () => { setBusy(true); try { await onConfirm(); } catch (e) { setError(errorText(e)); setBusy(false); } }}>
             {busy ? t("处理中…") : confirm}</button>
         </div>

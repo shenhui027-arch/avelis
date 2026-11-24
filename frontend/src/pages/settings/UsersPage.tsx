@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone, useUsers } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Banner, ConfirmDialog, Drawer, Icon, PaneHeader, Pill, QueryState, Switch, useMessage } from "../../components/ui";
+import { Banner, ConfirmDialog, Crumbs, Drawer, Icon, PaneHeader, Pill, QueryState, Switch, useMessage } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
 import { SettingsTabs, useMe, useRoles } from "../../layout/Shell";
@@ -42,6 +42,7 @@ export function UsersPage() {
 
   return (
     <div className="av-fill">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("用户")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="users" /></div>
         <div className="av-actions">
@@ -278,7 +279,7 @@ function EditUser({ user, onClose }: { user: User; onClose: () => void }) {
       <RoleChecks value={form.roles} onChange={(roles) => setForm({ ...form, roles })} />
       <div className="av-field av-field--inline"><span className="av-label">{t("启用")}</span>
         <Switch label={t("启用")} checked={form.is_active} onChange={(v) => setForm({ ...form, is_active: v })} /></div>
-      {!form.is_active && user.is_active ? <div className="av-banner av-banner--warn">{t("停用后该用户的登录立即失效")}</div> : null}
+      {!form.is_active && user.is_active ? <div className="av-banner av-banner--warn" role="alert">{t("停用后该用户的登录立即失效")}</div> : null}
       <Banner message={message} />
     </Drawer>
   );

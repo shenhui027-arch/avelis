@@ -7,6 +7,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { createPortal } from "react-dom";
 
+import { useOverlay } from "./overlay";
 import { borrow, giveBack, tipTarget, type Tip } from "./tipTarget";
 
 const SHOW_DELAY = 380;
@@ -14,14 +15,19 @@ const SKIP_DELAY = 300; // 刚收起一个提示后在这段时间内指向另�
 const GAP = 8;
 const EDGE = 8;
 
+type TipPos = { seq: number; left: number; top: number; side: "top" | "bottom" };
+
 export function TooltipLayer() {
   const [tip, setTip] = useState<Tip | null>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; side: "top" | "bottom" } | null>(null);
+  const [pos, setPos] = useState<TipPos | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const id = useId();
   const timer = useRef<number | undefined>(undefined);
   const hiddenAt = useRef(0);
   const current = useRef<Tip | null>(null);
+  const hideRef = useRef<() => void>(() => {});
+
+  useOverlay(!!tip, () => hideRef.current());
 
   useEffect(() => {
     const hide = () => {
@@ -31,6 +37,7 @@ export function TooltipLayer() {
       current.current = null;
       setTip(null);
     };
+    hideRef.current = hide;
     const show = (el: HTMLElement, immediate: boolean) => {
       if (current.current?.el === el) return;
       window.clearTimeout(timer.current);
@@ -60,7 +67,6 @@ export function TooltipLayer() {
     };
     // 只在提示所属的元素失焦时收起：轻点 ⓘ 时前一个元素的失焦不能把刚打开的提示关掉
     const blur = (e: FocusEvent) => { if (current.current?.el === e.target) hide(); };
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") hide(); };
     // 触屏与笔：轻点 ⓘ 切换它的提示，点别处收起
     const press = (e: PointerEvent) => {
       const hint = e.pointerType !== "mouse" && e.target instanceof Element ? e.target.closest<HTMLElement>(".av-hint") : null;
@@ -73,7 +79,6 @@ export function TooltipLayer() {
     window.addEventListener("focusin", focus);
     window.addEventListener("focusout", blur);
     window.addEventListener("pointerdown", press);
-    window.addEventListener("keydown", key);
     window.addEventListener("scroll", hide, true);
     window.addEventListener("resize", hide);
     return () => {
@@ -82,7 +87,6 @@ export function TooltipLayer() {
       window.removeEventListener("focusin", focus);
       window.removeEventListener("focusout", blur);
       window.removeEventListener("pointerdown", press);
-      window.removeEventListener("keydown", key);
       window.removeEventListener("scroll", hide, true);
       window.removeEventListener("resize", hide);
       window.clearTimeout(timer.current);
@@ -103,18 +107,27 @@ export function TooltipLayer() {
     const side = r.top - b.height - GAP >= EDGE ? "top" : "bottom";
     const top = side === "top" ? r.top - b.height - GAP : r.bottom + GAP;
     const left = Math.max(EDGE, Math.min(r.left + r.width / 2 - b.width / 2, window.innerWidth - b.width - EDGE));
-    setPos({ left, top, side });
+    setPos({ seq: tip.seq, left, top, side });
   }, [tip]);
 
-  // 进入时朝箭头方向轻移，收起时淡出；切换到另一个提示时旧的淡出、新的淡入
+  const activePos = tip && pos?.seq === tip.seq ? pos : null;
+
+  // 先在离屏测量精确位置与 side，再挂载 motion.div，保证首帧 initial.y 方向正确且不复用旧提示位置
   return createPortal(
     <div className="av-root av-float-root">
-      <AnimatePresence>{tip ? (
-        <motion.div key={tip.seq} ref={box} id={id} role="tooltip" className="av-tooltip" data-side={pos?.side}
-          style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: -9999, visibility: "hidden" }}
-          initial={{ opacity: 0, y: pos?.side === "bottom" ? -3 : 3 }} animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, transition: { duration: 0.1 } }} transition={{ duration: 0.16 }}>{tip.text}</motion.div>
-      ) : null}</AnimatePresence>
+      <AnimatePresence>
+        {tip && !activePos ? (
+          <div key={`measure-${tip.seq}`} ref={box} className="av-tooltip" style={{ left: -9999, top: -9999, visibility: "hidden" }} aria-hidden="true">
+            {tip.text}
+          </div>
+        ) : null}
+        {tip && activePos ? (
+          <motion.div key={tip.seq} ref={box} id={id} role="tooltip" className="av-tooltip" data-side={activePos.side}
+            style={{ left: activePos.left, top: activePos.top }}
+            initial={{ opacity: 0, y: activePos.side === "bottom" ? -3 : 3 }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.1 } }} transition={{ duration: 0.16 }}>{tip.text}</motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>,
     document.body,
   );

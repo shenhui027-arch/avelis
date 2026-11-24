@@ -842,6 +842,13 @@
   .av-login__card,
   .av-login__stage-card,
   .av-login__stage-pane { animation: none; }
+  .av-login__step,
+  .av-login__theme-btn,
+  .av-login__input,
+  .av-login__reveal,
+  .av-login__submit,
+  .av-login__sso,
+  .av-pw-rules__meter span { transition: none; }
   .av-login__submit:hover:not(:disabled),
   .av-login__submit:active:not(:disabled) { transform: none; }
 }

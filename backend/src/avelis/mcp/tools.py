@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
+from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from avelis import modelcfg
 from avelis.api.governance import change_set_view
 from avelis.ask import service
-from avelis.ask.intent import DimensionFilter, Intent
+from avelis.ask.alignment import AlignmentResult, align_filters, candidate_sources, has_dimension_table
+from avelis.ask.intent import MAX_LIMIT, MAX_METRICS, DimensionFilter, Intent
 from avelis.governance import access, metrics
 from avelis.governance.errors import GovernanceError, Invalid, NotFound
 from avelis.models import (
@@ -27,6 +29,110 @@ from avelis.models import (
     MetricVersion,
     User,
 )
+
+
+def _normalize_metric_codes(metric: str | None, metric_list: list[str] | str | None) -> list[str]:
+    raw_codes: list[str] = []
+    if metric is not None:
+        if not isinstance(metric, str) or not metric.strip():
+            raise Invalid("指标编码不能为空")
+        raw_codes.append(metric.strip())
+    if metric_list is not None:
+        if isinstance(metric_list, str):
+            parts = [part.strip() for part in metric_list.split(",")]
+            if not metric_list.strip() or any(not part for part in parts):
+                raise Invalid("指标列表包含空项")
+            raw_codes.extend(parts)
+        elif isinstance(metric_list, list):
+            for item in metric_list:
+                if not isinstance(item, str) or not item.strip():
+                    raise Invalid("指标列表包含空项")
+                raw_codes.append(item.strip())
+        else:
+            raise Invalid("metrics 参数格式无效")
+    codes = list(dict.fromkeys(raw_codes))
+    if not codes:
+        raise Invalid("请指定至少一个指标")
+    if len(codes) > MAX_METRICS:
+        raise Invalid(f"一次最多查询 {MAX_METRICS} 个指标", max_metrics=MAX_METRICS)
+    return codes
+
+
+def _parse_filters(filters: list[DimensionFilter] | None) -> list[DimensionFilter]:
+    if not filters:
+        return []
+    parsed: list[DimensionFilter] = []
+    for item in filters:
+        if isinstance(item, DimensionFilter):
+            parsed.append(item)
+        else:
+            try:
+                parsed.append(DimensionFilter.model_validate(item))
+            except ValidationError as exc:
+                raise Invalid("筛选条件格式无效") from exc
+    return parsed
+
+
+def _align_metric_filters(
+    session: Session,
+    user: User,
+    versions: list[MetricVersion],
+    filters: list[DimensionFilter],
+    settings,
+) -> AlignmentResult:
+    if not filters:
+        return AlignmentResult(filters=[], explanations=[], unresolved=[], unknown=[])
+    unique_versions = list({version.id: version for version in versions}.values())
+    results = [align_filters(session, user, version, filters, settings) for version in unique_versions]
+    explanations: list[dict] = []
+    unresolved: list[dict] = []
+    unknown: list[dict] = []
+    aligned: list[DimensionFilter] = []
+    table_availability: dict[str, bool] = {}
+    for index, item in enumerate(filters):
+        values: list[str] = []
+        for position, original in enumerate(item.values):
+
+            def matches(record, *, _dim=item.dimension, _orig=original):
+                return record["dimension"] == _dim and record["original"] == _orig
+
+            pending = [record for result in results for record in result.unresolved if matches(record)]
+            uncertain = [record for result in results for record in result.unknown if matches(record)]
+            notes = [record for result in results for record in result.explanations if matches(record)]
+            resolved = [result.filters[index].values[position] for result in results]
+            if pending or (not uncertain and len(set(resolved)) > 1):
+                candidates = [value for record in pending for value in record["candidates"]]
+                candidates += [value for value in resolved if value != original or not pending]
+                has_table = any(record["has_dimension_table"] for record in pending) or any(
+                    record["method"] == "dimension_table" for record in notes
+                )
+                if not has_table:
+                    if item.dimension not in table_availability:
+                        table_availability[item.dimension] = any(
+                            has_dimension_table(session, user, version, item.dimension) for version in unique_versions
+                        )
+                    has_table = table_availability[item.dimension]
+                record = {
+                    "dimension": item.dimension,
+                    "original": original,
+                    "candidates": list(dict.fromkeys(candidates))[:10],
+                    **candidate_sources(pending, notes),
+                    "has_dimension_table": has_table,
+                }
+                if record not in unresolved:
+                    unresolved.append(record)
+                values.append(original)
+            elif uncertain:
+                values.append(original)
+                unknown.extend(record for record in uncertain if record not in unknown)
+            else:
+                values.append(resolved[0])
+                explanations.extend(record for record in notes if record not in explanations)
+        aligned.append(DimensionFilter(dimension=item.dimension, values=values))
+    if unresolved:
+        projected, _ = service.project_alignment_clarifications(session, user, unresolved)
+        unresolved = projected
+    return AlignmentResult(filters=aligned, explanations=explanations, unresolved=unresolved, unknown=unknown)
 
 
 class ToolService:
@@ -101,9 +207,9 @@ class ToolService:
 
     def ask_metric(
         self,
-        metric: str,
-        start_date: date,
-        end_date: date,
+        metric: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         dimensions: list[str] | None = None,
         filters: list[DimensionFilter] | None = None,
         compare: Literal["previous_period", "previous_calendar", "previous_year", "custom"] | None = None,
@@ -111,26 +217,73 @@ class ToolService:
         compare_end: date | None = None,
         time_grain: Literal["day", "week", "month", "quarter", "year"] | None = None,
         limit: int | None = None,
+        metrics: list[str] | str | None = None,
+        order: Literal["asc", "desc"] | None = None,
     ) -> dict:
+        if start_date is None or end_date is None:
+            raise Invalid("必须提供 start_date 与 end_date")
+        if start_date > end_date:
+            raise Invalid("开始日期晚于结束日期")
+        explicit_limit = limit
         limit = min(200, self.settings.query_max_rows) if limit is None else limit
         if limit < 1 or limit > self.settings.query_max_rows:
             raise Invalid("结果行数不能超过页面问数上限", max_rows=self.settings.query_max_rows)
-        if start_date > end_date:
-            raise Invalid("开始日期晚于结束日期")
-        definition, version = self._metric(metric)
-        self._sources(version)
-        intent = Intent(
-            metric_code=metric,
-            start_date=start_date,
-            end_date=end_date,
-            group_by=dimensions or [],
-            filters=filters or [],
-            compare=compare,
-            compare_start=compare_start,
-            compare_end=compare_end,
-            time_grain=time_grain,
+        if order is not None:
+            if order not in ("asc", "desc"):
+                raise Invalid("排序方向只能为 asc 或 desc")
+            if not (dimensions or time_grain):
+                raise Invalid("排序需要分组维度（dimensions）或时间粒度（time_grain）")
+        codes = _normalize_metric_codes(metric, metrics)
+        parsed_filters = _parse_filters(filters)
+        resolved_metrics: list[tuple[str, Metric, MetricVersion]] = []
+        for code in codes:
+            definition, version = self._metric(code)
+            self._sources(version)
+            resolved_metrics.append((code, definition, version))
+        allowed = modelcfg.policy(self.session)["send_results"]
+        alignment: AlignmentResult | None = None
+        if parsed_filters and allowed and all(version.status == "published" for _, _, version in resolved_metrics):
+            shared_dims = set.intersection(
+                *(
+                    {d["name"] for d in (version.dimensions or []) if isinstance(d, dict) and "name" in d}
+                    for _, _, version in resolved_metrics
+                )
+            )
+            if all(item.dimension in shared_dims for item in parsed_filters):
+                alignment = _align_metric_filters(
+                    self.session,
+                    self.user,
+                    [version for _, _, version in resolved_metrics],
+                    parsed_filters,
+                    self.settings,
+                )
+        intent_limit = (
+            explicit_limit
+            if (order is not None and explicit_limit is not None and explicit_limit <= MAX_LIMIT)
+            else None
         )
-        catalog = service.Catalog([], {metric: (definition, version)})
+        try:
+            intent = Intent(
+                metric_codes=codes,
+                start_date=start_date,
+                end_date=end_date,
+                group_by=dimensions or [],
+                filters=alignment.filters if alignment else parsed_filters,
+                order=order,
+                limit=intent_limit,
+                compare=compare,
+                compare_start=compare_start,
+                compare_end=compare_end,
+                time_grain=time_grain,
+            )
+        except ValidationError as exc:
+            raise Invalid(exc.errors()[0]["msg"] if exc.errors() else "问数意图无效") from exc
+        catalog = service.Catalog([], {code: (definition, version) for code, definition, version in resolved_metrics})
+        evidence: dict = {}
+        if alignment and alignment.explanations:
+            evidence["filter_alignment"] = alignment.explanations
+        if alignment and alignment.unknown:
+            evidence["filter_alignment_unknown"] = alignment.unknown
         answer = Answer(
             question="MCP structured metric request",
             asked_by=self.user.id,
@@ -138,14 +291,18 @@ class ToolService:
             model_adapter="mcp",
             intent={},
             plan={},
-            evidence={},
+            evidence=evidence,
             result={},
             metric_version_ids=[],
             freshness={},
             steps=[],
             cache_hit=False,
         )
-        allowed = modelcfg.policy(self.session)["send_results"]
+        alignment_evidence = {
+            key: answer.evidence[key]
+            for key in ("filter_alignment", "filter_alignment_unknown")
+            if key in answer.evidence
+        }
         service.fulfil(
             self.session,
             self.user,
@@ -155,25 +312,68 @@ class ToolService:
             settings=self.settings,
             execute=allowed,
         )
-        response = {
+        answer.evidence.update(alignment_evidence)
+        metric_refs = [
+            {"code": definition.code, "version_id": version.id, "version_no": version.version_no}
+            for _, definition, version in resolved_metrics
+        ]
+        response: dict = {
             "status": answer.status,
             "message": answer.message,
             "error_code": answer.error_code,
-            "metric": {"code": definition.code, "version_id": version.id, "version_no": version.version_no},
+            "metric": metric_refs[0],
+            "metrics": metric_refs,
             "sql": answer.sql,
             "plan": answer.plan,
             "freshness": answer.freshness,
             "max_rows": min(limit, self.settings.query_max_rows),
             "data_returned": allowed and answer.status == "answered",
         }
+        if alignment and (alignment.explanations or alignment.unresolved or alignment.unknown):
+            response["filter_alignment"] = {
+                "explanations": alignment.explanations,
+                "unresolved": alignment.unresolved,
+                "unknown": alignment.unknown,
+            }
+        warnings = []
+        if alignment and alignment.unresolved:
+            for item in alignment.unresolved:
+                candidates = "、".join(item.get("candidates", [])) or "无"
+                hint = f"维度 {item['dimension']} 的取值 {item['original']} 尚未确定；候选：{candidates}"
+                if not item.get("has_dimension_table"):
+                    hint += "（可在维表中维护别名并建立关联路径）"
+                warnings.append(hint)
+        if answer.evidence.get("warning"):
+            warnings.append(answer.evidence["warning"])
+        if warnings:
+            response["warnings"] = warnings
         if allowed and answer.status == "answered":
+            raw_rows = answer.result.get("rows", [])
+            client_truncated = len(raw_rows) > limit
             result = dict(answer.result)
-            result["rows"] = result.get("rows", [])[:limit]
+            result["rows"] = raw_rows[:limit]
             result["row_count"] = len(result["rows"])
-            result["truncated"] = bool(result.get("truncated") or len(answer.result.get("rows", [])) > limit)
+            result["truncated"] = bool(result.get("truncated") or client_truncated)
+            if result["truncated"]:
+                result["insights"] = []
+            if client_truncated:
+                msg_intent = (
+                    intent
+                    if (intent.group_by or len(result["rows"]) != 1)
+                    else intent.model_copy(update={"group_by": [intent.time_grain or "_"]})
+                )
+                first_version = catalog.versions.get(intent.metric_code or "", (None, None))[1]
+                if intent.is_simple and (first_version is None or first_version.kind != "derived"):
+                    first_metric, metric_version = catalog.versions[intent.metric_code]
+                    response["message"] = service._explain(first_metric, metric_version, msg_intent, result)
+                else:
+                    requested = [(code, *catalog.versions[code]) for code in intent.metric_codes]
+                    response["message"] = service._explain_plan(requested, msg_intent, result)
             response["result"] = result
         elif not allowed:
-            response["definition"] = self.get_metric(metric)
+            definitions = [self.get_metric(code) for code in codes]
+            response["definition"] = definitions[0]
+            response["definitions"] = definitions
         return response
 
     def lineage_neighbors(

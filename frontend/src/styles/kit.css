@@ -42,10 +42,10 @@
 
 /* --- 进度轨：用量、比例、采集状态条共用 ------------------------------------------------------------- */
 .av-meter { position: relative; display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--bg-active); }
-.av-meter > i { display: block; height: 100%; border-radius: inherit; background: var(--tone, var(--accent)); transition: width .5s var(--ease-out); }
+.av-meter > i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--tone, var(--accent)); transform-origin: left center; transition: transform .5s var(--ease-out); }
 /* 分段比例条：每段一个语气色，段间留 2px 缝 */
 .av-parts { display: flex; gap: 2px; height: 8px; overflow: hidden; border-radius: 4px; }
-.av-parts > i { min-width: 2px; height: 100%; background: var(--tone, var(--text-tertiary)); transition: flex-grow .5s var(--ease-out); }
+.av-parts > i { min-width: 2px; height: 100%; background: var(--tone, var(--text-tertiary)); }
 .av-parts > i:first-child { border-radius: 4px 0 0 4px; } .av-parts > i:last-child { border-radius: 0 4px 4px 0; }
 .av-parts > i:only-child { border-radius: 4px; }
 .av-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-secondary); font: 400 12px/18px var(--font-sans); }
@@ -207,7 +207,7 @@
 .av-hero-card { margin: var(--space-3) var(--space-4); padding: var(--space-4); border-radius: var(--radius-lg);
   background: linear-gradient(135deg, var(--hero-from), var(--hero-to)); color: var(--text-on-accent); }
 .av-hero-card__hd { display: flex; align-items: center; justify-content: space-between; color: rgba(255, 255, 255, .9); font: 500 13px/20px var(--font-sans); }
-.av-hero-card__hd .av-tag { border-color: transparent; background: color-mix(in srgb, var(--text-on-accent) 18%, transparent); color: var(--text-on-accent); }
+.av-hero-card__hd .av-tag { border-color: transparent; background: rgba(6, 26, 52, .35); color: var(--text-on-accent); }
 .av-hero-card__val { display: flex; align-items: baseline; gap: 6px; margin: 6px 0 2px; font: 500 32px/1 var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .av-hero-card__val small { color: rgba(255, 255, 255, .9); font: 400 13px/16px var(--font-sans); letter-spacing: 0; }
 .av-hero-card__meta { color: rgba(255, 255, 255, .9); font: 400 12px/18px var(--font-sans); }
@@ -217,7 +217,7 @@
 .av-hero-card .av-heat > i[data-level="2"] { background: rgba(255, 255, 255, .55); }
 .av-hero-card .av-heat > i[data-level="3"] { background: rgba(255, 255, 255, .78); }
 .av-hero-card .av-heat > i[data-level="4"] { background: var(--text-on-accent); }
-.av-hero-card .av-heat > i.is-change { box-shadow: inset 0 0 0 2px var(--mod-lineage); }
+.av-hero-card .av-heat > i.is-change { box-shadow: 0 0 0 1px rgba(6, 18, 28, .85), 0 0 0 2.5px #f7b928; }
 .av-hero-card .av-heat > i.is-future { background: transparent; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
 .av-hero-card .av-cadence-axis { margin-top: 6px; color: rgba(255, 255, 255, .9); }
 /* 侧栏：浅色主题白底，导航图标带模块色，当前项是淡蓝底 + 蓝字 */
@@ -235,8 +235,9 @@
   .av-fold > summary::before, .av-disclosure > summary::before, .av-disclosure > summary { transition: none; }
 }
 
-/* 目录二级导航：指标紫、资产蓝、业务域绿、关联路径黄（顺序与 CatalogPage 的导航一致） */
+/* 目录二级导航：指标紫、资产蓝、业务域绿、关联路径黄、标准查询绿（顺序与 CatalogPage 的导航一致） */
 .av-catalog-nav > a:nth-child(1) .av-icon { color: var(--mod-catalog); }
 .av-catalog-nav > a:nth-child(2) .av-icon { color: var(--mod-collect); }
 .av-catalog-nav > a:nth-child(3) .av-icon { color: var(--mod-ask); }
 .av-catalog-nav > a:nth-child(4) .av-icon { color: var(--mod-lineage); }
+.av-catalog-nav > a:nth-child(5) .av-icon { color: var(--mod-ask); }

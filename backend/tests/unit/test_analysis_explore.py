@@ -36,7 +36,16 @@ def resolver(catalog_default: str, db_default: str | None):
     return resolve
 
 
-ENGINES = {"starrocks": resolver("default_catalog", None), "postgres": resolver("appdb", None)}
+ENGINES = {
+    "starrocks": resolver("default_catalog", None),
+    "doris": resolver("internal", None),
+    "mysql": resolver("def", None),
+    "postgres": resolver("appdb", None),
+    "clickhouse": resolver("clickhouse", None),
+    "sqlserver": resolver("master", None),
+    "oracle": resolver("FREEPDB1", None),
+    "hive": resolver("hive", None),
+}
 
 
 def ok(engine, sql, max_rows=100):
@@ -50,10 +59,22 @@ def rejected(engine, sql):
     return e.value
 
 
-def test_only_starrocks_and_postgres_have_profiles():
-    assert profile_for("starrocks") and profile_for("postgres")
-    for kind in ("mysql", "clickhouse", "sqlserver", "oracle", "doris"):
-        assert profile_for(kind) is None
+def test_all_eight_connectors_have_profiles():
+    expected_catalog_in_sql = {
+        "starrocks": True,
+        "doris": True,
+        "mysql": False,
+        "postgres": True,
+        "clickhouse": False,
+        "sqlserver": True,
+        "oracle": False,
+        "hive": False,
+    }
+    assert set(PROFILES) == set(expected_catalog_in_sql)
+    for kind, catalog_in_sql in expected_catalog_in_sql.items():
+        p = profile_for(kind)
+        assert p is not None and p.catalog_in_sql is catalog_in_sql
+    assert profile_for("unknown") is None
 
 
 @pytest.mark.parametrize("engine", ["starrocks", "postgres"])
@@ -125,7 +146,6 @@ def test_limit_is_generated_by_the_system(engine):
         ("SELECT f.region FROM d1.facts f JOIN d1.items i USING (item_id)", "syntax", "join_form"),
         ("SELECT region, (SELECT MAX(qty) FROM d1.facts) AS m FROM d1.facts", "syntax", "scalar_subquery"),
         ("SELECT region FROM d1.facts WHERE item_id IN (SELECT item_id FROM d1.items)", "syntax", "in_subquery"),
-        ("SELECT region, SUM(amount) OVER (PARTITION BY region) AS w FROM d1.facts", "syntax", "node_not_allowed"),
         ("SELECT region FROM d1.facts /* hi */", "syntax", "comment"),
         ("SELECT sleep(5) AS s FROM d1.facts", "syntax", "banned_function"),
         ("SELECT my_udf(amount) AS u FROM d1.facts", "syntax", "function_not_allowed"),
@@ -326,6 +346,34 @@ TRANSLATIONS = [  # (标准 SQL 的输出表达式, StarRocks, PostgreSQL)
         "`facts`.`event_date` - INTERVAL '1' MONTH",
         '"facts"."event_date" - INTERVAL \'1 MONTH\'',
     ),
+    (
+        "ROW_NUMBER() OVER (PARTITION BY region ORDER BY amount DESC)",
+        "ROW_NUMBER() OVER (PARTITION BY `facts`.`region` "
+        "ORDER BY CASE WHEN `facts`.`amount` IS NULL THEN 1 ELSE 0 END DESC, `facts`.`amount` DESC)",
+        'ROW_NUMBER() OVER (PARTITION BY "facts"."region" ORDER BY "facts"."amount" DESC)',
+    ),
+    (
+        "RANK() OVER (ORDER BY amount DESC)",
+        "RANK() OVER (ORDER BY CASE WHEN `facts`.`amount` IS NULL THEN 1 ELSE 0 END DESC, `facts`.`amount` DESC)",
+        'RANK() OVER (ORDER BY "facts"."amount" DESC)',
+    ),
+    (
+        "DENSE_RANK() OVER (ORDER BY amount DESC)",
+        "DENSE_RANK() OVER (ORDER BY CASE WHEN `facts`.`amount` IS NULL THEN 1 ELSE 0 END DESC, `facts`.`amount` DESC)",
+        'DENSE_RANK() OVER (ORDER BY "facts"."amount" DESC)',
+    ),
+    (
+        "LAG(amount, 1) OVER (PARTITION BY region ORDER BY event_date)",
+        "LAG(`facts`.`amount`, 1) OVER (PARTITION BY `facts`.`region` "
+        "ORDER BY CASE WHEN `facts`.`event_date` IS NULL THEN 1 ELSE 0 END, `facts`.`event_date`)",
+        'LAG("facts"."amount", 1) OVER (PARTITION BY "facts"."region" ORDER BY "facts"."event_date")',
+    ),
+    (
+        "LEAD(amount, 1, 0) OVER (PARTITION BY region ORDER BY event_date)",
+        "LEAD(`facts`.`amount`, 1, 0) OVER (PARTITION BY `facts`.`region` "
+        "ORDER BY CASE WHEN `facts`.`event_date` IS NULL THEN 1 ELSE 0 END, `facts`.`event_date`)",
+        'LEAD("facts"."amount", 1, 0) OVER (PARTITION BY "facts"."region" ORDER BY "facts"."event_date")',
+    ),
 ]
 
 
@@ -344,8 +392,109 @@ def test_every_standard_function_has_a_translation_test():
 
     from avelis.analysis.explore import STANDARD_FUNCTIONS
 
-    tested = {exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max, exp.Coalesce, exp.Nullif, exp.TimestampTrunc}
+    tested = {
+        exp.Sum,
+        exp.Count,
+        exp.Avg,
+        exp.Min,
+        exp.Max,
+        exp.Coalesce,
+        exp.Nullif,
+        exp.TimestampTrunc,
+        exp.RowNumber,
+        exp.Rank,
+        exp.DenseRank,
+        exp.Lag,
+        exp.Lead,
+    }
     assert set(STANDARD_FUNCTIONS) == tested  # 新增标准函数时必须同时补上 TRANSLATIONS
+
+
+@pytest.mark.parametrize(
+    "engine",
+    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive"],
+)
+def test_all_eight_dialects_translate_standard_and_window_functions(engine):
+    sql = (
+        "SELECT region, SUM(amount) OVER (PARTITION BY region) AS w_sum, "
+        "ROW_NUMBER() OVER (PARTITION BY region ORDER BY amount DESC) AS rn, "
+        "RANK() OVER (ORDER BY amount DESC) AS rk, "
+        "DENSE_RANK() OVER (ORDER BY amount DESC) AS drk, "
+        "LAG(amount, 1) OVER (PARTITION BY region ORDER BY event_date) AS prev_amt, "
+        "LEAD(amount, 1, 0) OVER (PARTITION BY region ORDER BY event_date) AS next_amt, "
+        "SUM(amount) OVER (PARTITION BY region ORDER BY event_date ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS roll, "
+        "DATE_TRUNC('month', event_date) AS m, "
+        "DATE_TRUNC('week', event_date) AS wk, "
+        "DATE_TRUNC('quarter', event_date) AS qtr, "
+        "event_date + INTERVAL '7' DAY AS d7, "
+        "event_date - INTERVAL '1' WEEK AS w1, "
+        "event_date + INTERVAL '1' QUARTER AS q1, "
+        "CAST(region AS VARCHAR) AS r_txt, "
+        "CAST(amount AS DOUBLE) AS a_dbl, "
+        "CAST(event_date AS TIMESTAMP) AS ts "
+        "FROM d1.facts"
+    )
+    v = ok(engine, sql)
+    assert v.dialect == PROFILES[engine].dialect
+    if PROFILES[engine].catalog_in_sql:
+        assert ENGINES[engine](None, "d1", "facts").catalog in v.sql
+    else:
+        assert ENGINES[engine](None, "d1", "facts").catalog not in v.sql
+    if engine == "oracle":
+        assert "FETCH FIRST 101 ROWS ONLY" in v.sql and "TRUNC(" in v.sql and "TIMESTAMP_TRUNC" not in v.sql
+    elif engine == "sqlserver":
+        assert "TOP 101" in v.sql and "DATEADD(" in v.sql and "INTERVAL" not in v.sql
+    elif engine == "mysql":
+        assert "1900-01-01 00:00:00" in v.sql and "0000-01-01" not in v.sql
+    got = {c.name: (c.kind, c.eligible, c.assumption, c.label_ok) for c in v.columns}
+    assert got["w_sum"] == ("level", True, False, False)
+    assert got["rn"] == ("count", True, False, False)
+    assert got["prev_amt"] == ("unknown", True, False, False)
+    assert got["next_amt"] == ("unknown", True, False, False)
+    assert got["roll"] == ("level", True, False, False)
+
+
+@pytest.mark.parametrize("engine", ["starrocks", "postgres", "mysql", "oracle", "sqlserver"])
+@pytest.mark.parametrize(
+    "sql, code",
+    [
+        (
+            "SELECT region, SUM(amount) OVER (PARTITION BY region) AS w FROM d1.facts QUALIFY w > 10",
+            "select_clause_not_allowed",
+        ),
+        ("SELECT region, SUM(ROW_NUMBER() OVER (ORDER BY amount)) OVER () AS x FROM d1.facts", "nested_window"),
+        ("SELECT region FROM d1.facts WHERE ROW_NUMBER() OVER (ORDER BY amount) = 1", "window_clause_not_allowed"),
+        (
+            "SELECT region, SUM(amount) AS s FROM d1.facts GROUP BY ROW_NUMBER() OVER (ORDER BY region)",
+            "window_clause_not_allowed",
+        ),
+        (
+            "SELECT region, SUM(amount) AS s FROM d1.facts "
+            "GROUP BY region HAVING ROW_NUMBER() OVER (ORDER BY region) = 1",
+            "window_clause_not_allowed",
+        ),
+        ("SELECT region, ROW_NUMBER() AS rn FROM d1.facts", "window_requires_over"),
+        ("SELECT region, LAG(amount, 1) AS prev FROM d1.facts", "window_requires_over"),
+        (
+            "SELECT region, LAG(amount, 1) IGNORE NULLS OVER (ORDER BY event_date) AS p FROM d1.facts",
+            "window_function_not_allowed",
+        ),
+        (
+            "SELECT region, SUM(amount) OVER (ORDER BY event_date "
+            "ROWS BETWEEN qty PRECEDING AND CURRENT ROW) AS s FROM d1.facts",
+            "window_frame_not_allowed",
+        ),
+    ],
+)
+def test_unsafe_window_patterns_are_rejected(engine, sql, code):
+    assert rejected(engine, sql).code == code
+
+
+def test_window_lag_text_column_cannot_be_label_ref():
+    v = ok("postgres", "SELECT region, LAG(region, 1) OVER (ORDER BY event_date) AS prev_region FROM d1.facts")
+    got = {c.name: (c.kind, c.eligible, c.label_ok) for c in v.columns}
+    assert got["region"] == ("text", False, True)
+    assert got["prev_region"] == ("text", False, False)
 
 
 # --- 源方言与标识符大小写（标准 SQL 按 sqlglot 的 postgres 方言解析，tobymao/sqlglot#8845） -----------------------
@@ -440,3 +589,17 @@ def test_conditional_aggregates_for_two_periods_are_evidence(engine):
     assert bad.columns[0].assumption is True and bad.columns[0].eligible is False  # 分支值是业务常量：假设
     counted = ok(engine, "SELECT SUM(CASE WHEN f.region IN ('甲', '乙') THEN 1 ELSE 0 END) AS n FROM d1.facts f")
     assert counted.columns[0].kind == "count" and counted.columns[0].eligible  # 条件计数照旧
+
+
+def test_clickhouse_dialect_rewrites_frame_and_intervals():
+    sql = (
+        "SELECT region, "
+        "LAG(amount, 1) OVER (PARTITION BY region ORDER BY event_date) AS p, "
+        "LEAD(amount, 1, 0) OVER (PARTITION BY region ORDER BY event_date) AS n, "
+        "event_date + INTERVAL '7' DAY AS d7, "
+        "event_date - INTERVAL '1' WEEK AS w1 "
+        "FROM d1.facts"
+    )
+    v = ok("clickhouse", sql)
+    assert "lagInFrame(" in v.sql and "leadInFrame(" in v.sql
+    assert "toIntervalDay(7)" in v.sql and "toIntervalWeek(1)" in v.sql

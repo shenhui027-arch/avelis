@@ -255,7 +255,29 @@ class DorisConnector:
         finally:
             conn.close()
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
+    def execute_explore(
+        self,
+        sql: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号、服务端 query_timeout 与 exec_mem_limit。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        return self.execute_select(
+            sql,
+            timeout_seconds=timeout_seconds,
+            mem_limit_bytes=mem_limit_bytes,
+            max_rows=max_rows,
+            timezone=timezone,
+        )
+
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：内部 Catalog 中给定库表当前的列（名称、类型，按位置）、视图定义与 TABLE_ID。"""
         names = {(db, name) for db, name in objects if IDENT.match(db) and IDENT.match(name)}
         out: dict[tuple[str, str], dict[str, Any]] = {
@@ -263,9 +285,11 @@ class DorisConnector:
         }
         if not names:
             return out
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
         dbs = sorted({d for d, _ in names})
         in_dbs, in_tables = _in_list(dbs), _in_list(sorted({n for _, n in names}))
-        conn = self._connect(read_timeout=30)
+        conn = self._connect(read_timeout=int(timeout_seconds or 30))
         try:
             cur = conn.cursor()
             for key, table_id in self._ids(cur, dbs).items():

@@ -73,7 +73,7 @@ AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN"
 # sqlglot 对它的支持与测试最完善。
 # 本模块里所有的解析、qualify 与 .sql() 都显式传方言（tests/unit/test_sqlglot_usage.py 防回流）。
 STANDARD_DIALECT = "postgres"
-# 标准函数（模型能用的全部函数）：类别与参数个数。每个都在 StarRocks、PostgreSQL 上有转换测试
+# 标准函数（模型能用的全部函数）：类别与参数个数。每个都在全部已支持引擎上有转换测试
 # （tests/unit/test_analysis_explore.py::test_standard_functions_translate），没有测试的函数不进这张清单。
 # 算术、CASE、CAST 是结构节点。日期加减只有一种写法：列 ± INTERVAL 'n' 单位（DATE_ADD 等函数不进清单）：
 # 规范形式唯一。
@@ -86,8 +86,16 @@ STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
     exp.Coalesce: ("条件", 2, 4),
     exp.Nullif: ("条件", 2, 2),
     exp.TimestampTrunc: ("日期", 2, 2),  # DATE_TRUNC('month', 列)：postgres 方言解析为 TimestampTrunc
+    exp.RowNumber: ("窗口", 0, 0),
+    exp.Rank: ("窗口", 0, 0),
+    exp.DenseRank: ("窗口", 0, 0),
+    exp.Lag: ("窗口", 1, 3),
+    exp.Lead: ("窗口", 1, 3),
 }
+WINDOW_FUNCTIONS = (exp.RowNumber, exp.Rank, exp.DenseRank, exp.Lag, exp.Lead)
+WINDOW_ALLOWED_INNER = (*WINDOW_FUNCTIONS, exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max)
 DATE_UNITS = {"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"}  # 日期截断与 INTERVAL 允许的单位
+ORACLE_TRUNC_FORMATS = {"DAY": "DD", "WEEK": "IW", "MONTH": "MM", "QUARTER": "Q", "YEAR": "YYYY"}
 # 结构节点的允许清单（函数另外按档案核对）
 STRUCTURE = {
     exp.Select,
@@ -137,6 +145,8 @@ STRUCTURE = {
     exp.Distinct,
     exp.Var,
     exp.Interval,
+    exp.Window,
+    exp.WindowSpec,
 }
 SELECT_ARGS = {"expressions", "from_", "joins", "where", "group", "having", "order", "limit", "distinct", "with_"}
 CAST_TYPES = {
@@ -149,6 +159,12 @@ CAST_TYPES = {
     exp.DataType.Type.TIMESTAMP,
     exp.DataType.Type.DATETIME,
 }  # DATETIME：标准 TIMESTAMP 在 StarRocks 上的写法（复核时出现）
+TARGET_CAST_TYPES = CAST_TYPES | {
+    exp.DataType.Type.CHAR,
+    exp.DataType.Type.TEXT,
+    exp.DataType.Type.FLOAT,
+    exp.DataType.Type.DATETIME2,
+}
 NUMERIC_TYPES = (
     "int",
     "decimal",
@@ -229,7 +245,7 @@ class ExploreProfile:
     settings: dict[str, Any] = field(default_factory=dict)  # 执行参数，见连接器 execute_explore
 
 
-# 标准函数转换到目标方言后，按目标方言解析出的节点与标准 SQL 相同
+# 标准函数转换到目标方言后，按目标方言解析出的节点
 _TRANSLATED = dict(STANDARD_FUNCTIONS)
 PROFILES: dict[str, ExploreProfile] = {
     "starrocks": ExploreProfile(
@@ -239,6 +255,22 @@ PROFILES: dict[str, ExploreProfile] = {
         True,
         functions=dict(_TRANSLATED),
         settings={"query_timeout": "按统一截止时间", "query_mem_limit": 2 * 1024**3, "pipeline_dop": 1},
+    ),
+    "doris": ExploreProfile(
+        "doris",
+        "2",
+        "doris",
+        True,
+        functions=dict(_TRANSLATED),
+        settings={"query_timeout": "按统一截止时间", "exec_mem_limit": 2 * 1024**3},
+    ),
+    "mysql": ExploreProfile(
+        "mysql",
+        "2",
+        "mysql",
+        False,
+        functions={**_TRANSLATED, exp.DateAdd: ("日期", 3, 3), exp.TimestampDiff: ("日期", 3, 3)},
+        settings={"max_execution_time": "按统一截止时间"},
     ),
     "postgres": ExploreProfile(
         "postgres",
@@ -252,6 +284,38 @@ PROFILES: dict[str, ExploreProfile] = {
             "work_mem": "16MB",
             "max_parallel_workers_per_gather": 0,
         },
+    ),
+    "clickhouse": ExploreProfile(
+        "clickhouse",
+        "2",
+        "clickhouse",
+        False,
+        functions={**_TRANSLATED, exp.DateTrunc: ("日期", 2, 2)},
+        settings={"max_execution_time": "按统一截止时间", "max_memory_usage": 2 * 1024**3},
+    ),
+    "sqlserver": ExploreProfile(
+        "sqlserver",
+        "2",
+        "tsql",
+        True,
+        functions={**_TRANSLATED, exp.DateAdd: ("日期", 3, 3)},
+        settings={"timeout": "按统一截止时间"},
+    ),
+    "oracle": ExploreProfile(
+        "oracle",
+        "2",
+        "oracle",
+        False,
+        functions={**_TRANSLATED, exp.DateTrunc: ("日期", 2, 2)},
+        settings={"call_timeout_ms": "按统一截止时间"},
+    ),
+    "hive": ExploreProfile(
+        "hive",
+        "2",
+        "hive",
+        False,
+        functions=dict(_TRANSLATED),
+        settings={},
     ),
 }
 
@@ -352,7 +416,34 @@ def _parse(sql: str, dialect: str = STANDARD_DIALECT) -> exp.Expression:
     return ast
 
 
-def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int]], label: str) -> None:
+_CLICKHOUSE_INTERVAL_FNS = frozenset(
+    {
+        "toIntervalSecond",
+        "toIntervalMinute",
+        "toIntervalHour",
+        "toIntervalDay",
+        "toIntervalWeek",
+        "toIntervalMonth",
+        "toIntervalQuarter",
+        "toIntervalYear",
+    }
+)
+
+
+def _check_syntax(
+    ast: exp.Expression,
+    functions: dict[type, tuple[str, int, int]],
+    label: str,
+    *,
+    is_target: bool = False,
+    dialect: str = STANDARD_DIALECT,
+) -> None:
+    allowed_cast = TARGET_CAST_TYPES if is_target else CAST_TYPES
+    var_parents = (
+        (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff)
+        if is_target
+        else (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)
+    )
     for node in ast.walk():
         if node.comments:
             raise ExploreRejected("syntax", "comment", "不允许注释（包括 hint 与执行注释）")
@@ -364,6 +455,40 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
         kind = type(node)
         if isinstance(node, exp.If) and isinstance(node.parent, exp.Case):  # CASE 的 WHEN 分支
             continue
+        if is_target and dialect == "oracle" and isinstance(node, (exp.Fetch, exp.LimitOptions)):
+            if node.args.get("with_ties") or node.args.get("percent"):
+                raise ExploreRejected("syntax", "limit", "不支持 WITH TIES 或 PERCENT")
+            if isinstance(node, exp.Fetch):
+                cnt = node.args.get("count")
+                if cnt is not None and not (isinstance(cnt, exp.Literal) and cnt.is_int):
+                    raise ExploreRejected("syntax", "limit", "FETCH 行数只能是整数")
+            continue
+        if is_target and dialect == "hive" and isinstance(node, exp.TryCast):
+            to = node.args.get("to")
+            if not isinstance(to, exp.DataType) or to.this not in allowed_cast:
+                raise ExploreRejected(
+                    "syntax", "cast_type", f"不支持转换成 {to.sql(dialect=STANDARD_DIALECT) if to else '未知类型'}"
+                )
+            continue
+        if is_target and dialect == "clickhouse" and isinstance(node, exp.Anonymous):
+            anon = str(node.this)
+            if anon in ("lagInFrame", "leadInFrame"):
+                if not (isinstance(node.parent, exp.Window) and node is node.parent.this):
+                    raise ExploreRejected(
+                        "syntax", "window_requires_over", f"窗口函数 {anon} 必须配合 OVER (...) 使用"
+                    )
+                if not 1 <= len(node.expressions) <= 3:
+                    raise ExploreRejected("syntax", "wrong_arity", f"{anon} 参数个数不对")
+                continue
+            if anon in _CLICKHOUSE_INTERVAL_FNS:
+                if not (
+                    isinstance(node.parent, (exp.Add, exp.Sub))
+                    and len(node.expressions) == 1
+                    and isinstance(node.expressions[0], exp.Literal)
+                    and node.expressions[0].is_int
+                ):
+                    raise ExploreRejected("syntax", "date_unit", "ClickHouse 日期偏移参数必须为整数")
+                continue
         if isinstance(node, exp.Func) and kind not in STRUCTURE:
             rule = functions.get(kind)
             if rule is None:
@@ -371,15 +496,33 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
                 raise ExploreRejected(
                     "syntax",
                     "function_not_allowed",
-                    f"函数 {name} 不在{label}的允许清单里（标准函数：聚合、COALESCE、NULLIF、"
+                    f"函数 {name} 不在{label}的允许清单里（标准函数：聚合、窗口、COALESCE、NULLIF、"
                     f"DATE_TRUNC；日期加减写成 列 ± INTERVAL 'n' DAY）",
                 )
             _check_arity(node, rule)
-            if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)) and _unit(node) not in DATE_UNITS:
+            if isinstance(node, WINDOW_FUNCTIONS) and not (
+                isinstance(node.parent, exp.Window) and node is node.parent.this
+            ):
+                raise ExploreRejected(
+                    "syntax", "window_requires_over", f"窗口函数 {node.sql_name()} 必须配合 OVER (...) 使用"
+                )
+            if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+                valid_units = (
+                    set(ORACLE_TRUNC_FORMATS.values())
+                    if (is_target and dialect == "oracle" and isinstance(node, exp.DateTrunc))
+                    else DATE_UNITS
+                )
+                if _unit(node) not in valid_units:
+                    raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
+            if isinstance(node, (exp.DateAdd, exp.TimestampDiff)) and _unit(node) not in DATE_UNITS:
                 raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
             continue
         if kind not in STRUCTURE:
             raise ExploreRejected("syntax", "node_not_allowed", f"不支持的写法：{kind.__name__}")
+        if isinstance(node, exp.Window):
+            _check_window(node, is_target=is_target, dialect=dialect)
+        if isinstance(node, exp.WindowSpec):
+            _check_window_spec(node)
         if isinstance(node, exp.Select):
             if node.args.get("from_") is None:
                 raise ExploreRejected("syntax", "no_source", "每个查询块都必须有表源（FROM 已采集的表）")
@@ -413,14 +556,16 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
             _check_join_shape(node)
         if isinstance(node, exp.Cast):
             to = node.args.get("to")
-            if not isinstance(to, exp.DataType) or to.this not in CAST_TYPES:
+            if not isinstance(to, exp.DataType) or to.this not in allowed_cast:
                 raise ExploreRejected(
                     "syntax", "cast_type", f"不支持转换成 {to.sql(dialect=STANDARD_DIALECT) if to else '未知类型'}"
                 )
-        if isinstance(node, exp.Var) and not isinstance(node.parent, (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)):
+        if isinstance(node, exp.Var) and not isinstance(node.parent, var_parents):
             raise ExploreRejected("syntax", "variable", "不允许变量")
         if isinstance(node, exp.Interval) and (
-            _unit(node) not in DATE_UNITS or not isinstance(node.parent, (exp.Add, exp.Sub))
+            _unit(node) not in DATE_UNITS
+            or not isinstance(node.parent, (exp.Add, exp.Sub))
+            or _interval_parts(node, raise_syntax=True) is None
         ):
             raise ExploreRejected(
                 "syntax",
@@ -431,12 +576,68 @@ def _check_syntax(ast: exp.Expression, functions: dict[type, tuple[str, int, int
             raise ExploreRejected("syntax", "limit", "LIMIT 只能是整数")
 
 
+def _check_window(node: exp.Window, *, is_target: bool = False, dialect: str = STANDARD_DIALECT) -> None:
+    if node.args.get("alias") is not None or node.args.get("first") is not None:
+        raise ExploreRejected("syntax", "window_clause_not_allowed", "不支持命名窗口或 FIRST/LAST 修饰")
+    ch_frame_ok = (
+        is_target
+        and dialect == "clickhouse"
+        and isinstance(node.this, exp.Anonymous)
+        and str(node.this.this) in ("lagInFrame", "leadInFrame")
+    )
+    if not isinstance(node.this, WINDOW_ALLOWED_INNER) and not ch_frame_ok:
+        raise ExploreRejected("syntax", "window_function_not_allowed", "不支持该窗口函数或 NULLS 处理修饰")
+    if any(isinstance(n, exp.Window) and n is not node for n in node.walk()):
+        raise ExploreRejected("syntax", "nested_window", "不允许嵌套窗口函数")
+    if len(node.args.get("partition_by") or []) > MAX_ORDER_KEYS:
+        raise ExploreRejected("size", "too_many_partition_keys", f"PARTITION BY 超过 {MAX_ORDER_KEYS} 列")
+    child, parent = node, node.parent
+    while parent is not None:
+        if isinstance(parent, (exp.Where, exp.Group, exp.Having, exp.Join)):
+            raise ExploreRejected("syntax", "window_clause_not_allowed", "窗口函数只能写在 SELECT 或 ORDER BY 中")
+        if isinstance(parent, exp.Select):
+            if child not in parent.expressions and child is not parent.args.get("order"):
+                raise ExploreRejected("syntax", "window_clause_not_allowed", "窗口函数只能写在 SELECT 或 ORDER BY 中")
+            break
+        child, parent = parent, parent.parent
+
+
+def _check_window_spec(node: exp.WindowSpec) -> None:
+    if node.args.get("kind") not in (None, "ROWS", "RANGE") or node.args.get("exclude") is not None:
+        raise ExploreRejected("syntax", "window_frame_not_allowed", "窗口帧只支持 ROWS 或 RANGE")
+    for key in ("start", "end"):
+        bound = node.args.get(key)
+        if isinstance(bound, exp.Expression) and not (isinstance(bound, exp.Literal) and bound.is_int):
+            raise ExploreRejected(
+                "syntax", "window_frame_not_allowed", "窗口帧边界只能是整数常量、UNBOUNDED 或 CURRENT ROW"
+            )
+
+
 def _unit(node: exp.Expression) -> str:
     unit = node.args.get("unit")
     if isinstance(node, exp.Interval) and unit is None and isinstance(node.this, exp.Literal):  # INTERVAL '7 DAY'
         parts = str(node.this.this).split()
         return parts[1].upper().rstrip("S") if len(parts) == 2 else ""
     return (unit.name if isinstance(unit, (exp.Var, exp.Literal)) else str(unit or "")).upper().rstrip("S")
+
+
+def _interval_parts(node: exp.Interval, *, raise_syntax: bool = False) -> tuple[int, str] | None:
+    unit = _unit(node)
+    if node.args.get("unit") is not None and isinstance(node.this, exp.Literal):
+        raw = str(node.this.this).strip()
+    elif isinstance(node.this, exp.Literal):
+        parts = str(node.this.this).split()
+        raw = parts[0] if len(parts) == 2 else ""
+    else:
+        raw = ""
+    try:
+        return int(raw), unit
+    except ValueError:
+        if raise_syntax:
+            return None
+        raise ExploreRejected(
+            "regenerate", "date_unit", f"不支持的日期间隔：{node.sql(dialect=STANDARD_DIALECT)}"
+        ) from None
 
 
 def _check_arity(node: exp.Expression, rule: tuple[str, int, int]) -> None:
@@ -753,6 +954,8 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
         if inner.kind == "arith" and not inner.bad_constant:
             return _Info("agg_level", inner.deps, inner.constants)
         return _Info("other", inner.deps, inner.constants, inner.numeric, True)
+    if isinstance(node, exp.Window):
+        return _window(node, scope)
     if isinstance(node, exp.Case):
         return _case(node, scope)
     if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
@@ -780,6 +983,45 @@ def _analyze(node: exp.Expression, scope: Scope) -> _Info:
     )
 
 
+def _neutral(value: exp.Expression | None) -> bool:
+    return (
+        value is None
+        or isinstance(value, exp.Null)
+        or (isinstance(value, exp.Literal) and not value.is_string and _decimal(value.this) in (Decimal(0), Decimal(1)))
+    )
+
+
+def _window(node: exp.Window, scope: Scope) -> _Info:
+    part_deps = set().union(*(_deps(p, scope) for p in node.args.get("partition_by") or []))
+    if order := node.args.get("order"):
+        part_deps |= _deps(order, scope)
+    inner_fn = node.this
+    if isinstance(inner_fn, (exp.RowNumber, exp.Rank, exp.DenseRank)):
+        return _Info("count", part_deps or _scope_inputs(scope))
+    if isinstance(inner_fn, (exp.Lag, exp.Lead)):
+        inner = _analyze(inner_fn.this, scope)
+        default = inner_fn.args.get("default")
+        default_bad = False
+        default_constants: set[Decimal] = set()
+        if not _neutral(default):
+            default_info = _analyze(default, scope)
+            default_bad = default_info.bad_constant or (inner.numeric != default_info.numeric)
+            default_constants = default_info.constants
+            part_deps |= default_info.deps
+        kind = "arith" if inner.kind == "column" else inner.kind
+        return _Info(
+            kind,
+            inner.deps | part_deps,
+            inner.constants | default_constants,
+            inner.numeric,
+            inner.bad_constant or default_bad,
+        )
+    if isinstance(inner_fn, (exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max)):
+        res = _analyze(inner_fn, scope)
+        return _Info(res.kind, res.deps | part_deps, res.constants, res.numeric, res.bad_constant)
+    return _Info("other", _deps(node, scope) | part_deps, bad_constant=True)
+
+
 def _case(node: exp.Case, scope: Scope) -> _Info:
     (
         """CASE WHEN 条件 THEN 值 ELSE 值 END（ADR 0009 第 6 点“证据资格”）："""
@@ -794,18 +1036,7 @@ def _case(node: exp.Case, scope: Scope) -> _Info:
     branches = [w.args.get("true") for w in ifs] + [node.args.get("default")]
     filters = set().union(*(_deps(w.this, scope) for w in ifs)) if ifs else set()
 
-    def neutral(value: exp.Expression | None) -> bool:
-        return (
-            value is None
-            or isinstance(value, exp.Null)
-            or (
-                isinstance(value, exp.Literal)
-                and not value.is_string
-                and _decimal(value.this) in (Decimal(0), Decimal(1))
-            )
-        )
-
-    values = [_analyze(b, scope) for b in branches if not neutral(b)]
+    values = [_analyze(b, scope) for b in branches if not _neutral(b)]
     if values and all(v.kind == "column" for v in values):
         return _Info("column", set().union(*(v.deps for v in values)) | filters, numeric=all(v.numeric for v in values))
     if not values:  # 只有 0 / 1 / NULL：条件计数的指示值
@@ -873,6 +1104,67 @@ def _deps(node: exp.Expression, scope: Scope) -> set[str]:
 # --- 重新生成 ---------------------------------------------------------------------------
 
 
+def _adapt_target_dialect(tree: exp.Expression, dialect: str) -> None:
+    if dialect == "tsql":
+        for node in list(tree.walk()):
+            if isinstance(node, (exp.Add, exp.Sub)):
+                iv = (
+                    node.expression
+                    if isinstance(node.expression, exp.Interval)
+                    else (node.this if isinstance(node, exp.Add) and isinstance(node.this, exp.Interval) else None)
+                )
+                if iv is None:
+                    continue
+                other = node.this if iv is node.expression else node.expression
+                parts = _interval_parts(iv)
+                assert parts is not None
+                n, unit = parts
+                if isinstance(node, exp.Sub):
+                    n = -n
+                amt = exp.Neg(this=exp.Literal.number(-n)) if n < 0 else exp.Literal.number(n)
+                node.replace(exp.DateAdd(this=other, expression=amt, unit=exp.Var(this=unit)))
+    elif dialect == "oracle":
+        for node in list(tree.find_all(exp.TimestampTrunc)):
+            fmt = ORACLE_TRUNC_FORMATS.get(_unit(node))
+            if fmt is None:
+                raise ExploreRejected("regenerate", "date_unit", "Oracle 不支持该日期截断单位")
+            node.replace(exp.Anonymous(this="TRUNC", expressions=[node.this, exp.Literal.string(fmt)]))
+        for iv in list(tree.find_all(exp.Interval)):
+            parts = _interval_parts(iv)
+            assert parts is not None
+            n, unit = parts
+            if unit == "WEEK":
+                n, unit = n * 7, "DAY"
+            elif unit == "QUARTER":
+                n, unit = n * 3, "MONTH"
+            iv.set("this", exp.Literal.string(str(n)))
+            iv.set("unit", exp.Var(this=unit))
+    elif dialect == "mysql":
+        for node in list(tree.find_all(exp.TimestampTrunc)):
+            unit_var = exp.Var(this=_unit(node))
+            base = exp.Literal.string("1900-01-01 00:00:00")
+            diff = exp.TimestampDiff(this=node.this, expression=base.copy(), unit=unit_var)
+            node.replace(exp.DateAdd(this=base, expression=exp.Paren(this=diff), unit=unit_var.copy()))
+    elif dialect == "clickhouse":
+        for node in list(tree.find_all((exp.Lag, exp.Lead))):
+            fn_name = "lagInFrame" if isinstance(node, exp.Lag) else "leadInFrame"
+            exprs: list[exp.Expression] = [node.this]
+            offset = node.args.get("offset")
+            default = node.args.get("default")
+            if offset is not None:
+                exprs.append(offset)
+            elif default is not None:
+                exprs.append(exp.Literal.number(1))
+            if default is not None:
+                exprs.append(default)
+            node.replace(exp.Anonymous(this=fn_name, expressions=exprs))
+        for iv in list(tree.find_all(exp.Interval)):
+            parts = _interval_parts(iv)
+            if parts is not None:
+                n, unit = parts
+                iv.replace(exp.Anonymous(this=f"toInterval{unit.title()}", expressions=[exp.Literal.number(n)]))
+
+
 def _regenerate(
     tree: exp.Expression, bound: dict[int, BoundTable], profile: ExploreProfile, max_rows: int
 ) -> tuple[str, int]:
@@ -890,6 +1182,7 @@ def _regenerate(
                 table.set("only", True)
     for node in final.walk():
         node.comments = None
+    _adapt_target_dialect(final, profile.dialect)
     requested = final.args.get("limit")
     wanted = int(requested.expression.this) if requested is not None else None
     limit = wanted if wanted is not None and wanted <= max_rows else max_rows + 1  # 多取 1 行以准确标记截断
@@ -901,5 +1194,5 @@ def _regenerate(
         raise ExploreRejected("regenerate", "regenerate_unstable", "重新生成的 SQL 无法再次解析") from None
     if len(again) != 1 or again[0].sql(dialect=profile.dialect) != sql:
         raise ExploreRejected("regenerate", "regenerate_unstable", "重新生成的 SQL 与校验结果不一致")
-    _check_syntax(again[0], profile.functions, f" {profile.engine} 方言")
+    _check_syntax(again[0], profile.functions, f" {profile.engine} 方言", is_target=True, dialect=profile.dialect)
     return sql, limit

@@ -7,6 +7,35 @@ import { Link } from "react-router";
 
 import { t } from "../i18n";
 import { Icon } from "./Icon";
+import { hasOverlayAbove, useOverlay } from "./overlay";
+
+async function copySqlText(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof document === "undefined" || !document.createElement) return false;
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.position = "fixed";
+  el.style.opacity = "0";
+  document.body.appendChild(el);
+  el.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  } finally {
+    el.remove();
+  }
+  return ok;
+}
 
 export { Hint, Icon } from "./Icon";
 export { ConfirmDialog, DateInput, Select, SuggestInput } from "./controls";
@@ -244,7 +273,7 @@ export function Meter({ value, max, tone, label }: { value: number; max: number;
   const ratio = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
   const auto: KitTone = ratio > 0.85 ? "danger" : ratio > 0.6 ? "warn" : "accent";
   return <span className={`av-meter tone-${tone ?? auto}`} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
-    <i style={{ width: `${ratio * 100}%` }} /></span>;
+    <i style={{ transform: `scaleX(${ratio})` }} /></span>;
 }
 
 /** 分段比例条 + 图例：每段一种语气，数量为 0 的段不画。 */
@@ -292,9 +321,13 @@ export function QueryState<T>({ query, isEmpty, emptyText, emptyAction, rows, co
   return <>{children(data)}</>;
 }
 
-export function Banner({ message }: { message: { ok: boolean; text: string } | null }) {
+export type BannerMessage = { ok: boolean; text: string; tone?: "ok" | "info" | "warn" | "danger" };
+
+export function Banner({ message }: { message: BannerMessage | null }) {
   if (!message) return null;
-  return <div className={`av-banner ${message.ok ? "av-banner--ok" : "av-banner--danger"}`}>{message.text}</div>;
+  const tone = message.tone ?? (message.ok ? "ok" : "danger");
+  const role = tone === "danger" || tone === "warn" ? "alert" : "status";
+  return <div className={`av-banner av-banner--${tone}`} role={role}>{message.text}</div>;
 }
 
 export function Drawer({ title, onClose, children, footer, width }: {
@@ -316,21 +349,21 @@ export function Drawer({ title, onClose, children, footer, width }: {
     window.setTimeout(() => { if (mounted.current) { done.current = false; setClosing(false); } }, 0);
   };
   const requestClose = () => setClosing(true);
+  const overlayId = useOverlay(true, requestClose);
   // 动画帧被暂停（后台标签页等）时也要能关上：滑出时长之后兜底收尾
   useEffect(() => {
     if (!closing) return;
     const timer = window.setTimeout(finish, 320);
     return () => window.clearTimeout(timer);
   }, [closing]);
-  // 模态行为：打开时聚焦第一个可操作元素，Tab 在抽屉内循环，Escape 关闭，关闭后把焦点还给触发者
+  // 模态行为：打开时聚焦第一个可操作元素，Tab 在抽屉内循环，Escape 由浮层栈顶层处理，关闭后把焦点还给触发者
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const focusables = () => Array.from(ref.current?.querySelectorAll<HTMLElement>(
       "input, select, textarea, button, a[href], [tabindex]:not([tabindex='-1'])") ?? []).filter((el) => !el.hasAttribute("disabled"));
     (focusables().find((el) => el.tagName !== "BUTTON") ?? focusables()[0])?.focus();
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setClosing(true);
-      if (e.key !== "Tab") return;
+      if (e.key !== "Tab" || hasOverlayAbove(overlayId.current)) return;
       const items = focusables();
       if (!items.length) return;
       const first = items[0], last = items[items.length - 1];
@@ -339,7 +372,7 @@ export function Drawer({ title, onClose, children, footer, width }: {
     };
     window.addEventListener("keydown", onKey);
     return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
-  }, []);
+  }, [overlayId]);
   // 挂到 body：面板的 overflow 与层叠上下文不能裁掉抽屉
   return createPortal(
     <div className="av-root">
@@ -399,7 +432,32 @@ export function formatSql(sql: string | null | undefined): string {
 
 export function Code({ sql, raw }: { sql: string; raw?: boolean }) {
   const text = raw ? sql : formatSql(sql);
-  return <pre className="av-code">{text.split("\n").map((line, i) => <span key={i}>{highlight(line)}{"\n"}</span>)}</pre>;
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
+  const copy = async () => {
+    if (await copySqlText(text)) {
+      setCopied(true);
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1800);
+    }
+  };
+  return (
+    <div className="av-code-wrap">
+      <button
+        type="button"
+        className="av-btn av-btn--ghost av-btn--sm av-code__copy"
+        aria-label={copied ? t("已复制") : t("复制 SQL")}
+        onClick={() => void copy()}
+      >
+        <Icon name={copied ? "check" : "copy"} small />
+        {copied ? t("已复制") : t("复制")}
+      </button>
+      <pre className="av-code">{text.split("\n").map((line, i) => <span key={i}>{highlight(line)}{"\n"}</span>)}</pre>
+    </div>
+  );
 }
 
 /** 两段 SQL 按行比较：删除行用 del，新增行用 add。 */
@@ -421,6 +479,8 @@ export function DiffCode({ before, after }: { before: string; after: string }) {
 export function useMessage() {
   return useState<{ ok: boolean; text: string } | null>(null);
 }
+
+export const SWATCHES = ["violet", "teal", "sky", "rose", "lime", "sand"];
 
 export function shortName(qualified: string | null | undefined): string {
   if (!qualified) return "";

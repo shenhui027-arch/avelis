@@ -4,13 +4,14 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useAssetSearch, useCatalogCounts, useDomains, useMetrics, type Asset } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
-import { Count, Empty, Icon, KIND_LABEL, Pager, Pill, QueryState, Status, Tile } from "../../components/ui";
+import { Count, Empty, Icon, KIND_LABEL, Pager, Pill, QueryState, SWATCHES, Status, Tile } from "../../components/ui";
 import { useRoles } from "../../layout/Shell";
 import { AssetDetail } from "./AssetDetail";
 import { DomainDetail, NewDomain } from "./DomainDetail";
 import { JoinPaths } from "./JoinPaths";
 import { MetricDetail, NewMetric } from "./MetricDetail";
 import { OssieImportDrawer } from "./OssieInterchange";
+import { VerifiedQueries } from "./VerifiedQueries";
 import { t } from "../../i18n";
 
 const ASSET_PAGE = 100;
@@ -20,6 +21,7 @@ const SECTIONS = [
   { key: "assets", label: t("资产"), icon: "db" },
   { key: "domains", label: t("业务域"), icon: "users" },
   { key: "joins", label: t("关联路径"), icon: "link" },
+  { key: "queries", label: t("标准查询"), icon: "check" },
 ] as const;
 type Section = typeof SECTIONS[number]["key"];
 
@@ -90,7 +92,7 @@ export function CatalogPage() {
     }
   };
   const c = catalogCounts.data;
-  const counts: Record<Section, number | undefined> = { metrics: c?.metrics, assets: c?.assets, domains: c?.domains, joins: c?.join_paths };
+  const counts: Record<Section, number | undefined> = { metrics: c?.metrics, assets: c?.assets, domains: c?.domains, joins: c?.join_paths, queries: undefined };
 
   return (
     <div className="av-catalog av-catalog-page" data-section={section}>
@@ -101,7 +103,7 @@ export function CatalogPage() {
             <Icon name={item.icon} /><span>{item.label}</span>{counts[item.key] !== undefined ? <Count n={counts[item.key]!} /> : null}
           </Link>)}
         </nav>
-        {current && section !== "joins" ? <>
+        {current && section !== "joins" && section !== "queries" ? <>
           <div className="av-catalog-page__search">
             <div className="av-search" role="search"><Icon name="search" />
               <input aria-label={t("搜索{{label}}", { label: current.label })} placeholder={t("搜索{{label}}", { label: current.label })} value={query}
@@ -137,7 +139,7 @@ export function CatalogPage() {
       </section>
       <section className="av-pane av-catalog-page__main" aria-label={id ? t("对象详情") : t("对象列表")}>
         {excluded ? <div className="av-catalog-page__filter-note" role="status"><Icon name="info" /><span>{t("当前对象不在搜索结果中")}</span>{clearSearch}</div> : null}
-        {current && section !== "joins" && !id ? <>
+        {current && section !== "joins" && section !== "queries" && !id ? <>
           <header className="av-catalog-page__list-header"><h1>{current.label}</h1>
             <div className="av-actions">{section === "metrics" ? createMetric : section === "domains" ? createDomain : null}</div>
           </header>
@@ -176,6 +178,7 @@ export function CatalogPage() {
         {section === "assets" && id ? <AssetDetail key={id} assetId={id} /> : null}
         {section === "domains" && id ? <DomainDetail key={id} domainId={id} /> : null}
         {section === "joins" ? <JoinPaths /> : null}
+        {section === "queries" ? <VerifiedQueries /> : null}
         {!current ? <Empty text={t("目录分类不存在")} action={<Link className="av-btn av-btn--secondary" to="/catalog/metrics">{t("返回指标目录")}</Link>} /> : null}
       </section>
       {creatingDomain && roles.has("admin") ? <NewDomain onClose={() => setCreatingDomain(false)} onCreated={(did) => { setCreatingDomain(false); navigate(`/catalog/domains/${did}`); }} /> : null}
@@ -220,4 +223,4 @@ function CatalogAssetTree({ assets, selectedId, searching }: { assets: Asset[]; 
   })}</nav>;
 }
 
-export const SWATCHES = ["violet", "teal", "sky", "rose", "lime", "sand"];
+export { SWATCHES };

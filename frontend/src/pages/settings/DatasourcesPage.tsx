@@ -1,6 +1,6 @@
 // 数据源：连接、采集、凭据按任务分组；配置项来自引擎契约。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
@@ -8,7 +8,7 @@ import { errorText, useAction, useDatasources, useEngines, useTimeZone } from ".
 import { formatTime } from "../../format";
 import { SettingsTabs, useRoles } from "../../layout/Shell";
 import {
-  Banner, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, Switch, useMessage,
+  Banner, ConfirmDialog, Crumbs, Drawer, Empty, Hint, Icon, PaneHeader, Pill, Plat, QueryState, Select, Status, Switch, useMessage,
 } from "../../components/ui";
 import { RunStrip, useRuns } from "../../components/RunStrip";
 import { t } from "../../i18n";
@@ -86,6 +86,7 @@ export function DatasourcesPage() {
 
   return (
     <div className="av-fill av-datasources">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("数据源")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="datasources" /></div>
         <div className="av-actions">{addButton}</div>
@@ -129,10 +130,22 @@ export function DatasourcesPage() {
 }
 
 function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; isAdmin: boolean }) {
+  const navigate = useNavigate();
   const tz = useTimeZone();
   const [message, setMessage] = useMessage();
   const runs = useRuns(ds.id);
   const [editingCredential, setEditingCredential] = useState<CredentialPurpose | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  useEffect(() => {
+    document.title = `${ds.name} · ${t("数据源")} · Avelis`;
+  }, [ds.name]);
+  const testConn = useAction(() => unwrap(api.POST("/api/datasources/{datasource_id}/test", {
+    params: { path: { datasource_id: ds.id } },
+  })), ["datasources"]);
+  const remove = useAction(() => unwrap(api.DELETE("/api/datasources/{datasource_id}", {
+    params: { path: { datasource_id: ds.id } },
+  })), ["datasources"]);
   const collect = useAction(() => unwrap(api.POST("/api/datasources/{datasource_id}/collect", {
     params: { path: { datasource_id: ds.id }, query: { wait: true } },
   })), ["datasources", "runs", "assets", "change-sets", "graph"]);
@@ -150,6 +163,28 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
   return (
     <>
       <PaneHeader title={<><span className="av-datasources__name">{ds.name}</span><Plat kind={ds.kind} /><Pill tone={ds.is_test_adapter ? "warn" : "ok"}>{ds.source_label}</Pill></>}>
+        {canEdit ? (
+          <>
+            <button type="button" className="av-btn av-btn--secondary" disabled={testConn.isPending}
+              aria-busy={testConn.isPending} onClick={() => testConn.mutate(undefined, {
+                onSuccess: (r) => setMessage({
+                  ok: r.ok,
+                  text: r.ok
+                    ? t("连接正常（{{ms}} ms）", { ms: r.latency_ms })
+                    : r.error || t("连接测试失败"),
+                }),
+                onError: (e) => setMessage({ ok: false, text: errorText(e) }),
+              })}>
+              <Icon name="link" small />{testConn.isPending ? t("测试中…") : t("测试连接")}
+            </button>
+            <button type="button" className="av-btn av-btn--secondary" onClick={() => setEditing(true)}>
+              <Icon name="edit" small />{t("编辑")}
+            </button>
+            <button type="button" className="av-btn av-btn--ghost" onClick={() => setConfirmingDelete(true)}>
+              <Icon name="trash" small />{t("删除")}
+            </button>
+          </>
+        ) : null}
         {/* 重新采集改为次要按钮，避免与右上角添加数据源主按钮竞争焦点 */}
         <button type="button" className="av-btn av-btn--secondary" disabled={!canEdit || collect.isPending}
           aria-busy={collect.isPending} onClick={() => collect.mutate(undefined, {
@@ -278,7 +313,98 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
       {editingCredential ? <DatasourceCredential ds={ds} purpose={editingCredential} onClose={() => setEditingCredential(null)} onSaved={() => {
         setEditingCredential(null); setMessage({ ok: true, text: t("凭据已更新") });
       }} /> : null}
+      {editing ? <EditDatasource ds={ds} onClose={() => setEditing(false)} onSaved={() => {
+        setEditing(false); setMessage({ ok: true, text: t("数据源已更新") });
+      }} /> : null}
+      {confirmingDelete ? (
+        <ConfirmDialog
+          danger
+          title={t("删除数据源？")}
+          confirm={t("删除")}
+          body={t("确认删除“{{name}}”？未产生采集或血缘记录的数据源将被永久移除。", { name: ds.name })}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={async () => {
+            await remove.mutateAsync(undefined);
+            setConfirmingDelete(false);
+            navigate("/settings/datasources", { replace: true });
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function EditDatasource({ ds, onClose, onSaved }: { ds: Datasource; onClose: () => void; onSaved: () => void }) {
+  const options = engineOptions(ds.engine) ?? [];
+  const [name, setName] = useState(ds.name);
+  const [host, setHost] = useState(ds.host);
+  const [port, setPort] = useState(String(ds.port));
+  const [interval, setInterval] = useState(String(ds.collect_interval_minutes));
+  const [configuration, setConfiguration] = useState<Record<string, string>>(() =>
+    Object.fromEntries(options.map((o) => {
+      const raw = (ds.options as Record<string, unknown>)[o.key];
+      const str = Array.isArray(raw) ? raw.join(", ") : raw != null ? String(raw) : o.default;
+      return [o.key, str];
+    })),
+  );
+  const [message, setMessage] = useMessage();
+  const intervalNum = Number(interval);
+  const valid = !!name.trim() && !!host.trim() && validPort(port)
+    && /^\d+$/.test(interval) && intervalNum >= 1 && intervalNum <= 1440
+    && options.every((option) => !option.required || optionValue(option, configuration[option.key] ?? "").length > 0);
+  const save = useAction(() => unwrap(api.PATCH("/api/datasources/{datasource_id}", {
+    params: { path: { datasource_id: ds.id } },
+    body: {
+      name: name.trim(),
+      host: host.trim(),
+      port: Number(port),
+      collect_interval_minutes: intervalNum,
+      options: Object.fromEntries(options.map((option) => [option.key, optionValue(option, configuration[option.key] ?? "")])),
+    },
+  })), ["datasources"]);
+
+  return (
+    <Drawer title={t("编辑数据源")} onClose={onClose} footer={<>
+      <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>{t("取消")}</button>
+      <button type="submit" form="edit-datasource-form" className="av-btn av-btn--primary" disabled={!valid || save.isPending}>
+        {save.isPending ? t("保存中…") : t("保存")}
+      </button>
+    </>}>
+      <form id="edit-datasource-form" className="av-datasources__form" aria-busy={save.isPending} onSubmit={(e) => {
+        e.preventDefault();
+        if (!valid || save.isPending) return;
+        save.mutate(undefined, { onSuccess: onSaved, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
+      }}>
+        <fieldset disabled={save.isPending} className="av-datasources__form-fields">
+          <label className="av-field"><span className="av-label">{t("名称")}</span>
+            <input className="av-input" required maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <div className="av-datasources__connection-form">
+            <label className="av-field"><span className="av-label">{t("主机")}</span>
+              <input className="av-input av-mono" required maxLength={255} value={host} onChange={(e) => setHost(e.target.value)} /></label>
+            <label className="av-field"><span className="av-label">{t("端口")}</span>
+              <input className="av-input av-mono" type="number" required min={1} max={65535} value={port} onChange={(e) => setPort(e.target.value)} /></label>
+          </div>
+          <label className="av-field"><span className="av-label">{t("采集间隔（分钟）")}</span>
+            <input className="av-input av-mono" type="number" required min={1} max={1440} value={interval} onChange={(e) => setInterval(e.target.value)} /></label>
+          {options.map((option) => (
+            <label className="av-field" key={option.key}>
+              <span className="av-label">{option.label}{option.required ? " *" : ""}</span>
+              {option.type === "choice" ? (
+                <Select label={option.label} value={configuration[option.key] || option.default || option.choices[0]} disabled={save.isPending}
+                  onChange={(value) => setConfiguration({ ...configuration, [option.key]: value })}>
+                  {option.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+                </Select>
+              ) : (
+                <input className="av-input av-mono" required={option.required} value={configuration[option.key] ?? ""}
+                  onChange={(e) => setConfiguration({ ...configuration, [option.key]: e.target.value })} />
+              )}
+              {option.hint ? <span className="av-help">{option.hint}</span> : null}
+            </label>
+          ))}
+        </fieldset>
+        <Banner message={message} />
+      </form>
+    </Drawer>
   );
 }
 
@@ -288,7 +414,7 @@ const DOC_STATUS: Record<string, string> = { inherited: t("本列缺注释（上
 function CommentCoverage({ ds }: { ds: Datasource }) {
   const gaps = useQuery({
     queryKey: ["comment-gaps", ds.id],
-    queryFn: () => unwrap(api.GET("/api/metadata/comment-gaps", { params: { query: { datasource_id: ds.id } } })),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/metadata/comment-gaps", { params: { query: { datasource_id: ds.id } }, signal })),
   });
   const exportCsv = (items: Schemas["CommentGapOut"][]) => {
     const cell = (v: string | null | undefined) => `"${(v ?? "").replaceAll('"', '""')}"`;

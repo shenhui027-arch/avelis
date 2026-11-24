@@ -1199,6 +1199,148 @@
     ]
    }
   },
+  "/api/datasources/{datasource_id}": {
+   "patch": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Update Datasource",
+    "operationId": "update_datasource_api_datasources__datasource_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DatasourceUpdate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DatasourceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Delete Datasource",
+    "operationId": "delete_datasource_api_datasources__datasource_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/datasources/{datasource_id}/test": {
+   "post": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Test Datasource Connection",
+    "operationId": "test_datasource_connection_api_datasources__datasource_id__test_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TestConnectionOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/datasources/{datasource_id}/exploration": {
    "put": {
     "tags": [
@@ -4205,6 +4347,473 @@
     }
    }
   },
+  "/api/verified-queries": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "List Verified Queries",
+    "operationId": "list_verified_queries_api_verified_queries_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 500,
+       "minimum": 1,
+       "default": 100,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/VerifiedQueryOut"
+         },
+         "title": "Response List Verified Queries Api Verified Queries Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Create Verified Query",
+    "operationId": "create_verified_query_api_verified_queries_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifiedQueryCreateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/verified-queries/{vqr_id}": {
+   "get": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Get Verified Query",
+    "operationId": "get_verified_query_api_verified_queries__vqr_id__get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Update Verified Query",
+    "operationId": "update_verified_query_api_verified_queries__vqr_id__put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifiedQueryUpdateIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/verified-queries/{vqr_id}/submit": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Submit Verified Query",
+    "operationId": "submit_verified_query_api_verified_queries__vqr_id__submit_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/verified-queries/{vqr_id}/approve": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Approve Verified Query",
+    "operationId": "approve_verified_query_api_verified_queries__vqr_id__approve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Note"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/verified-queries/{vqr_id}/reject": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Reject Verified Query",
+    "operationId": "reject_verified_query_api_verified_queries__vqr_id__reject_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifiedQueryRejectIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/verified-queries/{vqr_id}/archive": {
+   "post": {
+    "tags": [
+     "口径与变更"
+    ],
+    "summary": "Archive Verified Query",
+    "operationId": "archive_verified_query_api_verified_queries__vqr_id__archive_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "vqr_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Vqr Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerifiedQueryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/change-events": {
    "get": {
     "tags": [
@@ -4685,6 +5294,55 @@
     ]
    }
   },
+  "/api/ask/stream": {
+   "post": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Ask Stream",
+    "operationId": "ask_stream_api_ask_stream_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Question"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       },
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/ask/threads": {
    "get": {
     "tags": [
@@ -4745,6 +5403,53 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/ThreadDetailOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ask/threads/{thread_id}/compact": {
+   "post": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Compact Thread",
+    "operationId": "compact_thread_api_ask_threads__thread_id__compact_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "thread_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Thread Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ThreadCompactOut"
         }
        }
       }
@@ -4837,6 +5542,63 @@
       }
      }
     ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnswerOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/answers/{answer_id}/feedback": {
+   "post": {
+    "tags": [
+     "问数与审计"
+    ],
+    "summary": "Answer Feedback",
+    "operationId": "answer_feedback_api_answers__answer_id__feedback_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "answer_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Answer Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnswerFeedbackIn"
+       }
+      }
+     }
+    },
     "responses": {
      "200": {
       "description": "Successful Response",
@@ -4993,7 +5755,7 @@
      "analysis"
     ],
     "summary": "Create Run",
-    "description": "发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。",
+    "description": "发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询或 SSE 订阅。",
     "operationId": "create_run_api_analysis_runs_post",
     "security": [
      {
@@ -5407,6 +6169,68 @@
     }
    }
   },
+  "/api/analysis/runs/{run_id}/stream": {
+   "get": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Stream Run",
+    "description": "SSE 实时推送分析运行进度（step / status / thinking / delta / error / done）。",
+    "operationId": "stream_run_api_analysis_runs__run_id__stream_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "run_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Run Id"
+      }
+     },
+     {
+      "name": "after_seq",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "After Seq"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       },
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/analysis/runs/{run_id}/resume": {
    "post": {
     "tags": [
@@ -5684,27 +6508,92 @@
     ],
     "summary": "List Experiences",
     "operationId": "list_experiences_api_analysis_experiences_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "scope",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "personal",
+        "domain",
+        "all"
+       ],
+       "type": "string",
+       "default": "personal",
+       "title": "Scope"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "review_status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "enum": [
+          "none",
+          "pending",
+          "approved",
+          "rejected"
+         ],
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Review Status"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
+         "type": "array",
          "items": {
           "$ref": "#/components/schemas/ExperienceOut"
          },
-         "type": "array",
          "title": "Response List Experiences Api Analysis Experiences Get"
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    },
    "post": {
     "tags": [
@@ -5713,15 +6602,20 @@
     "summary": "Save Experience",
     "description": "仅在用户明确提交保存时持久化。候选确认与长期保存分开。",
     "operationId": "save_experience_api_analysis_experiences_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
     "requestBody": {
+     "required": true,
      "content": {
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/ExperienceCandidate"
        }
       }
-     },
-     "required": true
+     }
     },
     "responses": {
      "201": {
@@ -5744,12 +6638,7 @@
        }
       }
      }
-    },
-    "security": [
-     {
-      "OAuth2PasswordBearer": []
-     }
-    ]
+    }
    }
   },
   "/api/analysis/experiences/{experience_id}/revoke": {
@@ -5838,6 +6727,177 @@
       "application/json": {
        "schema": {
         "$ref": "#/components/schemas/ExperienceCandidate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/experiences/{experience_id}/submit": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Submit Experience",
+    "operationId": "submit_experience_api_analysis_experiences__experience_id__submit_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceSubmitIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/experiences/{experience_id}/approve": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Approve Experience",
+    "operationId": "approve_experience_api_analysis_experiences__experience_id__approve_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceApproveIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExperienceOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/analysis/experiences/{experience_id}/reject": {
+   "post": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Reject Experience",
+    "operationId": "reject_experience_api_analysis_experiences__experience_id__reject_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "experience_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Experience Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExperienceRejectIn"
        }
       }
      }
@@ -6417,6 +7477,44 @@
       }
      }
     }
+   },
+   "delete": {
+    "tags": [
+     "analysis"
+    ],
+    "summary": "Delete Task",
+    "operationId": "delete_task_api_analysis_tasks__task_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "task_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Task Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
    }
   },
   "/api/analysis/tasks/{task_id}/run": {
@@ -6967,6 +8065,491 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/model-pricing": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get Model Pricing",
+    "operationId": "get_model_pricing_api_model_pricing_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PricingCatalogOut"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Put Model Pricing",
+    "operationId": "put_model_pricing_api_model_pricing_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PricingUpdateBody"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PricingCatalogOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/llm-quotas": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get Llm Quotas",
+    "operationId": "get_llm_quotas_api_llm_quotas_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/QuotaOut"
+         },
+         "type": "array",
+         "title": "Response Get Llm Quotas Api Llm Quotas Get"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   },
+   "put": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Put Llm Quota",
+    "operationId": "put_llm_quota_api_llm_quotas_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/QuotaUpsertIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/QuotaOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
+  "/api/llm-quotas/{quota_id}": {
+   "delete": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Delete Llm Quota",
+    "operationId": "delete_llm_quota_api_llm_quotas__quota_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "quota_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Quota Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/llm-usage/summary": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get Llm Usage Summary",
+    "operationId": "get_llm_usage_summary_api_llm_usage_summary_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "days",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 365,
+       "minimum": 1,
+       "default": 30,
+       "title": "Days"
+      }
+     },
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "User Id"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UsageSummaryOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/llm-usage/ledger": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get Llm Usage Ledger",
+    "operationId": "get_llm_usage_ledger_api_llm_usage_ledger_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "days",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer",
+         "maximum": 365,
+         "minimum": 1
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Days"
+      }
+     },
+     {
+      "name": "user_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "User Id"
+      }
+     },
+     {
+      "name": "domain_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Domain Id"
+      }
+     },
+     {
+      "name": "purpose",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Purpose"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "name": "model_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Model Id"
+      }
+     },
+     {
+      "name": "start_date",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Start Date"
+      }
+     },
+     {
+      "name": "end_date",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "End Date"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UsageLedgerPageOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/llm-usage/me": {
+   "get": {
+    "tags": [
+     "模型配置"
+    ],
+    "summary": "Get My Llm Usage",
+    "operationId": "get_my_llm_usage_api_llm_usage_me_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MyUsageOut"
         }
        }
       }
@@ -10329,6 +11912,29 @@
       ],
       "title": "Time Column"
      },
+     "window": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Window"
+     },
+     "compare": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compare"
+     },
      "units": {
       "additionalProperties": true,
       "type": "object",
@@ -11431,6 +13037,34 @@
       "additionalProperties": true,
       "type": "object",
       "title": "Window"
+     },
+     "skills": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Skills"
+     },
+     "model_choice": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelChoice"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      }
     },
     "additionalProperties": true,
@@ -11442,6 +13076,39 @@
      "status"
     ],
     "title": "AnalysisTaskOut"
+   },
+   "AnswerFeedbackIn": {
+    "properties": {
+     "rating": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up",
+         "down"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 1000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "title": "AnswerFeedbackIn"
    },
    "AnswerOut": {
     "properties": {
@@ -11618,6 +13285,43 @@
        }
       ],
       "title": "Explanation Source"
+     },
+     "feedback_rating": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "up",
+         "down"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Feedback Rating"
+     },
+     "feedback_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Feedback Note"
+     },
+     "feedback_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Feedback At"
      }
     },
     "additionalProperties": true,
@@ -12169,6 +13873,13 @@
        }
       ],
       "title": "Effective Effort"
+     },
+     "backups": {
+      "items": {
+       "$ref": "#/components/schemas/BackupTarget"
+      },
+      "type": "array",
+      "title": "Backups"
      }
     },
     "type": "object",
@@ -12358,6 +14069,42 @@
      "revoked_at"
     ],
     "title": "AuthorizationOut"
+   },
+   "BackupTarget": {
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "title": "Provider Id"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "off",
+         "low",
+         "medium",
+         "high",
+         "max"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_id",
+     "model_id"
+    ],
+    "title": "BackupTarget"
    },
    "Body_login_api_auth_token_post": {
     "properties": {
@@ -15094,6 +16841,76 @@
     ],
     "title": "DatasourceRef"
    },
+   "DatasourceUpdate": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "host": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 255,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Host"
+     },
+     "port": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 65535.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Port"
+     },
+     "options": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Options"
+     },
+     "collect_interval_minutes": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 1440.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Collect Interval Minutes"
+     }
+    },
+    "type": "object",
+    "title": "DatasourceUpdate"
+   },
    "Decision": {
     "properties": {
      "domain_id": {
@@ -16263,6 +18080,24 @@
     "type": "object",
     "title": "ExampleQuestionsSet"
    },
+   "ExperienceApproveIn": {
+    "properties": {
+     "note": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 1000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "title": "ExperienceApproveIn"
+   },
    "ExperienceCandidate": {
     "properties": {
      "kind": {
@@ -16315,8 +18150,88 @@
      },
      "scope": {
       "type": "string",
-      "const": "personal",
+      "enum": [
+       "personal",
+       "domain"
+      ],
       "title": "Scope"
+     },
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     },
+     "review_status": {
+      "type": "string",
+      "enum": [
+       "none",
+       "pending",
+       "approved",
+       "rejected"
+      ],
+      "title": "Review Status",
+      "default": "none"
+     },
+     "submitted_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Submitted By"
+     },
+     "submitted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Submitted At"
+     },
+     "reviewed_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed By"
+     },
+     "reviewed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed At"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
      },
      "current_version": {
       "type": "integer",
@@ -16446,6 +18361,22 @@
     ],
     "title": "ExperienceRef"
    },
+   "ExperienceRejectIn": {
+    "properties": {
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "note"
+    ],
+    "title": "ExperienceRejectIn"
+   },
    "ExperienceRevokeIn": {
     "properties": {
      "reason": {
@@ -16486,6 +18417,21 @@
      "checkpoint"
     ],
     "title": "ExperienceSource"
+   },
+   "ExperienceSubmitIn": {
+    "properties": {
+     "domain_id": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Domain Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "domain_id"
+    ],
+    "title": "ExperienceSubmitIn"
    },
    "Exploration": {
     "properties": {
@@ -18892,6 +20838,46 @@
     ],
     "title": "ModelOut"
    },
+   "MyUsageOut": {
+    "properties": {
+     "summary": {
+      "$ref": "#/components/schemas/UsageSummaryOut"
+     },
+     "today_tokens": {
+      "type": "integer",
+      "title": "Today Tokens"
+     },
+     "today_cost": {
+      "type": "number",
+      "title": "Today Cost"
+     },
+     "month_tokens": {
+      "type": "integer",
+      "title": "Month Tokens"
+     },
+     "month_cost": {
+      "type": "number",
+      "title": "Month Cost"
+     },
+     "quotas": {
+      "items": {
+       "$ref": "#/components/schemas/QuotaStatusOut"
+      },
+      "type": "array",
+      "title": "Quotas"
+     }
+    },
+    "type": "object",
+    "required": [
+     "summary",
+     "today_tokens",
+     "today_cost",
+     "month_tokens",
+     "month_cost",
+     "quotas"
+    ],
+    "title": "MyUsageOut"
+   },
    "Note": {
     "properties": {
      "note": {
@@ -19655,6 +21641,213 @@
     ],
     "title": "PresetsOut"
    },
+   "PricingCatalogOut": {
+    "properties": {
+     "configured": {
+      "items": {
+       "$ref": "#/components/schemas/PricingOut"
+      },
+      "type": "array",
+      "title": "Configured"
+     },
+     "defaults": {
+      "items": {
+       "$ref": "#/components/schemas/PricingDefaultOut"
+      },
+      "type": "array",
+      "title": "Defaults"
+     }
+    },
+    "type": "object",
+    "required": [
+     "configured",
+     "defaults"
+    ],
+    "title": "PricingCatalogOut"
+   },
+   "PricingDefaultOut": {
+    "properties": {
+     "provider_code": {
+      "type": "string",
+      "title": "Provider Code"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "input_per_1m": {
+      "type": "number",
+      "title": "Input Per 1M"
+     },
+     "output_per_1m": {
+      "type": "number",
+      "title": "Output Per 1M"
+     },
+     "cache_hit_per_1m": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cache Hit Per 1M"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_code",
+     "model_id",
+     "input_per_1m",
+     "output_per_1m",
+     "currency",
+     "source"
+    ],
+    "title": "PricingDefaultOut"
+   },
+   "PricingItemIn": {
+    "properties": {
+     "provider_code": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Provider Code",
+      "default": "*"
+     },
+     "model_id": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Model Id"
+     },
+     "input_per_1m": {
+      "type": "number",
+      "minimum": 0.0,
+      "title": "Input Per 1M",
+      "default": 0.0
+     },
+     "output_per_1m": {
+      "type": "number",
+      "minimum": 0.0,
+      "title": "Output Per 1M",
+      "default": 0.0
+     },
+     "cache_hit_per_1m": {
+      "anyOf": [
+       {
+        "type": "number",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cache Hit Per 1M"
+     },
+     "currency": {
+      "type": "string",
+      "maxLength": 8,
+      "minLength": 1,
+      "title": "Currency",
+      "default": "USD"
+     },
+     "delete": {
+      "type": "boolean",
+      "title": "Delete",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "model_id"
+    ],
+    "title": "PricingItemIn"
+   },
+   "PricingOut": {
+    "properties": {
+     "provider_code": {
+      "type": "string",
+      "title": "Provider Code"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "input_per_1m": {
+      "type": "number",
+      "title": "Input Per 1M"
+     },
+     "output_per_1m": {
+      "type": "number",
+      "title": "Output Per 1M"
+     },
+     "cache_hit_per_1m": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cache Hit Per 1M"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "source": {
+      "type": "string",
+      "title": "Source"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "provider_code",
+     "model_id",
+     "input_per_1m",
+     "output_per_1m",
+     "currency",
+     "source",
+     "id",
+     "updated_at"
+    ],
+    "title": "PricingOut"
+   },
+   "PricingUpdateBody": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/PricingItemIn"
+      },
+      "type": "array",
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Items"
+     }
+    },
+    "type": "object",
+    "required": [
+     "items"
+    ],
+    "title": "PricingUpdateBody"
+   },
    "ProviderCreate": {
     "properties": {
      "code": {
@@ -20076,6 +22269,301 @@
     ],
     "title": "Question"
    },
+   "QuotaOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "scope_type": {
+      "type": "string",
+      "enum": [
+       "global",
+       "user",
+       "domain"
+      ],
+      "title": "Scope Type"
+     },
+     "scope_id": {
+      "type": "string",
+      "title": "Scope Id"
+     },
+     "daily_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Token Limit"
+     },
+     "monthly_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Token Limit"
+     },
+     "daily_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Cost Limit"
+     },
+     "monthly_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Cost Limit"
+     },
+     "rpm_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rpm Limit"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "scope_type",
+     "scope_id",
+     "enabled",
+     "updated_at"
+    ],
+    "title": "QuotaOut"
+   },
+   "QuotaStatusOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "scope_type": {
+      "type": "string",
+      "enum": [
+       "global",
+       "user",
+       "domain"
+      ],
+      "title": "Scope Type"
+     },
+     "scope_id": {
+      "type": "string",
+      "title": "Scope Id"
+     },
+     "daily_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Token Limit"
+     },
+     "monthly_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Token Limit"
+     },
+     "daily_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Cost Limit"
+     },
+     "monthly_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Cost Limit"
+     },
+     "rpm_limit": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rpm Limit"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "used_daily_tokens": {
+      "type": "integer",
+      "title": "Used Daily Tokens"
+     },
+     "used_monthly_tokens": {
+      "type": "integer",
+      "title": "Used Monthly Tokens"
+     },
+     "used_daily_cost": {
+      "type": "number",
+      "title": "Used Daily Cost"
+     },
+     "used_monthly_cost": {
+      "type": "number",
+      "title": "Used Monthly Cost"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "scope_type",
+     "scope_id",
+     "enabled",
+     "updated_at",
+     "used_daily_tokens",
+     "used_monthly_tokens",
+     "used_daily_cost",
+     "used_monthly_cost"
+    ],
+    "title": "QuotaStatusOut"
+   },
+   "QuotaUpsertIn": {
+    "properties": {
+     "scope_type": {
+      "type": "string",
+      "enum": [
+       "global",
+       "user",
+       "domain"
+      ],
+      "title": "Scope Type"
+     },
+     "scope_id": {
+      "type": "string",
+      "maxLength": 64,
+      "title": "Scope Id",
+      "default": "*"
+     },
+     "daily_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Token Limit"
+     },
+     "monthly_token_limit": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Token Limit"
+     },
+     "daily_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Daily Cost Limit"
+     },
+     "monthly_cost_limit": {
+      "anyOf": [
+       {
+        "type": "number",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Cost Limit"
+     },
+     "rpm_limit": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 0.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rpm Limit"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+     }
+    },
+    "type": "object",
+    "required": [
+     "scope_type"
+    ],
+    "title": "QuotaUpsertIn"
+   },
    "RedirectOut": {
     "properties": {
      "redirect_to": {
@@ -20148,6 +22636,37 @@
      "note"
     ],
     "title": "Resolve"
+   },
+   "RoutingConfig": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": false
+     },
+     "simple_target": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/BackupTarget"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "complex_target": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/BackupTarget"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "title": "RoutingConfig"
    },
    "RunCreate": {
     "properties": {
@@ -20314,6 +22833,16 @@
        }
       ],
       "title": "Policy"
+     },
+     "routing": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RoutingConfig"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "type": "object",
@@ -20330,6 +22859,9 @@
      },
      "policy": {
       "$ref": "#/components/schemas/PolicyOut"
+     },
+     "routing": {
+      "$ref": "#/components/schemas/RoutingConfig"
      },
      "mode": {
       "type": "string",
@@ -21660,6 +24192,22 @@
       ],
       "title": "Reasoning Effort",
       "description": "思考强度；不写时按该用途的默认档位"
+     },
+     "backups": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/BackupTarget"
+        },
+        "type": "array",
+        "maxItems": 5
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Backups",
+      "description": "备选容灾模型（最多 5 个）"
      }
     },
     "type": "object",
@@ -21703,6 +24251,41 @@
       ],
       "title": "Schedule Cron",
       "description": "5 段 cron（业务时区），如 0 9 1 * *；为空表示只手动运行"
+     },
+     "skills": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skills"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      }
     },
     "type": "object",
@@ -21819,6 +24402,19 @@
       ],
       "title": "Title"
      },
+     "question": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 2
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Question"
+     },
      "window": {
       "anyOf": [
        {
@@ -21839,6 +24435,41 @@
        }
       ],
       "title": "Schedule Cron"
+     },
+     "skills": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skills"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AnalysisModelIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reasoning_effort": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasoning Effort"
      },
      "status": {
       "anyOf": [
@@ -21866,6 +24497,109 @@
     "type": "object",
     "title": "TaskPatch"
    },
+   "TestConnectionOut": {
+    "properties": {
+     "ok": {
+      "type": "boolean",
+      "title": "Ok"
+     },
+     "latency_ms": {
+      "type": "integer",
+      "title": "Latency Ms"
+     },
+     "server_identity": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Server Identity"
+     },
+     "error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "ok",
+     "latency_ms"
+    ],
+    "title": "TestConnectionOut"
+   },
+   "ThreadCompactOut": {
+    "properties": {
+     "thread_id": {
+      "type": "string",
+      "title": "Thread Id"
+     },
+     "compacted": {
+      "type": "boolean",
+      "title": "Compacted"
+     },
+     "before_messages": {
+      "type": "integer",
+      "title": "Before Messages"
+     },
+     "after_messages": {
+      "type": "integer",
+      "title": "After Messages"
+     },
+     "before_tokens": {
+      "type": "integer",
+      "title": "Before Tokens"
+     },
+     "after_tokens": {
+      "type": "integer",
+      "title": "After Tokens"
+     },
+     "compacted_summary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compacted Summary"
+     },
+     "compacted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compacted At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "thread_id",
+     "compacted",
+     "before_messages",
+     "after_messages",
+     "before_tokens",
+     "after_tokens"
+    ],
+    "title": "ThreadCompactOut"
+   },
    "ThreadDetailOut": {
     "properties": {
      "id": {
@@ -21886,6 +24620,28 @@
       },
       "type": "array",
       "title": "Answers"
+     },
+     "compacted_summary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compacted Summary"
+     },
+     "compacted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Compacted At"
      }
     },
     "additionalProperties": true,
@@ -22187,6 +24943,447 @@
     ],
     "title": "TransitionOut"
    },
+   "UsageByModelOut": {
+    "properties": {
+     "provider_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider Code"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "calls": {
+      "type": "integer",
+      "title": "Calls"
+     },
+     "total_tokens": {
+      "type": "integer",
+      "title": "Total Tokens"
+     },
+     "estimated_cost": {
+      "type": "number",
+      "title": "Estimated Cost"
+     }
+    },
+    "type": "object",
+    "required": [
+     "model_id",
+     "calls",
+     "total_tokens",
+     "estimated_cost"
+    ],
+    "title": "UsageByModelOut"
+   },
+   "UsageByPurposeOut": {
+    "properties": {
+     "purpose": {
+      "type": "string",
+      "title": "Purpose"
+     },
+     "calls": {
+      "type": "integer",
+      "title": "Calls"
+     },
+     "total_tokens": {
+      "type": "integer",
+      "title": "Total Tokens"
+     },
+     "estimated_cost": {
+      "type": "number",
+      "title": "Estimated Cost"
+     }
+    },
+    "type": "object",
+    "required": [
+     "purpose",
+     "calls",
+     "total_tokens",
+     "estimated_cost"
+    ],
+    "title": "UsageByPurposeOut"
+   },
+   "UsageDailyOut": {
+    "properties": {
+     "date": {
+      "type": "string",
+      "title": "Date"
+     },
+     "calls": {
+      "type": "integer",
+      "title": "Calls"
+     },
+     "total_tokens": {
+      "type": "integer",
+      "title": "Total Tokens"
+     },
+     "estimated_cost": {
+      "type": "number",
+      "title": "Estimated Cost"
+     },
+     "ask_tokens": {
+      "type": "integer",
+      "title": "Ask Tokens"
+     },
+     "analysis_tokens": {
+      "type": "integer",
+      "title": "Analysis Tokens"
+     }
+    },
+    "type": "object",
+    "required": [
+     "date",
+     "calls",
+     "total_tokens",
+     "estimated_cost",
+     "ask_tokens",
+     "analysis_tokens"
+    ],
+    "title": "UsageDailyOut"
+   },
+   "UsageLedgerItemOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "user_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User Id"
+     },
+     "domain_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain Id"
+     },
+     "purpose": {
+      "type": "string",
+      "title": "Purpose"
+     },
+     "phase": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phase"
+     },
+     "provider_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider Id"
+     },
+     "provider_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider Code"
+     },
+     "model_id": {
+      "type": "string",
+      "title": "Model Id"
+     },
+     "adapter": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Adapter"
+     },
+     "thread_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Thread Id"
+     },
+     "answer_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Answer Id"
+     },
+     "run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Run Id"
+     },
+     "input_tokens": {
+      "type": "integer",
+      "title": "Input Tokens"
+     },
+     "output_tokens": {
+      "type": "integer",
+      "title": "Output Tokens"
+     },
+     "cache_hit_tokens": {
+      "type": "integer",
+      "title": "Cache Hit Tokens"
+     },
+     "reasoning_tokens": {
+      "type": "integer",
+      "title": "Reasoning Tokens"
+     },
+     "total_tokens": {
+      "type": "integer",
+      "title": "Total Tokens"
+     },
+     "estimated_cost": {
+      "type": "number",
+      "title": "Estimated Cost"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "latency_ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latency Ms"
+     },
+     "status": {
+      "type": "string",
+      "title": "Status"
+     },
+     "failover_from": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Failover From"
+     },
+     "routing_tier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Routing Tier"
+     },
+     "error_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error Code"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "created_at",
+     "purpose",
+     "model_id",
+     "input_tokens",
+     "output_tokens",
+     "cache_hit_tokens",
+     "reasoning_tokens",
+     "total_tokens",
+     "estimated_cost",
+     "currency",
+     "status"
+    ],
+    "title": "UsageLedgerItemOut"
+   },
+   "UsageLedgerPageOut": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/UsageLedgerItemOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "limit": {
+      "type": "integer",
+      "title": "Limit"
+     },
+     "offset": {
+      "type": "integer",
+      "title": "Offset"
+     }
+    },
+    "type": "object",
+    "required": [
+     "items",
+     "total",
+     "limit",
+     "offset"
+    ],
+    "title": "UsageLedgerPageOut"
+   },
+   "UsageSummaryOut": {
+    "properties": {
+     "days": {
+      "type": "integer",
+      "title": "Days"
+     },
+     "total_calls": {
+      "type": "integer",
+      "title": "Total Calls"
+     },
+     "failover_count": {
+      "type": "integer",
+      "title": "Failover Count"
+     },
+     "error_count": {
+      "type": "integer",
+      "title": "Error Count"
+     },
+     "input_tokens": {
+      "type": "integer",
+      "title": "Input Tokens"
+     },
+     "output_tokens": {
+      "type": "integer",
+      "title": "Output Tokens"
+     },
+     "cache_hit_tokens": {
+      "type": "integer",
+      "title": "Cache Hit Tokens"
+     },
+     "reasoning_tokens": {
+      "type": "integer",
+      "title": "Reasoning Tokens"
+     },
+     "total_tokens": {
+      "type": "integer",
+      "title": "Total Tokens"
+     },
+     "estimated_cost": {
+      "type": "number",
+      "title": "Estimated Cost"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "cost_by_currency": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "type": "object",
+      "title": "Cost By Currency"
+     },
+     "by_model": {
+      "items": {
+       "$ref": "#/components/schemas/UsageByModelOut"
+      },
+      "type": "array",
+      "title": "By Model"
+     },
+     "by_purpose": {
+      "items": {
+       "$ref": "#/components/schemas/UsageByPurposeOut"
+      },
+      "type": "array",
+      "title": "By Purpose"
+     },
+     "daily": {
+      "items": {
+       "$ref": "#/components/schemas/UsageDailyOut"
+      },
+      "type": "array",
+      "title": "Daily"
+     }
+    },
+    "type": "object",
+    "required": [
+     "days",
+     "total_calls",
+     "failover_count",
+     "error_count",
+     "input_tokens",
+     "output_tokens",
+     "cache_hit_tokens",
+     "reasoning_tokens",
+     "total_tokens",
+     "estimated_cost",
+     "currency",
+     "by_model",
+     "by_purpose",
+     "daily"
+    ],
+    "title": "UsageSummaryOut"
+   },
    "UserCreate": {
     "properties": {
      "username": {
@@ -22436,6 +25633,470 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "VerifiedQueryCreateIn": {
+    "properties": {
+     "domain_id": {
+      "type": "string",
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Domain Id"
+     },
+     "title": {
+      "type": "string",
+      "maxLength": 200,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Title"
+     },
+     "question": {
+      "type": "string",
+      "maxLength": 4000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Question"
+     },
+     "sql_text": {
+      "type": "string",
+      "maxLength": 20000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Sql Text"
+     },
+     "dialect": {
+      "type": "string",
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Dialect",
+      "default": "postgres"
+     },
+     "question_variants": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Question Variants"
+     },
+     "datasource_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasource Id"
+     },
+     "metric_codes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Metric Codes"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 20,
+      "title": "Tags"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "source_answer_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Answer Id"
+     },
+     "source_run_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Run Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "domain_id",
+     "title",
+     "question",
+     "sql_text"
+    ],
+    "title": "VerifiedQueryCreateIn"
+   },
+   "VerifiedQueryOut": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "domain_id": {
+      "type": "string",
+      "title": "Domain Id"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "question": {
+      "type": "string",
+      "title": "Question"
+     },
+     "question_variants": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Question Variants"
+     },
+     "sql_text": {
+      "type": "string",
+      "title": "Sql Text"
+     },
+     "dialect": {
+      "type": "string",
+      "title": "Dialect"
+     },
+     "datasource_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasource Id"
+     },
+     "metric_codes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Metric Codes"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Tags"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "source_answer_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Answer Id"
+     },
+     "source_run_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Run Id"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "pending_review",
+       "approved",
+       "rejected",
+       "archived"
+      ],
+      "title": "Status"
+     },
+     "created_by": {
+      "type": "string",
+      "title": "Created By"
+     },
+     "created_at": {
+      "type": "string",
+      "title": "Created At"
+     },
+     "updated_at": {
+      "type": "string",
+      "title": "Updated At"
+     },
+     "submitted_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Submitted By"
+     },
+     "submitted_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Submitted At"
+     },
+     "reviewed_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed By"
+     },
+     "reviewed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reviewed At"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     },
+     "approved_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Approved At"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "id",
+     "domain_id",
+     "title",
+     "question",
+     "question_variants",
+     "sql_text",
+     "dialect",
+     "metric_codes",
+     "tags",
+     "status",
+     "created_by",
+     "created_at",
+     "updated_at"
+    ],
+    "title": "VerifiedQueryOut"
+   },
+   "VerifiedQueryRejectIn": {
+    "properties": {
+     "note": {
+      "type": "string",
+      "maxLength": 1000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "required": [
+     "note"
+    ],
+    "title": "VerifiedQueryRejectIn"
+   },
+   "VerifiedQueryUpdateIn": {
+    "properties": {
+     "title": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 200,
+        "minLength": 1,
+        "pattern": "\\S"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Title"
+     },
+     "question": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 4000,
+        "minLength": 1,
+        "pattern": "\\S"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Question"
+     },
+     "sql_text": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 20000,
+        "minLength": 1,
+        "pattern": "\\S"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sql Text"
+     },
+     "dialect": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 32,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dialect"
+     },
+     "question_variants": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array",
+        "maxItems": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Question Variants"
+     },
+     "datasource_id": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Datasource Id"
+     },
+     "metric_codes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array",
+        "maxItems": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Metric Codes"
+     },
+     "tags": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array",
+        "maxItems": 20
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tags"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     }
+    },
+    "type": "object",
+    "title": "VerifiedQueryUpdateIn"
    },
    "VersionBrief": {
     "properties": {

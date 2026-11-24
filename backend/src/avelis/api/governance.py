@@ -13,7 +13,7 @@ from avelis import events
 from avelis.api import schemas as S
 from avelis.api.catalog import qualified
 from avelis.api.deps import current_user, get_session
-from avelis.governance import access, changes, joins, metrics
+from avelis.governance import access, changes, joins, metrics, vqr
 from avelis.i18n import gettext
 from avelis.models import (
     Asset,
@@ -661,3 +661,89 @@ def resolve_task(
             return result
     changes.resolve_task(session, user, task, body.resolution, body.note, body.linked_metric_version_id)
     return task_view(session, task)
+
+
+# --- 验证查询库（VQR / Golden SQL） --------------------------------------------------
+
+
+@router.get("/verified-queries", response_model=list[S.VerifiedQueryOut])
+def list_verified_queries(
+    domain_id: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    return vqr.list_vqr(session, user, domain_id=domain_id, status=status, q=q, limit=limit, offset=offset)
+
+
+@router.post("/verified-queries", status_code=201, response_model=S.VerifiedQueryOut)
+def create_verified_query(
+    body: S.VerifiedQueryCreateIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    result = vqr.create_vqr(session, user, **body.model_dump())
+    session.commit()
+    return result
+
+
+@router.get("/verified-queries/{vqr_id}", response_model=S.VerifiedQueryOut)
+def get_verified_query(
+    vqr_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    return vqr.get_vqr(session, user, vqr_id)
+
+
+@router.put("/verified-queries/{vqr_id}", response_model=S.VerifiedQueryOut)
+def update_verified_query(
+    vqr_id: str,
+    body: S.VerifiedQueryUpdateIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = vqr.update_vqr(session, user, vqr_id, **body.model_dump(exclude_unset=True))
+    session.commit()
+    return result
+
+
+@router.post("/verified-queries/{vqr_id}/submit", response_model=S.VerifiedQueryOut)
+def submit_verified_query(
+    vqr_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    result = vqr.submit_vqr(session, user, vqr_id)
+    session.commit()
+    return result
+
+
+@router.post("/verified-queries/{vqr_id}/approve", response_model=S.VerifiedQueryOut)
+def approve_verified_query(
+    vqr_id: str,
+    body: Note,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = vqr.approve_vqr(session, user, vqr_id, note=body.note)
+    session.commit()
+    return result
+
+
+@router.post("/verified-queries/{vqr_id}/reject", response_model=S.VerifiedQueryOut)
+def reject_verified_query(
+    vqr_id: str,
+    body: S.VerifiedQueryRejectIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = vqr.reject_vqr(session, user, vqr_id, note=body.note)
+    session.commit()
+    return result
+
+
+@router.post("/verified-queries/{vqr_id}/archive", response_model=S.VerifiedQueryOut)
+def archive_verified_query(
+    vqr_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    result = vqr.archive_vqr(session, user, vqr_id)
+    session.commit()
+    return result

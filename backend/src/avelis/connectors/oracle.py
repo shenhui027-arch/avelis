@@ -281,6 +281,26 @@ class OracleConnector:
             raise _query_error(exc) from exc
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
+    def execute_explore(
+        self,
+        sql_text: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读事务内执行，靠 call_timeout_ms 与行数上限约束。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        return self.execute_select(
+            sql_text,
+            timeout_seconds=timeout_seconds,
+            mem_limit_bytes=mem_limit_bytes,
+            max_rows=max_rows,
+            timezone=timezone,
+        )
+
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         """DBA_TAB_MODIFICATIONS 依赖统计信息刷新，不能代表最近写入时间；不报告新鲜度。"""
         return {}
@@ -398,7 +418,9 @@ class OracleConnector:
             Msg("Oracle 统一审计中没有相关的成功 DDL 记录，且未启用记录这些操作成功结果的审计策略"), "not_enabled"
         )
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）、视图定义与 OBJECT_ID；对象不存在时列为空。
         用 ALL_* 视图：查询账号只看得到有权限的对象，这正是它执行时能看到的。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
@@ -407,9 +429,11 @@ class OracleConnector:
         }
         if not names:
             return out
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
         schemas, tables = sorted({s for s, _ in names}), sorted({n for _, n in names})
         try:
-            with self._connect(call_timeout_ms=30_000) as conn:
+            with self._connect(call_timeout_ms=int(timeout_seconds or 30) * 1000) as conn:
                 smarks, sbinds = _binds(schemas, "s")
                 tmarks, tbinds = _binds(tables, "t")
                 with conn.cursor() as cur:

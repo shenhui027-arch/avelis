@@ -39,10 +39,13 @@
   transition: background-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard); }
 
 @media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; }
   .av-menu, .av-popover, .av-backdrop, .av-dialog__scrim, .av-drawer, .av-dialog, .av-tooltip { animation: none; }
   .av-spinner { animation: none; }
   .av-shimmer { animation: none; background: none; color: var(--text-secondary); }
   .av-caret { animation: none; }
-  .av-think__hd > .av-icon:first-child, .av-runlog__toggle > .av-icon:first-child { transition: none; }
+  .av-think__hd > .av-icon:first-child, .av-runlog__toggle > .av-icon:first-child,
+  .av-btn, .av-sb__new, .av-compose__send, .av-entry, .av-login__submit,
+  .av-sb__nv, .av-tree__item, .av-row, .av-table tbody tr, .av-menu__item, .av-tab, .av-seg button, .av-seg a, .av-provider, .av-hint { transition: none; }
   .av-btn:active:not([disabled]), .av-sb__new:active, .av-compose__send:active:not(:disabled), .av-login__submit:active:not(:disabled) { transform: none; }
 }

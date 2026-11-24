@@ -115,16 +115,21 @@ export class ApiError extends Error {
   }
 }
 
-function parseApiError(status: number, body: unknown, fallback: string): ApiError {
-  const detail = (body as { detail?: unknown } | undefined)?.detail;
+export function parseApiError(status: number, body: unknown, fallback: string): ApiError {
+  const obj = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : undefined;
+  const detail = obj?.detail;
   let message = fallback;
   if (typeof detail === "string" && detail) {
     message = detail;
   } else if (detail && typeof detail === "object" && !Array.isArray(detail)) {
-    const nested = (detail as { detail?: unknown }).detail;
+    const nested = (detail as Record<string, unknown>).detail ?? (detail as Record<string, unknown>).message;
     if (typeof nested === "string" && nested) message = nested;
   } else if (Array.isArray(detail)) {
     message = t("输入不合法");
+  } else if (typeof obj?.message === "string" && obj.message) {
+    message = obj.message;
+  } else if (status === 413) {
+    message = t("上传文件过大，超出服务端限制");
   }
   return new ApiError(status, message, body);
 }
@@ -240,4 +245,57 @@ export async function logout(): Promise<void> {
     token.clear();
     hadSession = false;
   }
+}
+
+/** 统一底层 fetch 封装：携带 cookie/Bearer/语言头，401 单飞续期并跳转登录，默认解析 ApiError。 */
+export async function apiFetch(
+  input: string,
+  init: RequestInit & { throwOnError?: boolean } = {},
+): Promise<Response> {
+  const { throwOnError = true, ...reqInit } = init;
+  if (refreshing) await refreshing;
+  const buildHeaders = (authOverride?: string | null) => {
+    const headers = new Headers(reqInit.headers);
+    const tok = authOverride !== undefined ? authOverride : token.get();
+    if (tok && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${tok}`);
+    if (!headers.has("Accept-Language")) headers.set("Accept-Language", currentLanguage());
+    return headers;
+  };
+  let response = await fetch(input, { ...reqInit, credentials: "include", headers: buildHeaders() });
+  const path = new URL(input, location.origin).pathname;
+  if (response.ok && !path.startsWith("/api/auth/")) {
+    hadSession = true;
+    return response;
+  }
+  if (response.status === 401 && path.startsWith("/api/") && !path.startsWith("/api/auth/")) {
+    const sent = token.get();
+    if (refreshing) await refreshing;
+    let canRetry = !!(sent && token.get() && sent !== token.get());
+    if (!canRetry) canRetry = await refreshSession();
+    if (canRetry) {
+      response = await fetch(input, {
+        ...reqInit,
+        credentials: "include",
+        headers: buildHeaders(token.get()),
+      });
+      if (response.ok) {
+        hadSession = true;
+        return response;
+      }
+    }
+    if (response.status === 401) {
+      const wasActive = hadSession || !!token.get();
+      token.clear();
+      hadSession = false;
+      if (wasActive && !location.pathname.startsWith("/login")) {
+        const from = encodeURIComponent(location.pathname + location.search);
+        location.assign(`/login?reason=expired&from=${from}`);
+      }
+    }
+  }
+  if (!response.ok && throwOnError) {
+    const body = await response.clone().json().catch(() => undefined);
+    throw parseApiError(response.status, body, t("请求失败（{{status}}）", { status: response.status }));
+  }
+  return response;
 }

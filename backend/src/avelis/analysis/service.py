@@ -23,11 +23,12 @@ from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from langgraph.types import Command
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from avelis import audit, modelcfg
+from avelis import audit, modelcfg, usage
 from avelis.analysis import agent as analysis_agent
 from avelis.analysis import live
 from avelis.analysis.tools import AnalysisToolbox, Budget, PermissionLost
@@ -174,17 +175,53 @@ def next_run(expr: str, after: datetime) -> datetime:
 # --- 运行 ---------------------------------------------------------------------------
 
 
-def require_analysis_model(session: Session, model_choice: dict | None = None) -> modelcfg.Resolved:
+def _resolve_analysis_model(
+    session: Session,
+    model_choice: dict | None = None,
+    *,
+    question: str | None = None,
+    has_skills: bool = False,
+    is_followup: bool = False,
+) -> modelcfg.Resolved:
+    if model_choice is not None:
+        return require_analysis_model(session, model_choice)
+    if question is not None and modelcfg.routing_config(session)["enabled"]:
+        return require_analysis_model(session, question=question, has_skills=has_skills, is_followup=is_followup)
+    return require_analysis_model(session)
+
+
+def require_analysis_model(
+    session: Session,
+    model_choice: dict | None = None,
+    *,
+    question: str | None = None,
+    has_skills: bool = False,
+    is_followup: bool = False,
+) -> modelcfg.Resolved:
     if not modelcfg.policy(session)["send_results"]:
         raise Conflict("分析模式需要允许向模型发送查询结果（模型配置 → 数据外发）。需保密请接入本地模型")
-    resolved = (
-        modelcfg.resolve_choice(session, **model_choice, temperature=0.2)
-        if model_choice is not None
-        else modelcfg.resolve(session, "analysis", temperature=0.2)
-    )
+    if model_choice is not None:
+        resolved = modelcfg.resolve_choice(session, **model_choice, temperature=0.2)
+    elif question is not None and modelcfg.routing_config(session)["enabled"]:
+        tier = modelcfg.classify_analysis_complexity(question, has_skills=has_skills, is_followup=is_followup)
+        resolved = modelcfg.resolve_routed(session, "analysis", complexity=tier, temperature=0.2)
+    else:
+        resolved = modelcfg.resolve(session, "analysis", temperature=0.2)
     if resolved is None:
         raise Conflict("分析模式需要配置并检测通过一个支持工具调用的模型（模型配置 → 分析，未指定时沿用问数模型）")
     return resolved
+
+
+def _validate_explicit_skills(session: Session, user: User, skills: list[str] | None) -> list[str]:
+    explicit_skills = list(dict.fromkeys(skills or []))
+    if len(explicit_skills) > 5:
+        raise Invalid(Msg("最多引用 5 个技能"))
+    if explicit_skills:
+        enabled = {skill["name"] for skill in skill_service.enabled_catalog(session, user, names=explicit_skills)}
+        for name in explicit_skills:
+            if name not in enabled:
+                raise Invalid(Msg("技能 {name} 未启用或未上架", name=name))
+    return explicit_skills
 
 
 def create_run(
@@ -204,14 +241,7 @@ def create_run(
     access.require_role(session, user, "analyst", "steward", "reviewer")
     if not question.strip():
         raise Invalid("请输入要分析的问题")
-    explicit_skills = list(dict.fromkeys(skills or []))
-    if len(explicit_skills) > 5:
-        raise Invalid(Msg("最多引用 5 个技能"))
-    if explicit_skills:
-        enabled = {skill["name"] for skill in skill_service.enabled_catalog(session, user, names=explicit_skills)}
-        for name in explicit_skills:
-            if name not in enabled:
-                raise Invalid(Msg("技能 {name} 未启用或未上架", name=name))
+    explicit_skills = _validate_explicit_skills(session, user, skills)
     choice = _model_choice
     if choice is not None:
         choice = {
@@ -220,10 +250,7 @@ def create_run(
         }
     elif model is not None or reasoning_effort is not None:
         choice = modelcfg.analysis_model_choice(session, model, reasoning_effort)
-    if choice is not None:
-        require_analysis_model(session, choice)
-    else:
-        require_analysis_model(session)
+    _resolve_analysis_model(session, choice, question=question, has_skills=bool(explicit_skills))
     tz = get_settings().business_timezone
     run = AnalysisRun(
         task_id=task.id if task else None,
@@ -358,12 +385,16 @@ def _execute(
             problem = identity_problem(session, user)
             if problem:
                 raise PermissionLost(problem)
-        resolved = (
-            require_analysis_model(session, run.model_choice)
-            if run.model_choice is not None
-            else require_analysis_model(session)
+        resolved = _resolve_analysis_model(
+            session,
+            run.model_choice,
+            question=run.question,
+            has_skills=bool(checkpoint.get("explicit_skills")),
+            is_followup=bool(run.parent_run_id or checkpoint.get("inherited")),
         )
         adapter, effective = resolved.adapter, getattr(resolved, "effective_effort", None)
+        if getattr(resolved, "routing_tier", None):
+            checkpoint["routing_tier"] = resolved.routing_tier
         toolbox = AnalysisToolbox(
             session,
             user,
@@ -451,7 +482,7 @@ def _execute(
         error = translate(exc.message)
     except Exception as exc:  # noqa: BLE001 - 模型、网络或治理错误如实记录
         log.exception("分析 %s 失败", run_id)
-        error = f"{type(exc).__name__}: {str(exc)[:500]}"
+        error = f"{type(exc).__name__}: {modelcfg.redact_error(str(exc))[:500]}"
     # 异常路径同样带上已记录的权限拒绝：定时任务据此暂停
     if toolbox is not None and (toolbox.permission_lost or toolbox.denials):
         report = {**report, "permission": {"lost": toolbox.permission_lost, "denials": toolbox.denials}}
@@ -505,7 +536,7 @@ def _execute(
             ]
         checkpoint["candidates"] = candidates
     run.checkpoint = checkpoint
-    run.model_adapter = adapter
+    run.model_adapter = toolbox.adapter if toolbox is not None and toolbox.adapter else adapter
     run.reasoning_effort = effective
     run.budget = budget.view()
     run.finished_at = None if status == "waiting" else utcnow()
@@ -525,6 +556,7 @@ def _execute(
         queries=budget.used_queries,
     )
     session.commit()
+    live.notify(run.id)
     return {**outcome, "analysis_run_id": run.id}
 
 
@@ -1035,16 +1067,33 @@ def delete_conversation(session: Session, user: User, conversation_id: str) -> N
 
 
 def create_task(
-    session: Session, user: User, title: str, question: str, window: dict | None, schedule_cron: str | None
+    session: Session,
+    user: User,
+    title: str,
+    question: str,
+    window: dict | None,
+    schedule_cron: str | None,
+    *,
+    skills: list[str] | None = None,
+    model: dict | None = None,
+    reasoning_effort: str | None = None,
 ) -> AnalysisTask:
     access.require_role(session, user, "analyst", "steward", "reviewer")
     resolve_window(window, date.today())  # 先校验
+    explicit_skills = _validate_explicit_skills(session, user, skills)
+    cleaned_question = question.strip()
+    if not cleaned_question:
+        raise Invalid("请输入要分析的问题")
+    choice = modelcfg.analysis_model_choice(session, model, reasoning_effort)
     task = AnalysisTask(
-        title=title.strip() or question[:60],
-        question=question.strip(),
+        title=title.strip() or cleaned_question[:60],
+        question=cleaned_question,
         owner_id=user.id,
         window=window or {},
         schedule_cron=schedule_cron or None,
+        skills=explicit_skills,
+        model_choice=choice,
+        reasoning_effort=choice["reasoning_effort"] if choice else reasoning_effort,
         status="active",
     )
     if task.schedule_cron:
@@ -1063,13 +1112,40 @@ def update_task(session: Session, user: User, task: AnalysisTask, changes: dict)
         task.window = changes["window"] or {}
     if "schedule_cron" in changes:
         task.schedule_cron = changes["schedule_cron"] or None
+    if "question" in changes and changes["question"] is not None:
+        cleaned_question = changes["question"].strip()
+        if not cleaned_question:
+            raise Invalid("请输入要分析的问题")
+        task.question = cleaned_question
+    if "skills" in changes:
+        task.skills = _validate_explicit_skills(session, user, changes["skills"])
+    if "model" in changes or "reasoning_effort" in changes:
+        if "model" in changes and changes["model"] is None and changes.get("reasoning_effort") is None:
+            task.model_choice = None
+            task.reasoning_effort = None
+        else:
+            next_model = (
+                changes["model"]
+                if "model" in changes
+                else (
+                    {"provider_id": task.model_choice["provider_id"], "model_id": task.model_choice["model_id"]}
+                    if task.model_choice
+                    else None
+                )
+            )
+            next_effort = changes["reasoning_effort"] if "reasoning_effort" in changes else task.reasoning_effort
+            choice = modelcfg.analysis_model_choice(session, next_model, next_effort)
+            task.model_choice = choice
+            task.reasoning_effort = choice["reasoning_effort"] if choice else next_effort
     if "status" in changes:
         if changes["status"] not in ("active", "paused"):
             raise Invalid("状态只能是 active 或 paused")
         task.status = changes["status"]
         task.paused_reason = None if task.status == "active" else (changes.get("reason") or "手动暂停")
-    if "title" in changes and changes["title"]:
-        task.title = changes["title"]
+    if "title" in changes and changes["title"] is not None:
+        cleaned_title = changes["title"].strip()
+        if cleaned_title:
+            task.title = cleaned_title
     task.next_run_at = (
         next_run(task.schedule_cron, utcnow()) if task.schedule_cron and task.status == "active" else None
     )
@@ -1083,6 +1159,15 @@ def update_task(session: Session, user: User, task: AnalysisTask, changes: dict)
         **{k: v for k, v in changes.items() if k in ("status", "schedule_cron")},
     )
     return task
+
+
+def delete_task(session: Session, user: User, task: AnalysisTask) -> None:
+    if task.owner_id != user.id and not access.is_admin(session, user):
+        raise Forbidden("只有任务发起人或管理员可以删除")
+    session.execute(update(AnalysisRun).where(AnalysisRun.task_id == task.id).values(task_id=None))
+    audit.record(session, user, "analysis_task.delete", "analysis_task", task.id, title=task.title)
+    session.delete(task)
+    session.flush()
 
 
 def _notify(session: Session, user_id: str, kind: str, title: str, body: str | None, link: str | None) -> None:
@@ -1173,10 +1258,29 @@ def run_task(task_id: str, trigger: str, job_id: str, attempt: int) -> dict[str,
         if problem:
             _pause(session, task, problem)
             return _close_job(job, {"status": "paused", "reason": problem})
+        try:
+            usage.check_quota(session, owner)
+        except HTTPException as exc:
+            detail = exc.detail.get("detail") if isinstance(exc.detail, dict) else exc.detail
+            reason = str(detail or "已达到模型用量配额上限")
+            if trigger == "schedule":
+                _pause(session, task, reason)
+                return _close_job(job, {"status": "paused", "reason": reason})
+            return _close_job(job, {"status": "failed", "reason": reason})
         warm_up()
         try:
-            run = create_run(session, owner, task.question, task.window, task=task, trigger=trigger)
-        except (Conflict, Invalid, Forbidden) as exc:
+            run = create_run(
+                session,
+                owner,
+                task.question,
+                task.window,
+                task=task,
+                trigger=trigger,
+                skills=task.skills or None,
+                _model_choice=task.model_choice,
+                reasoning_effort=task.reasoning_effort,
+            )
+        except GovernanceError as exc:
             _pause(session, task, exc.message)
             return _close_job(job, {"status": "paused", "reason": exc.message})
         task.last_run_id = run.id
@@ -1488,6 +1592,8 @@ def run_view(session: Session, run: AnalysisRun, *, full: bool = True, user: Use
                 "sql": None if d.id in restricted else d.meta.get("sql"),
                 "metric_version_ids": d.meta.get("metric_version_ids", []),
                 "time_column": d.meta.get("time_column"),
+                "window": None if d.id in restricted else d.meta.get("window"),
+                "compare": None if d.id in restricted else (d.meta.get("intent") or {}).get("compare"),
                 "units": metadata[d.id].get("units", {}) if d.id in readable else {},
                 "polarity": metadata[d.id].get("polarity", {}) if d.id in readable else {},
                 "column_roles": build_column_roles(d.columns, metadata[d.id]) if d.id in readable else {},
@@ -1565,6 +1671,9 @@ def task_view(task: AnalysisTask) -> dict[str, Any]:
         "owner_id": task.owner_id,
         "window": task.window,
         "schedule_cron": task.schedule_cron,
+        "skills": task.skills or [],
+        "model_choice": task.model_choice,
+        "reasoning_effort": task.reasoning_effort,
         "status": task.status,
         "paused_reason": task.paused_reason,
         "last_run_id": task.last_run_id,

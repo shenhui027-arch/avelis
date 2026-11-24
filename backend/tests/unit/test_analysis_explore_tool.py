@@ -56,7 +56,15 @@ def explore_box(monkeypatch, engine="postgres", connector=None, budget=None, rec
     box = make_box(budget=budget, monkeypatch=monkeypatch)
     monkeypatch.setattr(box, "explore_available", lambda: True)  # 有开启了探索、引擎有档案的数据源
     box.user.username = "tester"  # 审计记录执行人
-    catalog = "appdb" if engine == "postgres" else "default_catalog"
+    catalog = {
+        "postgres": "appdb",
+        "starrocks": "default_catalog",
+        "doris": "internal",
+        "mysql": "def",
+        "clickhouse": "clickhouse",
+        "sqlserver": "master",
+        "oracle": "FREEPDB1",
+    }.get(engine, "default_catalog")
     ds = SimpleNamespace(id="ds1", name="源甲", kind=engine, server_identity={"version": "x"})
     # 方言路由按 SQL 里的资产确定数据源（真实逻辑见 tests/db/test_explore_route.py）：这里固定路由到“源甲”
     monkeypatch.setattr(exploration, "route", lambda session, user, sql: ExploreSource(ds, PROFILES[engine], catalog))
@@ -240,7 +248,11 @@ def test_sample_values_goes_through_the_same_checks(monkeypatch):
 
 def test_sources_without_profile_or_switched_off(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
-    for kind, allow, code in (("mysql", True, "engine_unsupported"), ("postgres", False, "exploration_disabled")):
+    for kind, allow, code in (
+        ("hive", True, "engine_unsupported"),
+        ("fake", True, "engine_unsupported"),
+        ("postgres", False, "exploration_disabled"),
+    ):
         box.session.store[(Datasource, "ds9")] = Datasource(
             id="ds9", name="源乙", kind=kind, host="h", port=1, options={}, allow_exploration=allow
         )
@@ -248,6 +260,40 @@ def test_sources_without_profile_or_switched_off(monkeypatch):
             exploration.explore_source(box.session, "ds9")
         assert e.value.code == code
     assert "query_sql" not in {t.name for t in box.tools()}  # 没有可探索的数据源：不提供工具
+
+
+@pytest.mark.parametrize("engine", ["doris", "mysql", "clickhouse", "sqlserver", "oracle"])
+def test_newly_enabled_engines_execute_through_query_sql(monkeypatch, engine):
+    box, conn = explore_box(monkeypatch, engine)
+    out = json.loads(box.dispatch("query_sql", {"sql": GOOD, "purpose": "口径没有覆盖"}))
+    assert "error" not in out and out["engine"] == engine
+    executed = [c for c in conn.calls if c[0] == "execute"]
+    assert len(executed) == 1 and executed[0][1] == out["sql"]
+    assert audits(box)[-1]["outcome"] == "ok"
+
+
+def test_five_connectors_enforce_positive_timeout_on_execute_explore_and_describe_objects():
+    from avelis.connectors.clickhouse import ClickHouseConnector
+    from avelis.connectors.doris import DorisConnector
+    from avelis.connectors.mysql import MySQLMetaConnector
+    from avelis.connectors.oracle import OracleConnector
+    from avelis.connectors.sqlserver import SqlServerConnector
+
+    for cls, opts in (
+        (DorisConnector, {}),
+        (MySQLMetaConnector, {}),
+        (ClickHouseConnector, {}),
+        (SqlServerConnector, {"database": "appdb"}),
+        (OracleConnector, {"service": "FREEPDB1"}),
+    ):
+        conn = cls("h", 1, "u", "p", opts)
+        with pytest.raises(QueryError) as exc:
+            conn.execute_explore("SELECT 1", timeout_seconds=0, max_rows=10, mem_limit_bytes=0)
+        assert exc.value.code == "timeout"
+        assert conn.describe_objects([], timeout_seconds=5) == {}
+        with pytest.raises(QueryError) as desc_exc:
+            conn.describe_objects([("db", "tbl")], timeout_seconds=0)
+        assert desc_exc.value.code == "timeout"
 
 
 def test_real_resolver_binding_rules(monkeypatch):

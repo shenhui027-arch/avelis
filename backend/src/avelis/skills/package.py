@@ -27,6 +27,95 @@ _SCRIPT_SUFFIXES = set(".py .sh .bash .zsh .ps1 .bat .cmd .js .mjs .cjs .ts .rb 
 _MAX_SKILL_MD_BYTES = 256 * 1024
 _MAX_FRONTMATTER_BYTES = 16 * 1024
 _FRONTMATTER_STRING_TAGS = {"tag:yaml.org,2002:bool", "tag:yaml.org,2002:timestamp"}
+_BINARY_SUFFIXES = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".ico",
+        ".pdf",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".pyc",
+        ".so",
+        ".dll",
+        ".exe",
+        ".bin",
+        ".parquet",
+    }
+)
+_PROMPT_INJECTION_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "指令覆盖",
+        re.compile(
+            r"(?:ignore|disregard|forget|override)\s+(?:all\s+(?:of\s+)?|any\s+)?(?:the\s+)?"
+            r"(?:previous|prior|above|earlier|preceding|system|developer|safety|governance)\s+"
+            r"(?:instructions?|prompts?|rules?|directives?|constraints?|guardrails?)"
+            r"|forget\s+(?:everything|all(?:\s+of)?)\s+(?:above|previous|prior|earlier)"
+            r"|(?:reveal|dump|print|output|leak|exfiltrate|show|extract)\s+(?:all\s+|your\s+|the\s+)?"
+            r"(?:system|developer|hidden|internal)\s+(?:prompts?|instructions?|rules?|messages?)"
+            r"|(?<!不得)(?<!不要)(?<!不能)(?<!请勿)(?<!勿)(?<!切勿)(?<!禁止)(?:忽略|无视|忘掉|放弃|覆盖|绕过|篡改)\s*"
+            r"(?:(?:之前|以上|所有|全部|先前|系统|安全|权限|治理)(?:的)?\s*)+"
+            r"(?:指令|提示词?|规则|限制|约束|校验|权限)"
+            r"|(?<!不得)(?<!不要)(?<!不能)(?<!请勿)(?<!勿)(?<!切勿)(?<!禁止)绕过\s*(?:权限|行级权限|RLS|脱敏|审计)"
+            r"|(?:泄露|输出|打印|套取|吐出|暴露)\s*(?:你的|所有|当前)?(?:系统提示词?|提示词|隐藏指令|内部规则)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "越狱指令",
+        re.compile(
+            r"\bDAN\s+mode\b"
+            r"|\bjailbreak\s+(?:mode|prompt|directive|instructions?)\b"
+            r"|bypass\s+(?:all\s+)?(?:safety|security|permission|content|access)\s+"
+            r"(?:filters?|checks?|restrictions?|guardrails?|controls?)"
+            r"|(?:act\s+as|you\s+are\s+now|pretend\s+to\s+be)\s+(?:an?\s+)?"
+            r"(?:unrestricted|unfiltered|uncensored|jailbroken)\b"
+            r"|\bdeveloper\s+mode\s+enabled\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "数据外泄指令",
+        re.compile(
+            r"(?:exfiltrate|steal|leak|transmit|send\s+out)\b.{0,60}\b"
+            r"(?:secrets?|api[_ -]?keys?|passwords?|credentials?|tokens?|private[_ -]?keys?|"
+            r"env(?:ironment)?\s+var(?:iable)?s?|AVELIS_[A-Z0-9_]+)"
+            r"|(?:read|dump|cat|print)\b.{0,40}(?:/etc/passwd|/etc/shadow|(?:^|[\s/'\"])\.env\b|id_rsa)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "隐藏角色标签",
+        re.compile(
+            r"<\|(?:im_start|im_end|system|assistant|user|endoftext)\|>"
+            r"|\[/?INST\]|<<SYS>>|<</SYS>>"
+            r"|<\s*/?\s*(?:system|system_prompt|system-instruction|developer|tool_call|function_call|prompt_override)"
+            r"\b[^>]{0,256}>",
+            re.IGNORECASE,
+        ),
+    ),
+)
+_SMUGGLING_CHARS = re.compile(r"[\u202a-\u202e\u2066-\u2069\U000e0000-\U000e007f]")
+_ZERO_WIDTH_CHARS = re.compile(r"[\u200b-\u200f\u2060-\u2064\u00ad\ufeff]")
+_SECRET_PATTERN = re.compile(
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+    r"|\b(?:AVELIS_SECRET(?:_PREVIOUS)?|AVELIS_DB_PASSWORD|AVELIS_REDIS_PASSWORD|AVELIS_MODEL_API_KEY)\b"
+    r"|\b(?:sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|"
+    r"AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})\b"
+    r"|(?:password|passwd|api_key|secret_key|access_token)\s*[:=]\s*"
+    r"[\"'](?!\*{3,}|xxx+|<[^>]+>|your[_-]|example|changeme|placeholder)[^\"'\s]{8,}[\"']",
+    re.IGNORECASE,
+)
 
 
 class _FrontmatterLoader(yaml.SafeLoader):
@@ -195,6 +284,93 @@ def _frontmatter(text: str, limit: int) -> dict:
         raise Invalid(Msg("SKILL.md 的 frontmatter 必须是有效的 YAML 映射")) from exc
 
 
+def _extract_strings(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            out.extend(_extract_strings(item))
+        return out
+    if isinstance(value, dict):
+        out = []
+        for k, v in value.items():
+            out.extend(_extract_strings(k))
+            out.extend(_extract_strings(v))
+        return out
+    return []
+
+
+def _sensitive_words(settings) -> list[str]:
+    raw = settings.env.get("AVELIS_SKILLS_SENSITIVE_WORDS")
+    if raw is None:
+        raw = os.environ.get("AVELIS_SKILLS_SENSITIVE_WORDS")
+    if not raw:
+        return []
+    words = [part.strip() for part in re.split(r"[,;\r\n]+", str(raw)) if part.strip()]
+    return list(dict.fromkeys(words))
+
+
+def _contains_sensitive_word(text: str, word: str) -> bool:
+    if word.isascii() and any(ch.isalnum() for ch in word):
+        return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(word)}(?![A-Za-z0-9_])", text, re.IGNORECASE))
+    return word.casefold() in text.casefold()
+
+
+def _scan_package_security(result: PackageResult, settings, header: str) -> None:
+    targets: list[tuple[str, str]] = [("SKILL.md", header + "\n" + result.body)]
+    fm_strings = _extract_strings(result.frontmatter)
+    if fm_strings:
+        targets.append(("SKILL.md", "\n".join(fm_strings)))
+    for path, content in result._members:
+        if content is None or path == "SKILL.md" or b"\x00" in content:
+            continue
+        try:
+            decoded = content.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        targets.append((path, decoded))
+
+    sensitive_words = _sensitive_words(settings)
+    seen_errors: set[tuple[str, str]] = set()
+
+    def record(category: str, path: str, message: Msg) -> None:
+        key = (category, path)
+        if key not in seen_errors:
+            seen_errors.add(key)
+            result._check("error", message)
+
+    for path, text in targets:
+        normalized = _ZERO_WIDTH_CHARS.sub("", text)
+        for rule_name, pattern in _PROMPT_INJECTION_RULES:
+            if pattern.search(normalized):
+                record(
+                    f"injection:{rule_name}",
+                    path,
+                    Msg("文件 {path} 检测到疑似提示词注入（{kind}）", path=path, kind=rule_name),
+                )
+        if _SMUGGLING_CHARS.search(text):
+            record(
+                "smuggling",
+                path,
+                Msg("文件 {path} 包含可疑隐藏控制字符（Bidi/Tag）", path=path),
+            )
+        if _SECRET_PATTERN.search(normalized):
+            record(
+                "secret",
+                path,
+                Msg("文件 {path} 包含疑似密钥或内部敏感配置", path=path),
+            )
+        for word in sensitive_words:
+            if _contains_sensitive_word(normalized, word):
+                record(
+                    "sensitive_word",
+                    path,
+                    Msg("文件 {path} 包含敏感词，未通过安全预检", path=path),
+                )
+                break
+
+
 def validate_zip(data: bytes) -> PackageResult:
     settings = get_settings()
     result = PackageResult(zip_bytes=len(data))
@@ -270,6 +446,7 @@ def validate_zip(data: bytes) -> PackageResult:
         result._check("warn", Msg("包含 {count} 个脚本：只保存，不会执行", count=scripts))
     if "allowed-tools" in result.frontmatter:
         result._check("warn", Msg("allowed-tools 不生效"))
+    _scan_package_security(result, settings, header)
     result.ok = all(check["level"] != "error" for check in result.checks)
     if result.ok:
         result._check("ok", Msg("通过技能校验"))

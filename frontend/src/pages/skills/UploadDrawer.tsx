@@ -1,9 +1,9 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 
-import { ApiError, token, type Schemas } from "../../api/client";
+import { apiFetch, type Schemas } from "../../api/client";
 import { errorText } from "../../api/hooks";
 import { Banner, Drawer, Icon, Tile, useMessage } from "../../components/ui";
-import { currentLanguage, t } from "../../i18n";
+import { t } from "../../i18n";
 
 export type UploadPreset = { id: string; name: string; version: number | null };
 
@@ -14,47 +14,9 @@ const MB = 1024 * 1024;
 export const formatSkillBytes = (bytes: number) =>
   bytes >= MB ? `${(bytes / MB).toFixed(1)} MB` : bytes >= 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${bytes} B`;
 
-/** 技能包 multipart 上传、校验与 zip 下载共用的请求封装：对齐 api/client.ts 的 401 会话过期处理与错误提取。 */
-export async function skillFetch(url: string, init?: RequestInit): Promise<Response> {
-  const headers = new Headers(init?.headers);
-  const tk = token.get();
-  if (tk) headers.set("Authorization", `Bearer ${tk}`);
-  headers.set("Accept-Language", currentLanguage());
-  let resp = await fetch(url, { ...init, headers });
-  if (resp.status === 401) {
-    const latest = token.get();
-    if (tk && latest && latest !== tk) {
-      headers.set("Authorization", `Bearer ${latest}`);
-      resp = await fetch(url, { ...init, headers });
-    }
-  }
-  if (resp.ok) return resp;
-  if (resp.status === 401) {
-    token.clear();
-    if (!location.pathname.startsWith("/login")) {
-      const from = encodeURIComponent(location.pathname + location.search);
-      location.assign(`/login?reason=expired&from=${from}`);
-    }
-  }
-  const body = await resp.json().catch(() => null);
-  const detail = (body as { detail?: unknown } | null)?.detail;
-  const detailObjMsg = detail && typeof detail === "object" && !Array.isArray(detail)
-    ? (detail as { message?: unknown }).message
-    : undefined;
-  const message = typeof detail === "string" && detail.trim()
-    ? detail
-    : typeof detailObjMsg === "string" && detailObjMsg.trim()
-      ? detailObjMsg
-      : Array.isArray(detail)
-        ? t("输入不合法")
-        : resp.status === 413
-          ? t("文件超出大小限制")
-          : resp.status === 401
-            ? t("会话已过期或已在其他位置失效，请重新登录")
-            : resp.status === 403
-              ? t("没有访问权限")
-              : t("请求失败（{{status}}）", { status: resp.status });
-  throw new ApiError(resp.status, message, body);
+/** 技能包 multipart 上传、校验与 zip 下载共用的请求封装：统一委托给 client.ts apiFetch。 */
+export function skillFetch(url: string, init?: RequestInit): Promise<Response> {
+  return apiFetch(url, init);
 }
 
 export function UploadDrawer({ preset, onClose, onSubmitted }: {
@@ -237,7 +199,7 @@ export function UploadDrawer({ preset, onClose, onSubmitted }: {
       ) : null}
 
       {presetMismatch && preset && validation ? (
-        <div className="av-banner av-banner--warn">
+        <div className="av-banner av-banner--warn" role="alert">
           {t("所选技能包名称（{{actual}}）与当前技能（{{expected}}）不一致", {
             actual: validation.name ?? conflict?.name ?? "",
             expected: preset.name,
@@ -247,7 +209,7 @@ export function UploadDrawer({ preset, onClose, onSubmitted }: {
 
       {conflict ? (
         <>
-          <div className="av-banner av-banner--warn">
+          <div className="av-banner av-banner--warn" role="status">
             {conflict.version != null
               ? t("已存在同名技能 {{name}}（v{{version}}，{{owner}} 上传，{{count}} 人启用）", {
                   name: conflict.name, version: conflict.version, owner: conflict.owner.display_name, count: conflict.enabled_users,
@@ -257,7 +219,7 @@ export function UploadDrawer({ preset, onClose, onSubmitted }: {
                 })}
           </div>
           {conflict.has_pending ? (
-            <div className="av-banner av-banner--danger">{t("该技能已有待审核的版本")}</div>
+            <div className="av-banner av-banner--danger" role="alert">{t("该技能已有待审核的版本")}</div>
           ) : null}
           <div className="av-skill-choices" role="radiogroup" aria-label={t("同名冲突处理")}>
             <div

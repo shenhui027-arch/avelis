@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Code, Icon, Pill, shortName } from "../../components/ui";
+import { submitOnEnter } from "../../components/shortcuts";
 import { EvidenceLink } from "./DatasetView";
 import { ContextMeter } from "./ModelPicker";
 import { t } from "../../i18n";
@@ -137,26 +138,35 @@ function useTicker(active: boolean) {
   }, [active]);
 }
 
-/** 两次轮询（约 2 秒）之间新到的字逐字补上，像流式输出；减少动态效果时直接显示。 */
-function useReveal(text: string) {
+/** 两次轮询（约 2 秒）之间新到的字逐字补上，像流式输出；实时 SSE 直连或减少动态效果时立即显示。 */
+function useReveal(text: string, streaming = false) {
   const [shown, setShown] = useState(text.length);
   const prev = useRef(text);
   useEffect(() => {
     const before = prev.current;
     prev.current = text;
-    if (reducedMotion() || !text.startsWith(before) || text.length - before.length > 4000) { setShown(text.length); return; }
+    if (streaming || reducedMotion() || !text.startsWith(before) || text.length - before.length > 4000) {
+      setShown(text.length);
+      return;
+    }
     const from = before.length;
+    if (from >= text.length) { setShown(text.length); return; }
     const start = performance.now();
+    let lastEmit = start;
     let frame = 0;
     const step = (now: number) => {
       const k = Math.min(1, (now - start) / 1800);
-      setShown(Math.round(from + (text.length - from) * k));
+      if (k >= 1 || now - lastEmit >= 100) {
+        lastEmit = now;
+        const next = Math.round(from + (text.length - from) * k);
+        setShown((curr) => (curr === next ? curr : next));
+      }
       if (k < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [text]);
-  return text.slice(0, shown);
+  }, [text, streaming]);
+  return streaming || reducedMotion() ? text : text.slice(0, shown);
 }
 
 type Mark = "run" | "ok" | "bad" | "skip" | "think";
@@ -227,12 +237,20 @@ function StepRow({ s, runId, datasets }: { s: Step; runId: string; datasets: Dat
 }
 
 /** 正在进行的一步：流式到达的推理文字，或正在执行的工具。 */
-function LiveRow({ live, polledAt }: { live: Live; polledAt: number }) {
+function LiveRow({ live, polledAt, streaming = false }: { live: Live; polledAt: number; streaming?: boolean }) {
   const time = `${secs(Number(live.elapsed_ms ?? 0) + Math.max(0, Date.now() - polledAt))}s`;
-  const thinking = useReveal(live.thinking ?? "");
-  const text = useReveal(live.text ?? "");
+  const thinking = useReveal(live.thinking ?? "", streaming);
+  const text = useReveal(live.text ?? "", streaming);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [thinking, text]);
+  const prevLen = useRef(0);
+  useEffect(() => {
+    const len = thinking.length + text.length;
+    const el = box.current;
+    if (!el || len === prevLen.current) return;
+    prevLen.current = len;
+    const id = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    return () => cancelAnimationFrame(id);
+  }, [thinking, text]);
   if (live.phase === "tool") {
     const d = describe({ seq: live.after_seq + 1, kind: "tool", tool: live.tool, status: "running", args: live.args ?? {}, output: {} } as Step);
     const args = fields(live.args, ["sql", "purpose"]);
@@ -250,7 +268,9 @@ function LiveRow({ live, polledAt }: { live: Live; polledAt: number }) {
 /** 思考与过程（逐条时间线）：每段推理、每次工具调用各是一行可折叠条目；运行中那一行带转圈，推理文字准实时显示。
  *  运行中整体展开并跟到最新一步（用户往上翻时不打扰）；完成后折叠为“已思考（用时 N 秒）”一行。
  *  插话与停止在页面底部的固定输入框里。 */
-export function RunTranscript({ run, live, footer, autoFollow = true }: { run: Run; live?: boolean; footer?: ReactNode; autoFollow?: boolean }) {
+export function RunTranscript({ run, live, streaming = false, footer, autoFollow = true }: {
+  run: Run; live?: boolean; streaming?: boolean; footer?: ReactNode; autoFollow?: boolean;
+}) {
   const [open, setOpen] = useState(!!live);
   useEffect(() => { setOpen(!!live); }, [live]);
   const steps = run.steps ?? [];
@@ -272,7 +292,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
     const scroller = end.current?.closest(".av-analysis__scroll");
     if (!scroller) return;
     const onScroll = () => setFollow(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120);
-    scroller.addEventListener("scroll", onScroll);
+    scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [live]);
   // 跟到对话区最底部（等待确认时确认面板在过程流下方，也要露出来；推理文字增长时也跟）
@@ -280,7 +300,9 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
   useEffect(() => {
     if (!live || !follow) return;
     const scroller = end.current?.closest(".av-analysis__scroll");
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    if (!scroller) return;
+    const id = requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
+    return () => cancelAnimationFrame(id);
   }, [live, follow, steps.length, messages.length, run.status, streamed, current?.phase]);
   const spent = steps.reduce((sum, s) => sum + Number(s.duration_ms ?? 0), 0);
   const thoughts = steps.filter((s) => s.kind === "model" && (s.output as { thinking?: string } | null)?.thinking).length;
@@ -309,7 +331,7 @@ export function RunTranscript({ run, live, footer, autoFollow = true }: { run: R
         {messages.map((m) => (
           <li key={m.id} className="av-runlog__user"><span className="av-runlog__bubble">{m.text}</span>
             <Pill tone="warn">{t("待生效")}</Pill></li>))}
-        {current ? <LiveRow key={`${current.phase}-${current.after_seq}`} live={current} polledAt={polledAt} />
+        {current ? <LiveRow key={`${current.phase}-${current.after_seq}`} live={current} polledAt={polledAt} streaming={streaming} />
           : live && run.status !== "waiting" ? <li className="av-runlog__item is-run"><div className="av-runlog__row">
             <span className="av-runlog__toggle"><span className="av-runlog__nochev" /><span className="av-spinner" aria-hidden />
               {run.status === "queued" ? <Queued /> : <span className="av-caption">{t("正在进行下一步…")}</span>}</span></div></li> : null}
@@ -336,14 +358,14 @@ export function Interject({ run }: { run: Run }) {
   };
   return (
     <div className="av-runlog__composer">
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       <div className="av-compose av-compose--inline">
         {/* 运行中补充输入改为严谨书面短语 */}
         <label htmlFor={`int-${run.id}`} className="av-sr">{t("补充指令")}</label>
         <textarea id={`int-${run.id}`} rows={2} maxLength={2000} value={text}
           placeholder={t("补充说明或修正方向，将在下一步生效，例如：改用编码关联而非名称")}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
+          onKeyDown={(e) => { if (submitOnEnter(e, "enter")) { e.preventDefault(); submit(); } }} />
         <div className="av-compose__bar">
           <span className="av-compose__spacer" />
           <ContextMeter run={run} live />
@@ -362,11 +384,11 @@ export function Interject({ run }: { run: Run }) {
 function Queued() {
   const worker = useQuery({
     queryKey: ["worker-health"], refetchInterval: 10_000,
-    queryFn: () => unwrap(api.GET("/api/health/worker")),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/health/worker", { signal })),
   });
   if (worker.data && !worker.data.alive) {
     return <span className="av-runlog__queued"><span className="av-caption">{t("排队中")}</span>
-      <span className="av-banner av-banner--warn"><Icon name="info" small />{t("后台执行器没有在运行，任务会在它启动后自动开始。请联系管理员检查 worker 服务。")}</span></span>;
+      <span className="av-banner av-banner--warn" role="status"><Icon name="info" small />{t("后台执行器没有在运行，任务会在它启动后自动开始。请联系管理员检查 worker 服务。")}</span></span>;
   }
   return <span className="av-caption">{t("排队中，等待后台执行器领取")}</span>;
 }

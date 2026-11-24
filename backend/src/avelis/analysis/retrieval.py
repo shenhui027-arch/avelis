@@ -180,9 +180,12 @@ class MetadataGraph:
         return None
 
     def find(self, keyword: str) -> dict:
-        """只保留前 20 个命中，继续按页计数；无权对象不参与排序和省略数。"""
+        """只保留前 20 个命中，继续按页计数；字面命中优先，不足 20 时补充混合检索命中。"""
+        from avelis.retrieval_hybrid import SearchDocument, hybrid_rank
+
         FindArgs(keyword=keyword)
         chosen: list[tuple] = []
+        seen_ids: set[str] = set()
         count = 0
         needle = keyword.casefold()
 
@@ -191,6 +194,7 @@ class MetadataGraph:
             name_hit = any(needle in (name or "").casefold() for name in names)
             if not name_hit and needle not in (node["comment"] or "").casefold():
                 return
+            seen_ids.add(node["id"])
             count += 1
             chosen.append((not name_hit, node.get("qualified") or node.get("code"), node["id"], node))
             chosen.sort(key=lambda item: item[:3])
@@ -237,6 +241,69 @@ class MetadataGraph:
         ):
             if self._readable(asset):
                 add(self._asset_node(asset, column), [column.name])
+
+        if len(chosen) < 20 and keyword.strip():
+            fallback_nodes: dict[str, dict] = {}
+            docs: list[SearchDocument] = []
+            for (metric,) in self._rows(
+                select(Metric)
+                .join(MetricVersion, MetricVersion.metric_id == Metric.id)
+                .where(Metric.domain_id.in_(self.allowed), MetricVersion.status == "published")
+                .distinct()
+                .order_by(Metric.code)
+            ):
+                if found := self._metric(metric.code):
+                    node = self._metric_node(*found)
+                    if node["id"] not in seen_ids and node["id"] not in fallback_nodes:
+                        fallback_nodes[node["id"]] = node
+                        docs.append(
+                            SearchDocument(
+                                key=node["id"],
+                                fields=[(3.0, found[0].name), (1.5, found[0].code), (1.0, found[1].description or "")],
+                                semantic_text=f"{found[0].name} {found[0].code} {found[1].description or ''}",
+                            )
+                        )
+            for (asset,) in self._rows(
+                select(Asset)
+                .where(Asset.status == "active", Asset.kind != "catalog_table")
+                .order_by(Asset.catalog_name, Asset.db_name, Asset.name, Asset.id)
+            ):
+                if self._readable(asset):
+                    node = self._asset_node(asset)
+                    if node["id"] not in seen_ids and node["id"] not in fallback_nodes:
+                        fallback_nodes[node["id"]] = node
+                        docs.append(
+                            SearchDocument(
+                                key=node["id"],
+                                fields=[(3.0, node["qualified"]), (1.5, node["comment"] or "")],
+                                semantic_text=f"{node['qualified']} {node['comment'] or ''}",
+                            )
+                        )
+            for asset, column in self._rows(
+                select(Asset, ColumnVersion)
+                .join(ColumnVersion, ColumnVersion.asset_version_id == Asset.current_version_id)
+                .where(Asset.status == "active", Asset.kind != "catalog_table")
+                .order_by(Asset.catalog_name, Asset.db_name, Asset.name, ColumnVersion.name, Asset.id)
+            ):
+                if self._readable(asset):
+                    node = self._asset_node(asset, column)
+                    if node["id"] not in seen_ids and node["id"] not in fallback_nodes:
+                        fallback_nodes[node["id"]] = node
+                        docs.append(
+                            SearchDocument(
+                                key=node["id"],
+                                fields=[(2.5, column.name), (1.0, column.comment or ""), (0.5, node["qualified"])],
+                                semantic_text=f"{node['qualified']} {column.name} {column.comment or ''}",
+                            )
+                        )
+            if docs:
+                extra = [fallback_nodes[k] for k, score in hybrid_rank(keyword, docs) if score > 0.0]
+                count += len(extra)
+                room = max(0, 20 - len(chosen))
+                for node in extra[:room]:
+                    seen_ids.add(node["id"])
+                    chosen.append((True, node.get("qualified") or node.get("code"), node["id"], node))
+
         return {"nodes": [item[3] for item in chosen], "truncated": count > 20, "omitted": max(0, count - 20)}
 
     @staticmethod

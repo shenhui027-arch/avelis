@@ -1,11 +1,10 @@
 // 工作台：页头 + 闭环条 + 工作区（待办、负责的指标、被拦截的提问 | 数据源、采集节奏、最近变更）。
-import { motion } from "motion/react";
 import { Link, useNavigate } from "react-router";
 
 import { CountUp, MotionLink, RevealGroup, revealItem } from "../components/Motion";
 
 import { useTimeZone, useWorkbench } from "../api/hooks";
-import { Empty, Parts, Plat, QueryState, Seg, Status, statusOf, Tile, type KitTone } from "../components/ui";
+import { Empty, Icon, Parts, Plat, QueryState, Seg, Status, statusOf, Tile, type KitTone } from "../components/ui";
 import { statusParts } from "./statusParts";
 import { RunStrip } from "../components/RunStrip";
 import { formatClock } from "../format";
@@ -24,7 +23,14 @@ export function Workbench() {
   const tz = useTimeZone();
   const roles = useRoles();
   const [scope, setScope] = useState<"todo" | "blocked">("todo");
+  const [dismissedGuide, setDismissedGuide] = useState(() => {
+    try { return localStorage.getItem("avelis.onboarding.dismissed") === "1"; } catch { return false; }
+  });
   const canCreate = roles.has("steward") || roles.has("admin");
+  const dismissGuide = () => {
+    setDismissedGuide(true);
+    try { localStorage.setItem("avelis.onboarding.dismissed", "1"); } catch { /* ignore */ }
+  };
   return (
     <div className="av-fill av-workbench">
       <div className="av-pagehd">
@@ -38,7 +44,47 @@ export function Workbench() {
 
       <QueryState query={wb}>{(d) => { const maxRuns = Math.max(1, ...d.cadence.map((c) => Number(c.runs) || 0));
         const todayRuns = d.cadence.reduce((sum, c) => sum + (Number(c.runs) || 0), 0);
-        const changedHours = d.cadence.filter((c) => c.changed).length; return <>
+        const changedHours = d.cadence.filter((c) => c.changed).length;
+        const hasDatasources = d.datasources.length > 0;
+        const hasLineage = d.datasources.some((s) => !!s.last_run_at) || Number(d.stages.find((s) => s.key === "lineage")?.value ?? 0) > 0;
+        const hasMetrics = Number(d.stages.find((s) => s.key === "metric")?.value ?? 0) > 0 || d.my_metrics.length > 0;
+        const hasAsk = Number(d.stages.find((s) => s.key === "ask")?.value ?? 0) > 0;
+        const isColdStart = !hasDatasources || (!hasLineage && !hasMetrics);
+        const guideSteps = [
+          { key: "ds", done: hasDatasources, title: t("1. 接入数据源"), desc: t("登记仓库连接并配置只读采集账号"), to: "/settings/datasources", cta: t("前往接入") },
+          { key: "lineage", done: hasLineage, title: t("2. 采集元数据或导入血缘"), desc: t("采集库表结构或上传 SQL / 脚本解析血缘"), to: "/lineage/import", cta: t("导入血缘") },
+          { key: "metric", done: hasMetrics, title: t("3. 定义指标口径"), desc: t("发布业务口径与维度规则，保障问数一致"), to: canCreate ? "/catalog/metrics?create=1" : "/catalog/metrics", cta: canCreate ? t("新建指标") : t("浏览指标") },
+          { key: "ask", done: hasAsk, title: t("4. 开始问数与分析"), desc: t("围绕已发布口径发起提问或归因分析"), to: "/analysis", cta: t("开始问数") },
+        ];
+        const doneCount = guideSteps.filter((s) => s.done).length;
+        return <>
+      {isColdStart && !dismissedGuide ? (
+        <section className="av-panel av-onboarding" aria-label={t("快速开始")}>
+          <div className="av-onboarding__hd">
+            <div>
+              <h2>{t("快速开始")} <span className="av-count">{doneCount} / {guideSteps.length}</span></h2>
+              <p className="av-caption">{t("按以下四步完成初始配置，即可开始可信问数与归因分析。")}</p>
+            </div>
+            <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={dismissGuide} aria-label={t("收起引导")}>
+              <Icon name="close" small />{t("收起")}
+            </button>
+          </div>
+          <ol className="av-onboarding__steps">
+            {guideSteps.map((step) => (
+              <li key={step.key} className={`av-onboarding__step${step.done ? " is-done" : ""}`}>
+                <div className="av-onboarding__step-hd">
+                  <span className={`av-dot${step.done ? " av-dot--ok" : ""}`} aria-hidden="true" />
+                  <strong>{step.title}</strong>
+                </div>
+                <p className="av-caption">{step.desc}</p>
+                <Link to={step.to} className={`av-btn av-btn--sm ${step.done ? "av-btn--ghost" : "av-btn--secondary"}`}>
+                  {step.done ? t("已完成") : step.cta}
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
       <RevealGroup as="nav" className="av-stages" aria-label={t("治理闭环")}>
         {d.stages.map((s) => {
           const [tone] = statusOf(s.status);
@@ -52,8 +98,7 @@ export function Workbench() {
         })}
       </RevealGroup>
 
-      <motion.section aria-label={t("工作区")} className="av-workspace av-workbench__workspace"
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.42, delay: 0.18 }}>
+      <section aria-label={t("工作区")} className="av-workspace av-workbench__workspace">
         <div className="av-workbench__col">
           <div className="av-workbench__row">
           <div className="av-pane av-workbench__card av-workbench__card--todo">
@@ -130,39 +175,37 @@ export function Workbench() {
           </div>
         </div>
 
-        <div className="av-pane av-pane--rail">
-          <div className="av-pane__body">
-            <div className="av-section">
-              <div className="av-pane-hd"><h2>{t("数据源")} <span className="av-count">{d.datasources.length}</span></h2></div>
-              <div className="av-list">
-                {d.datasources.map((s) => (
-                  <Link key={String(s.id)} to={`/settings/datasources/${String(s.id)}`} className="av-row av-workbench__source">
-                    <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{count}} 分钟", { count: Number(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span>
-                      <RunStrip id={String(s.id)} count={20} tz={tz} /></span>
-                    <span className="av-row__end"><Status value={String(s.status) === "ok" ? "ok" : String(s.status)} /></span>
-                  </Link>
-                ))}
-                {!d.datasources.length ? <Empty compact text={t("尚未配置数据源")} action={<Link to="/settings/datasources" className="av-btn av-btn--secondary av-btn--sm">{t("查看数据源")}</Link>} /> : null}
-              </div>
+        <div className="av-pane av-pane--rail av-workbench__rail">
+          <div className="av-pane-hd"><h2>{t("数据源")} <span className="av-count">{d.datasources.length}</span></h2></div>
+          <div className={`av-pane__body av-workbench__rail-body${!d.datasources.length ? " is-empty" : ""}`}>
+            <div className="av-list">
+              {d.datasources.map((s) => (
+                <Link key={String(s.id)} to={`/settings/datasources/${String(s.id)}`} className="av-row av-workbench__source">
+                  <Plat kind={String(s.kind)} /><span className="av-row__main"><span className="av-row__title">{String(s.name)}</span><span className="av-row__meta">{t("每 {{count}} 分钟", { count: Number(s.interval_minutes) })} · {s.last_run_at ? formatClock(s.last_run_at as string, tz) : t("尚未采集")}</span>
+                    <RunStrip id={String(s.id)} count={20} tz={tz} /></span>
+                  <span className="av-row__end"><Status value={String(s.status) === "ok" ? "ok" : String(s.status)} /></span>
+                </Link>
+              ))}
+              {!d.datasources.length ? <Empty compact text={t("尚未配置数据源")} action={<Link to="/settings/datasources" className="av-btn av-btn--secondary av-btn--sm">{t("查看数据源")}</Link>} /> : null}
             </div>
-            <div className="av-section">
-              <div className="av-hero-card">
-                <div className="av-hero-card__hd"><span>{t("采集节奏")}</span><span className="av-tag">{t("今日")}</span></div>
-                <div className="av-hero-card__val"><CountUp value={todayRuns} /><small>{t("次采集")}</small></div>
-                <div className="av-hero-card__meta">{changedHours ? t("{{count}} 个小时发现变化", { count: changedHours }) : t("今日没有发现变化")}</div>
-                <div className="av-heat" role="img" aria-label={t("今日每小时的采集")}>
-                  {d.cadence.map((c) => (
-                    <i key={Number(c.hour)} data-tip={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
-                      data-level={c.future || !Number(c.runs) ? 0 : Math.max(1, Math.ceil((Number(c.runs) / maxRuns) * 4))}
-                      className={c.future ? "is-future" : c.changed ? "is-change" : undefined} />
-                  ))}
-                </div>
-                <div className="av-cadence-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+          </div>
+          <div className="av-workbench__cadence-foot">
+            <div className="av-hero-card">
+              <div className="av-hero-card__hd"><span>{t("采集节奏")}</span><span className="av-tag">{t("今日")}</span></div>
+              <div className="av-hero-card__val"><CountUp value={todayRuns} /><small>{t("次采集")}</small></div>
+              <div className="av-hero-card__meta">{changedHours ? t("{{count}} 个小时发现变化", { count: changedHours }) : t("今日没有发现变化")}</div>
+              <div className="av-heat" role="img" aria-label={t("今日每小时的采集")}>
+                {d.cadence.map((c) => (
+                  <i key={Number(c.hour)} data-tip={t("{{hour}} 点：{{runs}} 次采集", { hour: String(c.hour), runs: String(c.runs) }) + (c.changed ? t("，发现变化") : "")}
+                    data-level={c.future || !Number(c.runs) ? 0 : Math.max(1, Math.ceil((Number(c.runs) / maxRuns) * 4))}
+                    className={c.future ? "is-future" : c.changed ? "is-change" : undefined} />
+                ))}
               </div>
+              <div className="av-cadence-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
             </div>
           </div>
         </div>
-      </motion.section>
+      </section>
       </>; }}</QueryState>
     </div>
   );

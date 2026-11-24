@@ -1,13 +1,14 @@
 // 分析的人机协作（ADR 0013）：预检后确认依据、对报告质疑或补充、把确认过的内容保存为个人经验。
 // 只有用户明确保存的内容才进入经验库；本次确认只对本次分析生效。
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { api, unwrap, type Schemas } from "../../api/client";
-import { errorText, useAction, useTimeZone } from "../../api/hooks";
-import { Drawer, Icon, Pill, QueryState, Seg, Select, shortName, Tile } from "../../components/ui";
+import { errorText, useAction, useDomains, useExperiences as useExperiencesQuery, useTimeZone, type Experience } from "../../api/hooks";
+import { Banner, Drawer, Icon, Pill, QueryState, Seg, Select, shortName, Status, Tile, useMessage } from "../../components/ui";
+import { submitOnEnter } from "../../components/shortcuts";
 import { formatTime } from "../../format";
+import { useMe, useRoles } from "../../layout/Shell";
 import { SkillPickerTrigger, SkillTags, useSkillPicker } from "./ComposeOptions";
 import { ContextMeter, ModelPicker, useModelChoice, type ModelChoice } from "./ModelPicker";
 import { t } from "../../i18n";
@@ -18,8 +19,8 @@ export type ProposalItem = { id: string; kind: string; content: string; source: 
 type SourceItem = ProposalItem & { status?: string; inherited?: boolean };
 type Candidate = { kind: string; content: string; refs: Ref[];
   source: { run_id: string; checkpoint: string; user_text?: string } };
-type Experience = Candidate & { id: string; status: string; version: number; created_at: string };
 type Decision = "" | "confirmed" | "rejected";
+export type ExperienceScopeFilter = "personal" | "domain" | "pending";
 
 const ITEM_KIND: Record<string, string> = { asset: t("表"), join: t("关联"), hypothesis: t("假设"), feedback: t("补充") };
 const SOURCE: Record<string, [string, "ok" | "info" | "warn" | ""]> = {
@@ -66,7 +67,7 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
         <button type="button" className="av-btn av-btn--ghost av-btn--sm"
           onClick={() => setDecisions(Object.fromEntries(items.map((i) => [i.id, "confirmed"])))}>{t("全部确认")}</button>
       </header>
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       {!items.length ? <p className="av-caption">{t("没有需要确认的依据，可以直接继续，或补充你知道的规则。")}</p> : null}
       <ol className="av-proposals" hidden={!items.length}>
         {items.map((i) => (
@@ -87,7 +88,13 @@ export function ConfirmPanel({ runId, items }: { runId: string; items: ProposalI
       }}>
         <label htmlFor={`sup-${runId}`} className="av-sr">{t("补充")}</label>
         <textarea id={`sup-${runId}`} className="av-textarea" rows={2} maxLength={4000} value={supplement}
-          placeholder={t("补充（可选）：还要看的表、关联或业务规则")} onChange={(e) => setSupplement(e.target.value)} />
+          placeholder={t("补充（可选）：还要看的表、关联或业务规则")} onChange={(e) => setSupplement(e.target.value)}
+          onKeyDown={(e) => {
+            if (submitOnEnter(e, "mod-enter") && !resume.isPending && pending === 0) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || pending > 0}>
           <Icon name="play" />{resume.isPending ? t("提交中…") : t("继续分析")}</button>
       </form>
@@ -129,14 +136,20 @@ export function ClarifyPanel({ runId, question, items }: { runId: string; questi
         <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={resume.isPending || !selections.length}
           onClick={() => submit(selections)}>{t("按所选继续（{{count}}/{{total}}）", { count: selections.length, total: (items ?? []).length })}</button>
       </div> : null}
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       <form className="av-analysis__confirm-ft" onSubmit={(e) => {
         e.preventDefault();
         submit(answer);
       }}>
         <label htmlFor={`ans-${runId}`} className="av-sr">{t("回答")}</label>
         <textarea id={`ans-${runId}`} className="av-textarea" rows={2} maxLength={2000} value={answer} autoFocus
-          placeholder={t("例如：指的是哪个口径、哪个范围")} onChange={(e) => setAnswer(e.target.value)} />
+          placeholder={t("例如：指的是哪个口径、哪个范围")} onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={(e) => {
+            if (submitOnEnter(e, "mod-enter") && !resume.isPending && answer.trim()) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }} />
         <button className="av-btn av-btn--primary" type="submit" disabled={resume.isPending || !answer.trim()}>
           <Icon name="play" />{resume.isPending ? t("提交中…") : t("继续分析")}</button>
       </form>
@@ -232,7 +245,7 @@ export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
         onError: (err) => setError(errorText(err)),
       });
     }}>
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       <SkillTags skills={skillPicker.skills} onRemove={skillPicker.remove} />
       <div className="av-compose__row av-compose__row--followup">
         <SkillPickerTrigger state={skillPicker} />
@@ -248,7 +261,7 @@ export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
           {...skillPicker.textareaProps}
           onKeyDown={(e) => {
             if (skillPicker.onTextareaKeyDown(e)) return;
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            if (submitOnEnter(e, "enter")) {
               e.preventDefault();
               e.currentTarget.form?.requestSubmit();
             }
@@ -266,14 +279,12 @@ export function FollowupForm({ run }: { run: Schemas["AnalysisRunOut"] }) {
   );
 }
 
-const useExperiences = () => useQuery({ queryKey: ["analysis-experiences"],
-  queryFn: () => unwrap(api.GET("/api/analysis/experiences")) as Promise<Experience[]> });
-
-const candidateKey = (c: Candidate) => `${c.source.run_id}|${c.source.user_text ?? c.content}`;
+const candidateKey = (c: { source: { run_id: string; user_text?: string }; content: string }) =>
+  `${c.source.run_id}|${c.source.user_text ?? c.content}`;
 
 /** 本次确认、否决、补充整理出的经验候选：可改类型与内容，明确保存后才进入个人经验。 */
 export function CandidatesPanel({ candidates }: { candidates?: Candidate[] }) {
-  const list = useExperiences();
+  const list = useExperiencesQuery({ scope: "personal" });
   if (!candidates?.length) return null;
   const saved = new Set((list.data ?? []).map(candidateKey));
   return (
@@ -309,55 +320,274 @@ function CandidateRow({ candidate, saved }: { candidate: Candidate; saved: boole
   );
 }
 
-/** 个人经验：分析时按口径与资产召回；可编辑（生成新版本）或撤销，旧版本留底。 */
-export function ExperienceList({ all = false }: { all?: boolean }) {
-  const list = useExperiences();
+/** 个人与业务域经验：分析时按口径与资产召回；支持分享到业务域、防自审复核、编辑或撤销。 */
+export function ExperienceList({
+  all = false,
+  scope = "personal",
+  domainId,
+  reviewStatus,
+  search = "",
+}: {
+  all?: boolean;
+  scope?: ExperienceScopeFilter;
+  domainId?: string;
+  reviewStatus?: "pending" | "approved" | "rejected";
+  search?: string;
+}) {
+  const queryParams = scope === "pending"
+    ? { scope: "domain" as const, domain_id: domainId, review_status: "pending" as const }
+    : { scope: scope as "personal" | "domain", domain_id: domainId, review_status: reviewStatus };
+  const list = useExperiencesQuery(queryParams);
+  const domains = useDomains();
+  const me = useMe();
+  const roles = useRoles();
   const tz = useTimeZone();
   const [editing, setEditing] = useState<Experience | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<Experience | null>(null);
+  const [rejecting, setRejecting] = useState<Experience | null>(null);
+  const [message, setMessage] = useMessage();
+
   const revoke = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/revoke", {
     params: { path: { experience_id: id } }, body: {} as never })), ["analysis-experiences"]);
+  const approve = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/approve", {
+    params: { path: { experience_id: id } }, body: {} })), ["analysis-experiences"]);
   // 表关联由治理维护：旧的“关联”经验可以转成待审核的关联路径，转完后经验自动撤销
   const [proposed, setProposed] = useState<{ name: string; status: string } | null>(null);
   const toJoin = useAction((id: string) => unwrap(api.POST("/api/analysis/experiences/{experience_id}/to-join-path", {
     params: { path: { experience_id: id } } })), ["analysis-experiences", "join-paths"]);
+
+  const domainMap = new Map((domains.data ?? []).map((d) => [d.id, d]));
+  const canMaintainDomain = (did?: string | null) => {
+    if (!did) return false;
+    if (roles.has("admin")) return true;
+    const d = domainMap.get(did);
+    if (!d || !me.data) return false;
+    return d.owner_id === me.data.id || d.members.some((m) => m.user_id === me.data?.id && m.role === "maintainer");
+  };
+
+  const term = search.trim().toLocaleLowerCase();
+  const matchesRow = (e: Experience) =>
+    (all || e.status === "active")
+    && (!term || `${e.content} ${EXP_KIND[e.kind] ?? e.kind} ${e.review_note ?? ""}`.toLocaleLowerCase().includes(term));
+
+  const emptyText = term
+    ? t("没有匹配的经验")
+    : scope === "pending"
+      ? t("暂无待审核的业务域经验")
+      : scope === "domain"
+        ? t("暂无业务域共享经验")
+        : t("暂无个人经验：在分析中确认或补充后保存");
+
   return (
     <section className="av-analysis__experiences">
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
-      {proposed ? <div className="av-banner av-banner--info">
+      <Banner message={message} />
+      {proposed ? <div className="av-banner av-banner--info" role="status">
         {proposed.status === "approved" ? t("已有相同的关联路径") : t("已提议为关联路径，等待负责人审核")}：{proposed.name}
         <Link className="av-btn av-btn--ghost av-btn--sm" to="/catalog/joins">{t("查看")}</Link></div> : null}
       {/* 经验列表加载与报错统一走 QueryState，分段筛选已上移至 PageHead */}
-      <QueryState query={list} isEmpty={(data) => !data.some((e) => all || e.status === "active")}
-        emptyText={t("暂无个人经验：在分析中确认或补充后保存")} compact rows={3}>
+      <QueryState query={list} isEmpty={(data) => !data.some(matchesRow)}
+        emptyText={emptyText} compact rows={3}>
         {(data) => (
           <div className="av-analysis__list">
-            {data.filter((e) => all || e.status === "active").map((e) => (
-              <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
-                <Pill tone="">{EXP_KIND[e.kind] ?? e.kind}</Pill>
-                <span className="av-row__main"><span className="av-row__title av-experience__content">{e.content}</span>
-                  <span className="av-row__meta" title={refsTitle(e.refs)}>
-                    v{e.version} {t("· 引用 {{count}} 项 ·", { count: e.refs.length })} {formatTime(e.created_at, tz)}
-                    {e.status !== "active" ? ` · ${e.status === "revoked" ? t("已撤销") : t("已替代")}` : ""}</span></span>
-                <span className="av-actions">
-                  {e.status === "active" ? <>
-                    {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
-                      title={t("表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用")}
-                      onClick={() => { setError(null); setProposed(null); toJoin.mutate(e.id, {
-                        onSuccess: (out) => setProposed(out as { name: string; status: string }),
-                        onError: (err) => setError(errorText(err)) }); }}>{t("转为关联路径")}</button> : null}
-                    <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>{t("编辑")}</button>
-                    <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
-                      onClick={() => revoke.mutate(e.id, { onError: (err) => setError(errorText(err)) })}>{t("撤销")}</button>
-                  </> : null}
-                </span>
-              </div>
-            ))}
+            {data.filter(matchesRow).map((e) => {
+              const isOwner = me.data?.id === e.owner_id;
+              const isMaintainer = canMaintainDomain(e.domain_id);
+              const selfReview = !!me.data && (me.data.id === e.owner_id || me.data.id === e.submitted_by);
+              const domainName = e.domain_id ? (domainMap.get(e.domain_id)?.name ?? e.domain_id) : null;
+              return (
+                <div key={e.id} className={`av-row av-experience${e.status === "active" ? "" : " is-inactive"}`}>
+                  <Pill tone="">{EXP_KIND[e.kind] ?? e.kind}</Pill>
+                  <span className="av-row__main">
+                    <span className="av-row__title av-experience__content">{e.content}</span>
+                    <span className="av-row__meta" title={refsTitle(e.refs)}>
+                      v{e.version} {t("· 引用 {{count}} 项 ·", { count: e.refs.length })} {formatTime(e.created_at, tz)}
+                      {domainName ? ` · ${domainName}` : ""}
+                      {e.status !== "active" ? ` · ${e.status === "revoked" ? t("已撤销") : t("已替代")}` : ""}
+                    </span>
+                    <span className="av-experience__badges">
+                      {e.scope === "domain" && e.review_status !== "none" ? (
+                        <Status
+                          value={e.review_status}
+                          label={e.review_status === "pending" ? t("待审核") : e.review_status === "approved" ? t("已批准") : t("已驳回")}
+                        />
+                      ) : null}
+                      {e.review_note ? (
+                        <span className="av-caption av-experience__review-note">{t("审核意见：{{note}}", { note: e.review_note })}</span>
+                      ) : null}
+                      {e.scope === "domain" && e.review_status === "pending" && isMaintainer && selfReview ? (
+                        <span className="av-status av-status--warn">{t("不能审核自己提交的经验")}</span>
+                      ) : null}
+                    </span>
+                  </span>
+                  <span className="av-actions">
+                    {e.status === "active" && e.scope === "personal" ? <>
+                      {e.kind === "join" ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={toJoin.isPending}
+                        title={t("表关联由治理维护：转成待审核的关联路径，批准后所有人的分析都能用")}
+                        onClick={() => { setMessage(null); setProposed(null); toJoin.mutate(e.id, {
+                          onSuccess: (out) => setProposed(out as { name: string; status: string }),
+                          onError: (err) => setMessage({ ok: false, text: errorText(err) }) }); }}>{t("转为关联路径")}</button> : null}
+                      <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSharing(e)}>
+                        <Icon name="share" small />{t("分享到业务域")}
+                      </button>
+                      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setEditing(e)}>{t("编辑")}</button>
+                      <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
+                        onClick={() => revoke.mutate(e.id, { onError: (err) => setMessage({ ok: false, text: errorText(err) }) })}>{t("撤销")}</button>
+                    </> : null}
+                    {e.status === "active" && e.scope === "domain" ? <>
+                      {e.review_status === "pending" && isMaintainer ? <>
+                        <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={selfReview || approve.isPending}
+                          onClick={() => setRejecting(e)}>{t("驳回")}</button>
+                        <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={selfReview || approve.isPending}
+                          onClick={() => { setMessage(null); approve.mutate(e.id, {
+                            onSuccess: () => setMessage({ ok: true, text: t("已批准经验") }),
+                            onError: (err) => setMessage({ ok: false, text: errorText(err) }),
+                          }); }}>{approve.isPending ? t("批准中…") : t("批准")}</button>
+                      </> : null}
+                      {e.review_status === "rejected" && isOwner ? (
+                        <button type="button" className="av-btn av-btn--secondary av-btn--sm" onClick={() => setSharing(e)}>
+                          <Icon name="share" small />{t("重新分享")}
+                        </button>
+                      ) : null}
+                      {isOwner || isMaintainer ? (
+                        <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={revoke.isPending}
+                          onClick={() => revoke.mutate(e.id, { onError: (err) => setMessage({ ok: false, text: errorText(err) }) })}>{t("撤销")}</button>
+                      ) : null}
+                    </> : null}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </QueryState>
       {editing ? <EditExperience experience={editing} onClose={() => setEditing(null)} /> : null}
+      {sharing ? <ShareExperienceDrawer experience={sharing} onClose={() => setSharing(null)} onShared={() => {
+        setMessage({ ok: true, text: t("已提交到业务域等待审核") });
+      }} /> : null}
+      {rejecting ? <RejectExperienceDrawer experience={rejecting} onClose={() => setRejecting(null)} onRejected={() => {
+        setMessage({ ok: true, text: t("已驳回经验") });
+      }} /> : null}
     </section>
+  );
+}
+
+export function ShareExperienceDrawer({ experience, onClose, onShared }: {
+  experience: Experience;
+  onClose: () => void;
+  onShared?: (updated: Experience) => void;
+}) {
+  const domains = useDomains();
+  const domainList = domains.data ?? [];
+  const [domainId, setDomainId] = useState(
+    experience.domain_id ?? (domainList.length === 1 ? domainList[0].id : ""),
+  );
+  const [message, setMessage] = useMessage();
+  const resolvedDomainId = domainId || (domainList.length === 1 ? domainList[0].id : "");
+
+  const submit = useAction(() => unwrap(api.POST("/api/analysis/experiences/{experience_id}/submit", {
+    params: { path: { experience_id: experience.id } },
+    body: { domain_id: resolvedDomainId },
+  })), ["analysis-experiences"]);
+
+  return (
+    <Drawer
+      title={t("分享到业务域")}
+      onClose={() => { if (!submit.isPending) onClose(); }}
+      footer={(
+        <div className="av-actions">
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={submit.isPending} onClick={onClose}>{t("取消")}</button>
+          <button
+            type="button"
+            className="av-btn av-btn--primary av-btn--sm"
+            disabled={submit.isPending || !resolvedDomainId}
+            onClick={() => {
+              setMessage(null);
+              submit.mutate(undefined, {
+                onSuccess: (updated) => { onShared?.(updated); onClose(); },
+                onError: (err) => setMessage({ ok: false, text: errorText(err) }),
+              });
+            }}
+          >
+            {submit.isPending ? t("提交中…") : t("提交审核")}
+          </button>
+        </div>
+      )}
+    >
+      <div className="av-vqr-form" aria-busy={submit.isPending}>
+        <Banner message={message} />
+        {!experience.refs.length ? (
+          <div className="av-banner av-banner--warn" role="status">{t("该经验尚未绑定口径或资产引用，共享到业务域需要至少引用一项")}</div>
+        ) : null}
+        <label className="av-field">
+          <span className="av-label">{t("目标业务域")} *</span>
+          <Select label={t("目标业务域")} value={resolvedDomainId} disabled={submit.isPending} onChange={setDomainId}>
+            <option value="">{t("选择业务域")}</option>
+            {domainList.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </Select>
+        </label>
+        <div className="av-field">
+          <span className="av-label">{t("经验内容")}</span>
+          <p className="av-doc__note">{experience.content}</p>
+        </div>
+        <span className="av-caption">{t("提交后需由该业务域的其他负责人或维护者审核批准（禁止自审）")}</span>
+      </div>
+    </Drawer>
+  );
+}
+
+export function RejectExperienceDrawer({ experience, onClose, onRejected }: {
+  experience: Experience;
+  onClose: () => void;
+  onRejected?: (updated: Experience) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [message, setMessage] = useMessage();
+  const reject = useAction(() => unwrap(api.POST("/api/analysis/experiences/{experience_id}/reject", {
+    params: { path: { experience_id: experience.id } },
+    body: { note: note.trim() },
+  })), ["analysis-experiences"]);
+
+  return (
+    <Drawer
+      title={t("驳回经验")}
+      onClose={() => { if (!reject.isPending) onClose(); }}
+      footer={(
+        <div className="av-actions">
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={reject.isPending} onClick={onClose}>{t("取消")}</button>
+          <button
+            type="button"
+            className="av-btn av-btn--danger av-btn--sm"
+            disabled={reject.isPending || !note.trim()}
+            onClick={() => {
+              setMessage(null);
+              reject.mutate(undefined, {
+                onSuccess: (updated) => { onRejected?.(updated); onClose(); },
+                onError: (err) => setMessage({ ok: false, text: errorText(err) }),
+              });
+            }}
+          >
+            {reject.isPending ? t("驳回中…") : t("确认驳回")}
+          </button>
+        </div>
+      )}
+    >
+      <div className="av-vqr-form" aria-busy={reject.isPending}>
+        <Banner message={message} />
+        <p className="av-doc__note">{experience.content}</p>
+        <label className="av-field">
+          <span className="av-label">{t("驳回理由")} *</span>
+          <textarea
+            className="av-textarea"
+            rows={4}
+            maxLength={1000}
+            value={note}
+            disabled={reject.isPending}
+            placeholder={t("请说明驳回原因，便于提交人修改…")}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </label>
+      </div>
+    </Drawer>
   );
 }
 
@@ -374,9 +604,9 @@ function EditExperience({ experience, onClose }: { experience: Experience; onClo
       <button type="button" className="av-btn av-btn--primary av-btn--sm" disabled={replace.isPending || !content.trim()}
         onClick={() => replace.mutate(undefined, { onSuccess: onClose, onError: (e) => setError(errorText(e)) })}>{t("保存新版本")}</button>
     </div>}>
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       <label className="av-field"><span className="av-label">{t("类型")}</span>
-        <Select label={t("经验类型")} value={kind} onChange={setKind}>
+        <Select label={t("经验类型")} value={kind} onChange={(v) => setKind(v as Experience["kind"])}>
           {Object.entries(EXP_KIND).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </Select></label>
       <label className="av-field"><span className="av-label">{t("内容")}</span>

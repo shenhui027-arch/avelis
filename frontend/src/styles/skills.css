@@ -36,9 +36,7 @@
   border: 0;
   background: none;
   color: var(--text-primary);
-  font: var(--type-mono-strong);
-  font-size: 14px;
-  line-height: 20px;
+  font: 600 14.5px/20px var(--font-sans);
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -105,7 +103,7 @@
   border: 0;
   background: none;
   color: var(--text-primary);
-  font: var(--type-mono-strong);
+  font: 600 13.5px/20px var(--font-sans);
   text-align: left;
   cursor: pointer;
 }
@@ -116,7 +114,7 @@
 /* --- 详情抽屉 ------------------------------------------------------------------------------------- */
 .av-skill-dhead { display: flex; flex-direction: column; gap: var(--space-2); }
 .av-skill-dhead__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.av-skill-dhead__name { color: var(--text-primary); font: 600 18px/26px var(--font-mono); overflow-wrap: anywhere; }
+.av-skill-dhead__name { color: var(--text-primary); font: 600 18px/26px var(--font-sans); overflow-wrap: anywhere; }
 
 .av-skill-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); color: var(--text-secondary); font: var(--type-caption); }
 .av-skill-stats b { color: var(--text-primary); font-weight: 500; }
@@ -569,12 +567,14 @@
   font: var(--type-micro);
 }
 
-/* --- 窄屏适配（≤ 900px 整页纵向滚动、网格单列、页头与分段导航换行） -------------------------------- */
-@media (max-width: 900px) {
+/* --- 窄屏适配（≤ 1023px 整页纵向滚动，≤ 900px 网格单列、页头与分段导航换行） ------------------------- */
+@media (max-width: 1023px) {
   .av-skills { height: 100%; overflow-y: auto; }
   .av-skills__scroll { flex: none; overflow: visible; }
   .av-skills__boxed { flex: none; }
   .av-skills__boxed > .av-scroll { flex: none; overflow: visible; }
+}
+@media (max-width: 900px) {
   .av-skills .av-pagehd { flex-wrap: wrap; }
   .av-skills .av-pagehd__title { max-width: 100%; }
   .av-skills .av-pagehd > .av-actions { flex-wrap: wrap; width: 100%; }
@@ -584,4 +584,9 @@
   .av-compose__skills { padding-inline: var(--space-3); }
   .av-compose__row { padding-left: var(--space-2); }
   .av-runlog__skills { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av-skill-card,
+  .av-skill-drop,
+  .av-skill-opt { transition: none; }
 }

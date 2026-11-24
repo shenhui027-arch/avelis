@@ -1,4 +1,5 @@
 // 问数回答的文字部分：确定性要点卡（后端 ask/insights.py 算出，不依赖模型）与模型解读。问数页与分析页的取数答案共用。
+import { GroundingWarning, type GroundingInfo } from "./AnswerActions";
 import { Hint, Icon } from "./ui";
 import { t } from "../i18n";
 import type { Insight } from "../pages/ask/presentation";
@@ -21,7 +22,17 @@ export function Insights({ items }: { items: Insight[] }) {
 }
 
 /** 模型的解读：首行是结论，“- ”开头的是观察，“追问：”开头的变成一键追问。 */
-export function Narrative({ text, onPick, disabled }: { text: string; onPick: (q: string) => void; disabled: boolean }) {
+export function Narrative({
+  text,
+  onPick,
+  disabled,
+  grounding,
+}: {
+  text: string;
+  onPick: (q: string) => void;
+  disabled: boolean;
+  grounding?: GroundingInfo | null;
+}) {
   const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const follow = lines.find((line) => /^(追问|追問|Follow-up)[:：]/i.test(line))?.replace(/^[^:：]+[:：]\s*/, "");
   // 列表标记后必须有空白，行首的负数（如“-5%”）不是列表项
@@ -31,7 +42,8 @@ export function Narrative({ text, onPick, disabled }: { text: string; onPick: (q
   return (
     <section className="av-narrative" aria-label={t("模型解读")}>
       <div className="av-narrative__hd"><Icon name="analysis" small />{t("模型解读")}
-        <Hint text={t("模型基于上面的结果与要点所写，只引用其中的数值；原因需要进一步拆解确认")} /></div>
+        <Hint text={t("模型基于上面的结果与要点所写，只引用其中的数值；原因需要进一步拆解确认")} />
+        <GroundingWarning grounding={grounding} /></div>
       {lead ? <p className="av-narrative__lead">{lead}</p> : null}
       {points.length ? <ul className="av-narrative__points">{points.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
       {follow ? <button type="button" className="av-narrative__follow" disabled={disabled}

@@ -200,7 +200,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         allow_origins=list(settings.cors_origins),
         allow_credentials=bool(settings.cors_origins) and "*" not in settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "Accept-Language"],
+        allow_headers=["Authorization", "Content-Type", "Accept-Language", "Last-Event-ID", "Cache-Control"],
     )
     app.add_middleware(LocaleMiddleware)
     app.add_middleware(

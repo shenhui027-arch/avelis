@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { api, unwrap } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
-import { Banner, Empty, Hint, PaneHeader, QueryState, Select, Switch, useMessage } from "../../components/ui";
+import { Banner, Crumbs, Empty, Hint, PaneHeader, QueryState, Select, Switch, useMessage } from "../../components/ui";
 import { t } from "../../i18n";
 import { SettingsTabs, useMe, useRoles } from "../../layout/Shell";
 
@@ -15,7 +15,7 @@ export function AuthSettingsPage() {
   const query = useQuery({
     queryKey: ["auth-settings"],
     enabled: isAdmin,
-    queryFn: () => unwrap(api.GET("/api/settings/auth")),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/settings/auth", { signal })),
   });
 
   const [loaded, setLoaded] = useState(false);
@@ -103,6 +103,7 @@ export function AuthSettingsPage() {
 
   return (
     <div className="av-fill">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("认证与品牌")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="auth" /></div>
         {isAdmin ? (

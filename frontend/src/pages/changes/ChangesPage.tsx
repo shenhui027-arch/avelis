@@ -1,12 +1,12 @@
 // 变更：收件箱模式 —— 变更列表 | 差异与影响 | 复核处理；“记录”视图按条件检索、导出全部留底的变更（ADR 0008）。
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
 import {
   errorText, useAction, useAssetNames, useChangeSet, useChangeSets, useDatasources, useMetrics, useTimeZone, useUsers, type ChangeSet, type Task,
 } from "../../api/hooks";
-import { Banner, Count, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, QueryState, Seg, Select, Status, Tabs, shortName, statusOf, useMessage } from "../../components/ui";
+import { Banner, Count, Crumbs, DiffCode, Dot, Drawer, Empty, Hint, KIND_LABEL, Pill, QueryState, Seg, Select, Status, Tabs, shortName, statusOf, useMessage } from "../../components/ui";
 import { dayKey, formatClock, formatDate, formatTime } from "../../format";
 import { useMe } from "../../layout/Shell";
 import { Actor, ChangeRecords, EVENT_LABEL as EVENT } from "./ChangeRecords";
@@ -47,6 +47,7 @@ export function ChangesPage() {
       <section className="av-pane av-changes__list" aria-label={t("变更列表")}>
         {/* 去除写死内联样式，统一使用令牌类与一级标题字号 */}
         <div className="av-changes__hd">
+          <Crumbs back={{ label: t("工作台"), to: "/" }} items={[view === "records" ? t("变更记录") : t("变更集")]} />
           <div className="av-changes__title">
             <h1>{t("变更")} <Hint text={t("每次采集发现的变化归为一组；只有字段推导变化影响了口径或关联路径时才需要复核")} /></h1>
             <Seg label={t("视图")} value={view} onChange={(v) => setParams(v === "records" ? { view: "records" } : {})}
@@ -123,6 +124,10 @@ function Detail({ id }: { id: string }) {
     return null;
   };
 
+  useEffect(() => {
+    if (cs.data) document.title = `${datasourceName(cs.data.datasource_id)} · ${t("变更")} · Avelis`;
+  }, [cs.data, datasourceName]);
+
   return (
     <section className="av-pane av-changes__detail" aria-label={t("变更详情")}>
       <div className="av-pane__body">
@@ -131,7 +136,8 @@ function Detail({ id }: { id: string }) {
           {(c) => {
             const first = isFirstCollection(c);
             const events = c.events ?? [];
-            const def = events.find((e) => e.kind === "definition_changed");
+            const defs = events.filter((e) => e.kind === "definition_changed");
+            const firstDef = defs[0];
             const direct = events.filter((e) => !["derivation_changed", "upstream_broken", "identity_link_changed"].includes(e.kind));
             const derived = events.filter((e) => e.kind === "derivation_changed" || e.kind === "upstream_broken");
             // 身份映射变化（外部表与他库真实表的对应关系）单独成组，不能从列表中漏掉
@@ -156,8 +162,8 @@ function Detail({ id }: { id: string }) {
                         {task ? <button type="button" className={`av-btn av-btn--sm ${task.status === "open" ? "av-btn--primary" : "av-btn--secondary"}`} onClick={() => setReviewing(true)}>
                           {task.status === "open" ? t("处理复核") : t("复核结论")}</button> : null}
                         <Link className="av-btn av-btn--secondary av-btn--sm" to={`/settings/datasources/${c.datasource_id}`}>{t("打开数据源")}</Link>
-                        {def?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${def.asset_id}`}>{t("资产")}</Link>
-                          <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${def.asset_id}`}>{t("血缘")}</Link></> : null}
+                        {firstDef?.asset_id ? <><Link className="av-btn av-btn--secondary av-btn--sm" to={`/catalog/assets/${firstDef.asset_id}`}>{t("资产")}</Link>
+                          <Link className="av-btn av-btn--secondary av-btn--sm" to={`/lineage?asset=${firstDef.asset_id}`}>{t("血缘")}</Link></> : null}
                       </div>
                     </div>
                     {first ? (
@@ -174,12 +180,18 @@ function Detail({ id }: { id: string }) {
                     </div>
                   </div>
 
-                  {def ? (
-                    <section className="av-panel">
-                      <div className="av-panel__hd"><h2 className="av-panel__title">{t("定义对比")}</h2><span className="av-caption">{t("左：变化前 · 右：变化后")}</span></div>
-                      <div className="av-panel__bd"><DiffCode before={String(def.before.canonical_sql ?? "")} after={String(def.after.canonical_sql ?? "")} /></div>
+                  {defs.map((d) => (
+                    <section key={d.id} className="av-panel">
+                      <div className="av-panel__hd">
+                        <h2 className="av-panel__title">
+                          {t("定义对比")}
+                          {d.asset ? <> · <span className="av-mono">{d.asset_id ? <Link to={`/catalog/assets/${d.asset_id}`}>{shortName(d.asset)}</Link> : shortName(d.asset)}</span></> : null}
+                        </h2>
+                        <span className="av-caption">{t("左：变化前 · 右：变化后")}</span>
+                      </div>
+                      <div className="av-panel__bd"><DiffCode before={String(d.before.canonical_sql ?? "")} after={String(d.after.canonical_sql ?? "")} /></div>
                     </section>
-                  ) : null}
+                  ))}
 
                   <section className="av-panel">
                     <div className="av-panel__hd">

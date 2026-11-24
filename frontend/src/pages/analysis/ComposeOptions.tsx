@@ -10,8 +10,8 @@ import { Link } from "react-router";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText } from "../../api/hooks";
 import { Icon } from "../../components/Icon";
+import { useOverlay, usePopover } from "../../components/overlay";
 import { t } from "../../i18n";
-import { usePopover } from "./ModelPicker";
 
 export type ChipOption<T extends string> = { value: T; label: string; hint?: string };
 
@@ -19,18 +19,22 @@ export function ChipMenu<T extends string>({ icon, title, value, display, option
   icon: string; title: string; value: T; display?: string; options: ChipOption<T>[];
   onChange: (value: T) => void; keepOpenFor?: T; down?: boolean; children?: ReactNode;
 }) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, triggerRef, menuRef, onTriggerKeyDown, onMenuKeyDown } = usePopover({
+    focusChecked: true,
+    tabClosesMenu: !children,
+  });
   const current = options.find((o) => o.value === value);
   return (
     <div className="av-mbar av-chip" ref={ref}>
-      <button type="button" className="av-chip__btn" aria-haspopup="menu" aria-expanded={open} title={title}
-        onClick={() => setOpen(!open)}>
+      <button ref={triggerRef} type="button" className="av-chip__btn" aria-haspopup="menu" aria-expanded={open} title={title}
+        onClick={() => setOpen(!open)} onKeyDown={onTriggerKeyDown}>
         <Icon name={icon} small />
         <span className="av-chip__value">{display ?? current?.label}</span>
         <Icon name="chevron" small />
       </button>
       {open ? (
-        <div className={`av-menu ${down ? "av-chip__menu--down" : "av-menu--up"} av-mbar__menu av-chip__menu`} role="menu" aria-label={title}>
+        <div ref={menuRef} className={`av-menu ${down ? "av-chip__menu--down" : "av-menu--up"} av-mbar__menu av-chip__menu`}
+          role="menu" aria-label={title} tabIndex={-1} onKeyDown={onMenuKeyDown}>
           <div className="av-mbar__sec">{title}</div>
           {options.map((o) => (
             <button key={o.value} type="button" role="menuitemradio" aria-checked={o.value === value}
@@ -68,8 +72,8 @@ function findSlashToken(text: string, caret: number | null): SlashToken | null {
   return { start, end, query };
 }
 
-export function useSkillPicker(text: string, onChangeText: (next: string) => void) {
-  const [skills, setSkills] = useState<string[]>([]);
+export function useSkillPicker(text: string, onChangeText: (next: string) => void, initialSkills?: string[]) {
+  const [skills, setSkills] = useState<string[]>(() => initialSkills ?? []);
   const [plusOpen, setPlusOpen] = useState(false);
   const [plusQuery, setPlusQuery] = useState("");
   const [caret, setCaret] = useState<number | null>(null);
@@ -92,7 +96,7 @@ export function useSkillPicker(text: string, onChangeText: (next: string) => voi
   const enabledQuery = useQuery({
     queryKey: ["skills", "list", "enabled", ""],
     enabled: open,
-    queryFn: () => unwrap(api.GET("/api/skills", { params: { query: { view: "enabled", q: undefined } } })),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills", { params: { query: { view: "enabled", q: undefined } }, signal })),
   });
 
   const enabledSkills: Skill[] = enabledQuery.data ?? [];
@@ -188,21 +192,13 @@ export function useSkillPicker(text: string, onChangeText: (next: string) => voi
     return () => window.removeEventListener("mousedown", onMouseDown);
   }, [open, mode, slashToken]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.isComposing || e.keyCode === 229 || e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      const fromPlus = mode === "plus";
-      setPlusOpen(false);
-      if (slashToken) setDismissedSlash(slashToken.start);
-      if (fromPlus) plusBtnRef.current?.focus();
-      else textareaRef.current?.focus();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [open, mode, slashToken]);
+  useOverlay(open, () => {
+    const fromPlus = mode === "plus";
+    setPlusOpen(false);
+    if (slashToken) setDismissedSlash(slashToken.start);
+    if (fromPlus) plusBtnRef.current?.focus();
+    else textareaRef.current?.focus();
+  });
 
   const stepActive = (dir: 1 | -1) => {
     if (!filtered.length || atLimit) return;
@@ -244,15 +240,6 @@ export function useSkillPicker(text: string, onChangeText: (next: string) => voi
 
   const handleMenuNavKey = (e: KeyboardEvent<HTMLElement>): boolean => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return false;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      const fromPlus = mode === "plus";
-      closeMenu();
-      if (fromPlus) plusBtnRef.current?.focus();
-      else textareaRef.current?.focus();
-      return true;
-    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       stepActive(1);
@@ -283,15 +270,6 @@ export function useSkillPicker(text: string, onChangeText: (next: string) => voi
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      const fromPlus = mode === "plus";
-      closeMenu();
-      if (fromPlus) plusBtnRef.current?.focus();
-      else textareaRef.current?.focus();
-      return;
-    }
     if (mode === "plus" && e.key === "Tab") {
       const items = Array.from(
         menuRef.current?.querySelectorAll<HTMLElement>(

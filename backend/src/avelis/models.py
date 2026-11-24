@@ -770,6 +770,10 @@ class Answer(Base):
     steps: Mapped[list] = mapped_column(JsonType, default=list, nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text)
     explanation_source: Mapped[str | None] = mapped_column(String(32))
+    feedback_rating: Mapped[str | None] = mapped_column(String(8), nullable=True)  # up | down
+    feedback_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    feedback_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
 
 
 # --- 导入血缘（M2） ---------------------------------------------------------------
@@ -922,6 +926,8 @@ class ModelAssignment(Base):
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     # 思考强度 off / low / medium / high / max（ADR 0012）；为空时取 modelcfg.DEFAULT_EFFORT
     reasoning_effort: Mapped[str | None] = mapped_column(String(8))
+    # 备选容灾模型列表：[{provider_id, model_id, reasoning_effort}]，最多 5 个
+    backups: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
     updated_by: Mapped[str] = fk("app_user.id", index=False)
     updated_at: Mapped[datetime] = created()
 
@@ -930,6 +936,81 @@ class AppSetting(Base):
     __tablename__ = "app_setting"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict] = mapped_column(JsonType, nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(IdType)
+    updated_at: Mapped[datetime] = created()
+
+
+class LlmUsageLedger(Base):
+    """模型调用 Token 与预估费用账本。run_id / answer_id / domain_id 不设限制性外键，避免对话或域删除失败。"""
+
+    __tablename__ = "llm_usage_ledger"
+    __table_args__ = (
+        Index("ix_llm_usage_user_created", "user_id", "created_at"),
+        Index("ix_llm_usage_domain_created", "domain_id", "created_at"),
+    )
+    id: Mapped[str] = pk()
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(IdType, ForeignKey("app_user.id", ondelete="SET NULL"), index=True)
+    domain_id: Mapped[str | None] = mapped_column(IdType, index=True)
+    purpose: Mapped[str] = mapped_column(String(16), nullable=False)
+    phase: Mapped[str | None] = mapped_column(String(32))
+    provider_id: Mapped[str | None] = mapped_column(IdType, index=True)
+    provider_code: Mapped[str | None] = mapped_column(String(64))
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    adapter: Mapped[str | None] = mapped_column(String(192))
+    thread_id: Mapped[str | None] = mapped_column(IdType, index=True)
+    answer_id: Mapped[str | None] = mapped_column(IdType, index=True)
+    run_id: Mapped[str | None] = mapped_column(IdType, index=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    cache_hit_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    estimated_cost: Mapped[Decimal] = mapped_column(
+        Numeric(14, 6), default=Decimal("0"), server_default="0", nullable=False
+    )
+    currency: Mapped[str] = mapped_column(String(8), default="USD", server_default="USD", nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16), default="ok", server_default="ok", nullable=False)
+    failover_from: Mapped[str | None] = mapped_column(String(192))
+    routing_tier: Mapped[str | None] = mapped_column(String(16))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+
+
+class LlmPricing(Base):
+    """模型单价覆盖表（按每百万 tokens 计价）。未配置时回退内置默认单价。"""
+
+    __tablename__ = "llm_pricing"
+    __table_args__ = (UniqueConstraint("provider_code", "model_id", name="uq_llm_pricing_provider_model"),)
+    id: Mapped[str] = pk()
+    provider_code: Mapped[str] = mapped_column(String(64), default="*", server_default="*", nullable=False)
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    input_per_1m: Mapped[Decimal] = mapped_column(
+        Numeric(14, 6), default=Decimal("0"), server_default="0", nullable=False
+    )
+    output_per_1m: Mapped[Decimal] = mapped_column(
+        Numeric(14, 6), default=Decimal("0"), server_default="0", nullable=False
+    )
+    cache_hit_per_1m: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    currency: Mapped[str] = mapped_column(String(8), default="USD", server_default="USD", nullable=False)
+    updated_by: Mapped[str | None] = mapped_column(IdType)
+    updated_at: Mapped[datetime] = created()
+
+
+class LlmQuota(Base):
+    """模型配额与限流规则：支持 global / user / domain 三级。"""
+
+    __tablename__ = "llm_quota"
+    __table_args__ = (UniqueConstraint("scope_type", "scope_id", name="uq_llm_quota_scope"),)
+    id: Mapped[str] = pk()
+    scope_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    daily_token_limit: Mapped[int | None] = mapped_column(BigInteger)
+    monthly_token_limit: Mapped[int | None] = mapped_column(BigInteger)
+    daily_cost_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    monthly_cost_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    rpm_limit: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true(), nullable=False)
     updated_by: Mapped[str | None] = mapped_column(IdType)
     updated_at: Mapped[datetime] = created()
 
@@ -949,6 +1030,9 @@ class AnalysisTask(Base):
     # 或 {"kind": "last_month"}（上个自然月对比再上个月）
     window: Mapped[dict] = mapped_column(JsonType, default=dict, nullable=False)
     schedule_cron: Mapped[str | None] = mapped_column(String(64))
+    skills: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    model_choice: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    reasoning_effort: Mapped[str | None] = mapped_column(String(8), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | paused
     paused_reason: Mapped[str | None] = mapped_column(Text)
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
@@ -1070,16 +1154,60 @@ class Notification(Base):
 
 
 class Experience(Base):
-    """用户明确保存的个人经验。撤销与替代只改状态，版本正文保留。"""
+    """用户保存的个人经验与经审核共享的业务域经验。撤销与替代只改状态，版本正文保留。"""
 
     __tablename__ = "experience"
-    __table_args__ = (Index("ix_experience_owner_status", "owner_id", "status"),)
+    __table_args__ = (
+        Index("ix_experience_owner_status", "owner_id", "status"),
+        Index("ix_experience_domain_review", "scope", "domain_id", "status", "review_status"),
+    )
     id: Mapped[str] = pk()
     owner_id: Mapped[str] = fk("app_user.id", index=False)
     scope: Mapped[str] = mapped_column(String(16), default="personal", server_default="personal", nullable=False)
+    domain_id: Mapped[str | None] = fk("domain.id", nullable=True, index=False)
+    review_status: Mapped[str] = mapped_column(
+        String(16), default="none", server_default="none", nullable=False
+    )  # none | pending | approved | rejected
+    submitted_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    reviewed_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", server_default="active", nullable=False)
     created_at: Mapped[datetime] = created()
+
+
+class VerifiedQuery(Base):
+    """经审核验证的黄金查询（VQR）：只作为问数与分析的只读参考，不绕过治理编译与执行校验。"""
+
+    __tablename__ = "verified_query"
+    __table_args__ = (Index("ix_verified_query_domain_status", "domain_id", "status"),)
+    id: Mapped[str] = pk()
+    domain_id: Mapped[str] = fk("domain.id", index=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    question_variants: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    sql_text: Mapped[str] = mapped_column(LongText, nullable=False)
+    dialect: Mapped[str] = mapped_column(String(32), default="postgres", server_default="postgres", nullable=False)
+    datasource_id: Mapped[str | None] = fk("datasource.id", nullable=True, index=False)
+    metric_codes: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    tags: Mapped[list] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_answer_id: Mapped[str | None] = fk("answer.id", nullable=True, index=False)
+    source_run_id: Mapped[str | None] = fk("analysis_run.id", nullable=True, index=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="draft", server_default="draft", nullable=False
+    )  # draft | pending_review | approved | rejected | archived
+    created_by: Mapped[str] = fk("app_user.id", index=False)
+    created_at: Mapped[datetime] = created()
+    updated_at: Mapped[datetime] = created()
+    submitted_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    reviewed_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class ExperienceVersion(Base):

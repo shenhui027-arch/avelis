@@ -1,6 +1,6 @@
 // 修改密码：统一登录页建筑感分栏语言；首次登录或被重置后强制进入，成功后换用新令牌并使其他会话失效。
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { api, ApiError, token, unwrap } from "../../api/client";
@@ -16,6 +16,9 @@ import "../../styles/login.css";
 export function ChangePassword() {
   const me = useMe();
   const authConfig = useAuthConfig();
+  useEffect(() => {
+    document.title = `${t("修改密码")} · ${authConfig.data?.branding?.brand_name || "Avelis"}`;
+  }, [authConfig.data?.branding?.brand_name]);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const from = (useLocation().state as { from?: string } | null)?.from ?? "/";

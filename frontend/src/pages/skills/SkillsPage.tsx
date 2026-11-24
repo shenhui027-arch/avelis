@@ -7,12 +7,12 @@ import { api, token, unwrap, type Schemas } from "../../api/client";
 import { errorText, useTimeZone } from "../../api/hooks";
 import { useDebounced } from "../../components/AssetPicker";
 import {
-  Banner, ConfirmDialog, Icon, PaneHeader, QueryState, Skeleton, Status, Switch, Tile, useMessage,
+  Banner, ConfirmDialog, Crumbs, Icon, PaneHeader, QueryState, Skeleton, Status, Switch, Tile, useMessage,
 } from "../../components/ui";
 import { formatShortTime } from "../../format";
 import { t } from "../../i18n";
 import { useMe, useRoles } from "../../layout/Shell";
-import { RejectSkillDialog, SkillDrawer } from "./SkillDrawer";
+import { formatSkillTitle, RejectSkillDialog, SkillDrawer } from "./SkillDrawer";
 import { UploadDrawer, type UploadPreset } from "./UploadDrawer";
 
 type Skill = Schemas["SkillOut"];
@@ -55,14 +55,14 @@ export function SkillsPage() {
 
   const summaryQuery = useQuery({
     queryKey: ["skills", "summary"],
-    queryFn: () => unwrap(api.GET("/api/skills/summary")),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills/summary", { signal })),
   });
 
   const listQuery = useQuery({
     queryKey: ["skills", "list", section, debouncedQ],
     enabled: validSection && (section !== "review" || isAdmin),
-    queryFn: () => unwrap(api.GET("/api/skills", {
-      params: { query: { view: section, q: debouncedQ || undefined } },
+    queryFn: ({ signal }) => unwrap(api.GET("/api/skills", {
+      params: { query: { view: section, q: debouncedQ || undefined } }, signal,
     })),
   });
 
@@ -205,6 +205,7 @@ export function SkillsPage() {
 
   return (
     <div className="av-fill av-skills">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("技能")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title">
           <h1>{t("技能")}</h1>
@@ -272,8 +273,8 @@ export function SkillsPage() {
                   >
                     <div className="av-skill-card__hd">
                       <Tile tone="ask" icon="skill" size="sm" />
-                      <button type="button" className="av-skill-card__name" onClick={() => openSkill(s.id)}>
-                        {s.name}
+                      <button type="button" className="av-skill-card__name" title={s.name} onClick={() => openSkill(s.id)}>
+                        {formatSkillTitle(s.name)}
                       </button>
                       <span className="av-skill-card__sw" onClick={(e) => e.stopPropagation()}>
                         <Switch
@@ -288,6 +289,7 @@ export function SkillsPage() {
                     <div className="av-skill-card__ft">
                       <span className="av-avatar av-skill-avatar" aria-hidden>{s.owner.display_name.slice(0, 1)}</span>
                       <span className="av-skill-card__owner">{s.owner.display_name}</span>
+                      <span className="av-skill-card__meta av-mono">/{s.name}</span>
                       <span className="av-skill-card__meta av-mono">v{s.version ?? s.latest_version}</span>
                       <span className="av-skill-card__meta">
                         <Icon name="users" small />{t("{{count}} 人启用", { count: s.enabled_users })}
@@ -337,9 +339,10 @@ export function SkillsPage() {
                         return (
                           <tr key={s.id} className="is-link" onClick={onRowClick(s.id)}>
                             <td>
-                              <button type="button" className="av-skills__row-link" onClick={() => openSkill(s.id)}>
-                                {s.name}
+                              <button type="button" className="av-skills__row-link" title={s.name} onClick={() => openSkill(s.id)}>
+                                {formatSkillTitle(s.name)}
                               </button>
+                              <div className="av-skills__subdesc av-mono">/{s.name}</div>
                             </td>
                             <td><span className="av-tag">v{s.latest_version}</span></td>
                             <td><MineStatus skill={s} /></td>
@@ -413,9 +416,10 @@ export function SkillsPage() {
                           return (
                             <tr key={s.id} className="is-link" onClick={onRowClick(s.id)}>
                               <td className="av-skills__cell-wrap">
-                                <button type="button" className="av-skills__row-link" onClick={() => openSkill(s.id)}>
-                                  {s.name}
+                                <button type="button" className="av-skills__row-link" title={s.name} onClick={() => openSkill(s.id)}>
+                                  {formatSkillTitle(s.name)}
                                 </button>
+                                <div className="av-skills__subdesc av-mono">/{s.name}</div>
                                 {subText ? <div className="av-skills__subdesc">{subText}</div> : null}
                               </td>
                               <td><span className="av-tag">{verLabel}</span></td>

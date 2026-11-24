@@ -72,6 +72,10 @@ function MetricContent({ metric }: { metric: Metric }) {
   const canEditHints = !!myId && (roles.has("admin") || myId === metric.owner.id
     || !!domain?.members.some((m) => m.user_id === myId && (m.role === "maintainer" || m.role === "owner")));
 
+  useEffect(() => {
+    document.title = `${metric.name} · ${t("指标口径")} · Avelis`;
+  }, [metric.name]);
+
   return <div className="av-metric-detail">
     <header className="av-metric-detail__header">
       <Crumbs back={{ label: t("指标"), to: "/catalog/metrics" }}
@@ -83,7 +87,7 @@ function MetricContent({ metric }: { metric: Metric }) {
         </div>
         <div className="av-actions av-metric-detail__actions">
           <Link className="av-btn av-btn--secondary av-btn--sm"
-            to={`/ask?${new URLSearchParams({ metric_id: metric.id, ...(current ? { version_id: current } : {}) })}`}>{t("问数")}</Link>
+            to={`/analysis?${new URLSearchParams({ metric_id: metric.id, ...(current ? { version_id: current } : {}) })}`}>{t("问数")}</Link>
           {canEdit ? <button type="button" className="av-btn av-btn--primary av-btn--sm"
             disabled={!!current && !version.isSuccess} onClick={() => setEditing("new")}><Icon name="plus" small />{t("新建版本")}</button> : null}
         </div>
@@ -198,7 +202,7 @@ function AiContextForm({ metricId, value, onCancel, onSaved }: {
         onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); addSynonym(draft); } }} /></div>
     <label className="av-field" htmlFor={`${id}-examples`}><span className="av-label">{t("示例问法")} <Hint text={t("每行一条，写提问人通常会怎么问")} /></span>
       <textarea id={`${id}-examples`} className="av-textarea" rows={4} value={examples} onChange={(e) => setExamples(e.target.value)} /></label>
-    {errors.length ? <div className="av-banner av-banner--danger">{errors.join(t("；"))}</div> : null}
+    {errors.length ? <div className="av-banner av-banner--danger" role="alert">{errors.join(t("；"))}</div> : null}
     <Banner message={message} />
     <div className="av-actions av-aictx__actions">
       <button type="button" className="av-btn av-btn--ghost av-btn--sm" disabled={save.isPending} onClick={onCancel}>{t("取消")}</button>
@@ -288,7 +292,7 @@ function VersionBody({ v, tab, canEdit, onEdit }: { v: MetricVersion; tab: Metri
           <span className="av-caption av-mono">{formatTime(pc.checked_at, tz)}</span>
         </div>
         {pc.blockers.length || pc.warnings.length || pc.joins.length ? <div className="av-panel__bd av-metric-detail__stack">
-          {pc.blockers.map((b) => <div key={b} className="av-banner av-banner--danger">{b}</div>)}
+          {pc.blockers.map((b) => <div key={b} className="av-banner av-banner--danger" role="alert">{b}</div>)}
           {pc.warnings.map((w) => <span key={w} className="av-status av-status--warn">{w}</span>)}
           {pc.joins.length ? <div className="av-table-wrap"><table className="av-table av-metric-detail__table">
             <thead><tr><th>{t("关联")}</th><th>{t("路径")}</th><th>{t("基数")}</th><th>{t("依据")}</th></tr></thead>

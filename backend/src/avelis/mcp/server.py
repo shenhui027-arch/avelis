@@ -39,8 +39,10 @@ DESCRIPTIONS = {
     "search_metrics": "检索有权访问的已发布口径摘要。Search published metric metadata.",
     "get_metric": "读取口径完整定义、版本与依赖资产。Read a governed metric definition.",
     "ask_metric": (
-        "按结构化意图编译并执行受治理的问数，默认最多 200 行且不超过页面上限。"
-        "Execute a governed metric query; SQL input is not accepted."
+        "按结构化意图编译并执行受治理的多指标问数，支持排序（order）、限制行数（limit）及筛选取值对齐，"
+        "默认最多 200 行且不超过页面上限。"
+        "Execute a governed single/multi-metric query with optional sorting and filter alignment; "
+        "SQL input is not accepted."
     ),
     "lineage_neighbors": "读取有权访问的资产或列的上下游血缘。Read authorized lineage neighbors.",
     "list_changes": "读取资产或口径近期的结构变化与影响。Read authorized structural changes and impacts.",

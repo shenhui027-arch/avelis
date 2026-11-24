@@ -1,7 +1,7 @@
 // MCP 授权确认（ADR 0019 §2）：外部 AI 工具发起 OAuth 授权后，后端校验请求并跳到这里。
 // 复用 Avelis 已有的登录（Bearer 令牌，不用 Cookie）：同意或拒绝后由后端给出回调地址，再整页跳回客户端。
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { api, unwrap } from "../../api/client";
@@ -18,9 +18,10 @@ const SCOPE_LABEL: Record<string, string> = {
 export function OAuthConsent() {
   const [params] = useSearchParams();
   const ticket = params.get("ticket") ?? "";
+  useEffect(() => { document.title = `${t("授权确认")} · Avelis`; }, []);
   const request = useQuery({
     queryKey: ["oauth-consent", ticket], enabled: !!ticket, retry: false,
-    queryFn: () => unwrap(api.GET("/api/oauth/consent/{ticket}", { params: { path: { ticket } } })),
+    queryFn: ({ signal }) => unwrap(api.GET("/api/oauth/consent/{ticket}", { params: { path: { ticket } }, signal })),
   });
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -8,7 +8,8 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { api, unwrap, type Schemas } from "../api/client";
 import { errorText, useTimeZone } from "../api/hooks";
 import { Icon } from "../components/Icon";
-import { ConfirmDialog, Dot, Empty, QueryState, statusOf, type Tone } from "../components/ui";
+import { getEnabledMenuItems, handleMenuKeyDown, useOverlay } from "../components/overlay";
+import { ConfirmDialog, Dot, Drawer, Empty, QueryState, statusOf, type Tone } from "../components/ui";
 import { formatTime } from "../format";
 import { t } from "../i18n";
 
@@ -18,8 +19,8 @@ const RUN_TONE: Record<string, Tone> = { running: "info", queued: "info", waitin
 const LIVE = new Set(["queued", "running", "waiting"]);
 
 export const useConversations = (archived = false) => useQuery({
-  queryKey: ["analysis-conversations", archived], refetchInterval: 15_000,
-  queryFn: () => unwrap(api.GET("/api/analysis/conversations", { params: { query: { archived } } })) as Promise<Conversation[]>,
+  queryKey: ["analysis-conversations", archived], refetchInterval: archived ? false : 15_000,
+  queryFn: ({ signal }) => unwrap(api.GET("/api/analysis/conversations", { params: { query: { archived } }, signal })) as Promise<Conversation[]>,
 });
 
 const titleOf = (c: Conversation) => c.display_title || c.title || c.question;
@@ -52,18 +53,28 @@ function ContextMenu({ menu, onClose, items }: {
   menu: Menu; onClose: () => void; items: { label: string; icon: string; danger?: boolean; disabled?: string; run: () => void }[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  const closeAndRestore = () => {
+    onClose();
+    opener?.focus?.();
+  };
+  useOverlay(true, closeAndRestore);
   useEffect(() => {
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) onClose();
+    const enabled = getEnabledMenuItems(ref.current);
+    (enabled[0] ?? ref.current)?.focus();
+  }, []);
+  useEffect(() => {
+    const outside = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
     };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", close);
+    window.addEventListener("mousedown", outside);
     window.addEventListener("blur", onClose);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); window.removeEventListener("blur", onClose); };
+    return () => { window.removeEventListener("mousedown", outside); window.removeEventListener("blur", onClose); };
   }, [onClose]);
   const y = Math.min(menu.y, window.innerHeight - 140);
   return createPortal(
-    <div ref={ref} className="av-root av-menu av-ctxmenu" role="menu" style={{ left: menu.x, top: y }}>
+    <div ref={ref} className="av-root av-menu av-ctxmenu" role="menu" tabIndex={-1} style={{ left: menu.x, top: y }}
+      onKeyDown={(e) => handleMenuKeyDown(e, ref.current, closeAndRestore)}>
       {items.map((it) => (
         <button key={it.label} type="button" role="menuitem" className={`av-menu__item${it.danger ? " is-danger" : ""}`}
           disabled={!!it.disabled} title={it.disabled} onClick={() => { onClose(); it.run(); }}>
@@ -101,6 +112,8 @@ export function RecentConversations() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Conversation | null>(null);
+  const [allOpen, setAllOpen] = useState(false);
+  const [allQuery, setAllQuery] = useState("");
   const [toast, setToast] = useState<{ text: string; action?: { label: string; run: () => void } } | null>(null);
   const items = list.data ?? [];
   const currentRun = location.pathname.match(/^\/analysis\/runs\/([^/]+)/)?.[1];
@@ -108,9 +121,18 @@ export function RecentConversations() {
   const open = (e: ReactMouseEvent, c: Conversation) => { e.preventDefault(); e.stopPropagation(); setMenu({ c, x: e.clientX, y: e.clientY }); };
   const leaveIfCurrent = (c: Conversation) => { if (isCurrent(c)) navigate("/analysis"); };
   if (!items.length && !archived.data?.length) return null;
+  const qLower = allQuery.trim().toLowerCase();
+  const filteredAll = items.filter((c) => !qLower || titleOf(c).toLowerCase().includes(qLower) || c.question.toLowerCase().includes(qLower));
   return (
     <>
-      <div className="av-sb__sec av-sb__label">{t("最近对话")}</div>
+      <div className="av-sb__sec-row av-sb__label">
+        <span>{t("最近对话")}</span>
+        {items.length > 0 ? (
+          <button type="button" className="av-sb__sec-link" onClick={() => { setAllQuery(""); setAllOpen(true); }}>
+            {t("查看全部")}
+          </button>
+        ) : null}
+      </div>
       <div className="av-sb__recent">
         {items.map((c) => {
           const tone: Tone = c.status === "succeeded" ? "ok" : RUN_TONE[c.status] ?? "";
@@ -151,6 +173,47 @@ export function RecentConversations() {
       {deleting ? <DeleteDialog c={deleting} onCancel={() => setDeleting(null)} onDone={() => {
         leaveIfCurrent(deleting); setToast({ text: t("已删除“{{title}}”", { title: titleOf(deleting) }) }); setDeleting(null);
       }} remove={actions.remove} /> : null}
+      {allOpen ? (
+        <Drawer title={t("全部对话")} onClose={() => setAllOpen(false)}>
+          <div className="av-stack">
+            <div className="av-archived__bar">
+              <span className="av-archived__search">
+                <Icon name="search" small />
+                <input
+                  type="search"
+                  value={allQuery}
+                  placeholder={t("搜索对话…")}
+                  aria-label={t("搜索对话…")}
+                  onChange={(e) => setAllQuery(e.target.value)}
+                />
+              </span>
+              {archived.data?.length ? (
+                <Link to="/analysis/archived" className="av-btn av-btn--ghost av-btn--sm" onClick={() => setAllOpen(false)}>
+                  <Icon name="archive" small />{t("已归档 · {{count}}", { count: archived.data.length })}
+                </Link>
+              ) : null}
+            </div>
+            {filteredAll.length === 0 ? <Empty text={t("没有匹配的对话")} compact /> : (
+              <div className="av-analysis__list">
+                {filteredAll.map((c) => (
+                  <Link
+                    key={c.id}
+                    to={`/analysis/runs/${c.latest_run_id}`}
+                    className="av-row av-archived__row"
+                    onClick={() => setAllOpen(false)}
+                  >
+                    <span className="av-row__main">
+                      <span className="av-row__title">{titleOf(c)}</span>
+                      <span className="av-row__meta">{t("{{count}} 轮", { count: c.turn_count })}</span>
+                    </span>
+                    <Dot tone={c.status === "succeeded" ? "ok" : RUN_TONE[c.status] ?? ""} label={statusOf(c.status)[1]} />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        </Drawer>
+      ) : null}
       {toast ? <Toast text={toast.text} action={toast.action} onDone={() => setToast(null)} /> : null}
     </>
   );
@@ -177,7 +240,10 @@ function RenameField({ initial, onSave, onCancel }: { initial: string; onSave: (
     }}>
       <input autoFocus value={text} maxLength={80} aria-label={t("对话名称")} disabled={busy}
         onFocus={(e) => e.currentTarget.select()} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }} onBlur={() => { if (!busy) onCancel(); }} />
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onCancel(); }
+        }} onBlur={() => { if (!busy) onCancel(); }} />
     </form>
   );
 }
@@ -197,7 +263,7 @@ export function ArchivedConversations() {
         <span className="av-archived__search"><Icon name="search" small />
           <input type="search" value={q} placeholder={t("搜索已归档的对话")} aria-label={t("搜索已归档的对话")} onChange={(e) => setQ(e.target.value)} /></span>
       </div>
-      {error ? <div className="av-banner av-banner--danger">{error}</div> : null}
+      {error ? <div className="av-banner av-banner--danger" role="alert">{error}</div> : null}
       {/* 已归档列表接入统一加载骨架与错误重试状态 */}
       <QueryState query={list} rows={3} isEmpty={(data) => data.length === 0}
         emptyText={t("没有已归档的对话。在左侧对话上右键可以归档。")}>

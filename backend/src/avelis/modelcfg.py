@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timezone
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -74,16 +74,74 @@ DEFAULT_EFFORT = {"ask": "low", "explain": "low", "import": "low", "analysis": "
 # 由 llm_protocol.ReasoningRoundTripChatOpenAI 处理；“几次没报 400”不作为兼容的依据。其他提供方未核实，不传思考参数。
 DEEPSEEK_EFFORTS = {"off": "off", "low": "low", "high": "high", "max": "max"}
 DEEPSEEK_ALIASES = {"medium": "high"}
-DEFAULT_CONTEXT_WINDOWS = {"deepseek": 1_000_000}
+OPENAI_REASONING_EFFORTS = {"low": "low", "medium": "medium", "high": "high"}
+ANTHROPIC_EFFORTS = {"off": "off", "low": "low", "medium": "medium", "high": "high", "max": "max"}
+ANTHROPIC_THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 10240, "max": 16384}
+DASHSCOPE_EFFORTS = {"off": "off", "low": "low", "medium": "medium", "high": "high"}
+DASHSCOPE_THINKING_BUDGETS = {"low": 1024, "medium": 4096, "high": 10240}
+EFFORT_ALIASES = {"medium": "high", "max": "high"}
+
+DEFAULT_CONTEXT_WINDOWS = {
+    "deepseek": 1_000_000,
+    "openai": 128_000,
+    "anthropic": 200_000,
+    "dashscope": 128_000,
+}
 
 POLICY_KEY = "model_policy"
 # 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
 # 而不是由产品限制。管理员仍可在模型配置页关闭；关闭后结果解释用模板，分析模式不可用。
 DEFAULT_POLICY = {"send_results": True, "send_code": True}
 
+MAX_BACKUPS = 5
+ROUTING_KEY = "model_routing"
+DEFAULT_ROUTING: dict[str, Any] = {"enabled": False, "simple_target": None, "complex_target": None}
 
-def redact_error(text: str, api_key: str | None = None, *, limit: int = 300) -> str:
+_OPENAI_REASONING_RE = re.compile(r"^(?:o[134](?:$|-)|gpt-5(?:$|-))", re.IGNORECASE)
+_ANTHROPIC_THINKING_RE = re.compile(
+    r"^(?:claude-3-7-sonnet|claude-sonnet-4|claude-opus-4|claude-haiku-4|claude-4)", re.IGNORECASE
+)
+_DASHSCOPE_HYBRID_RE = re.compile(r"^(?:qwen3|qwen-plus|qwen-max|qwen-turbo)", re.IGNORECASE)
+_DASHSCOPE_ALWAYS_RE = re.compile(r"^qwq", re.IGNORECASE)
+
+_ASK_COMPLEX_MARKERS = (
+    "对比",
+    "同比",
+    "环比",
+    "趋势",
+    "占比",
+    "分别",
+    "以及",
+    "为什么",
+    "原因",
+    "compare",
+    "trend",
+    "breakdown",
+    " vs ",
+    "top",
+    "rank",
+)
+_ANALYSIS_COMPLEX_MARKERS = (
+    "为什么",
+    "原因",
+    "归因",
+    "拆解",
+    "相关",
+    "影响",
+    "异常",
+    "波动",
+    "建议",
+    "why",
+    "driver",
+    "cause",
+    "correlat",
+    "explain",
+)
+
+
+def redact_error(text: Any, api_key: str | None = None, *, limit: int = 300) -> str:
     """先移除上游可能回显的凭据，再截断，避免长凭据只被截掉一半。"""
+    text = "" if text is None else str(text)
     if api_key:
         text = text.replace(api_key, "[REDACTED]")
     text = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^\s/]+@", r"\1[REDACTED]@", text)
@@ -105,12 +163,39 @@ def _model_check(p: ModelProvider, model_id: str) -> dict[str, Any]:
     return checks if checks.get("model_id") == model_id else {}
 
 
+def _provider_family(p: ModelProvider | None) -> str | None:
+    if p is None:
+        return None
+    base_url = (p.base_url or "").lower()
+    if p.kind == "anthropic" or p.preset == "anthropic":
+        return "anthropic"
+    if p.kind != "openai_compatible":
+        return None
+    if p.preset == "deepseek" or "api.deepseek.com" in base_url:
+        return "deepseek"
+    if p.preset == "openai" or "api.openai.com" in base_url:
+        return "openai"
+    if p.preset == "dashscope" or "dashscope.aliyuncs.com" in base_url:
+        return "dashscope"
+    return None
+
+
 def effort_map(p: ModelProvider | None, model_id: str) -> dict[str, str] | None:
     """该提供方、模型支持的思考档位 → 实际生效的档位；没有核实过的返回 None（不显示选项，也不传思考参数）。"""
-    if p is None or p.kind != "openai_compatible":
-        return None
-    if p.preset == "deepseek" or "api.deepseek.com" in (p.base_url or ""):
+    family = _provider_family(p)
+    mid = (model_id or "").strip()
+    if family == "deepseek":
         return dict(DEEPSEEK_EFFORTS)
+    if family == "openai":
+        return dict(OPENAI_REASONING_EFFORTS) if _OPENAI_REASONING_RE.match(mid) else None
+    if family == "anthropic":
+        return dict(ANTHROPIC_EFFORTS) if _ANTHROPIC_THINKING_RE.match(mid) else None
+    if family == "dashscope":
+        if _DASHSCOPE_ALWAYS_RE.match(mid):
+            return {k: v for k, v in DASHSCOPE_EFFORTS.items() if k != "off"}
+        if _DASHSCOPE_HYBRID_RE.match(mid):
+            return dict(DASHSCOPE_EFFORTS)
+        return None
     return None
 
 
@@ -118,9 +203,21 @@ def _context_window(p: ModelProvider, model: dict) -> tuple[int | None, str | No
     configured = model.get("context_window")
     if configured is not None:
         return configured, "configured"
-    if p.kind == "openai_compatible" and (p.preset == "deepseek" or "api.deepseek.com" in (p.base_url or "")):
-        return DEFAULT_CONTEXT_WINDOWS["deepseek"], "default"
-    return None, None
+    family = _provider_family(p)
+    if family is None:
+        return None, None
+    mid = str(model.get("id") or "").strip().lower()
+    if family == "openai":
+        if mid.startswith("gpt-4.1"):
+            return 1_047_576, "default"
+        if mid.startswith("gpt-5"):
+            return 400_000, "default"
+        if mid.startswith(("o1", "o3", "o4")):
+            return 200_000, "default"
+        return DEFAULT_CONTEXT_WINDOWS["openai"], "default"
+    if family == "dashscope" and mid.startswith("qwen-long"):
+        return 1_000_000, "default"
+    return DEFAULT_CONTEXT_WINDOWS.get(family), "default"
 
 
 def effort_options(p: ModelProvider | None, model_id: str) -> list[dict[str, str]]:
@@ -156,7 +253,11 @@ def effective_effort(p: ModelProvider | None, model_id: str, effort: str | None)
     if not mapping:
         return None
     effort = effort or ""
-    return mapping.get(effort) or mapping.get(DEEPSEEK_ALIASES.get(effort, ""))
+    if effort in mapping:
+        return mapping[effort]
+    family = _provider_family(p)
+    alias = DEEPSEEK_ALIASES.get(effort, "") if family == "deepseek" else EFFORT_ALIASES.get(effort, "")
+    return mapping.get(alias)
 
 
 def _effort_kwargs(p: ModelProvider, model_id: str, effort: str | None) -> dict[str, Any]:
@@ -164,9 +265,24 @@ def _effort_kwargs(p: ModelProvider, model_id: str, effort: str | None) -> dict[
     effective = effective_effort(p, model_id, effort)
     if effective is None:
         return {}
-    if effective == "off":
-        return {"extra_body": {"thinking": {"type": "disabled"}}}
-    return {"reasoning_effort": effective}
+    family = _provider_family(p)
+    if family == "deepseek":
+        if effective == "off":
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {"reasoning_effort": effective}
+    if family == "openai":
+        if effective == "off":
+            return {}
+        return {"reasoning_effort": effective}
+    if family == "dashscope":
+        if effective == "off":
+            return {"extra_body": {"enable_thinking": False}}
+        budget = DASHSCOPE_THINKING_BUDGETS.get(effective)
+        body: dict[str, Any] = {"enable_thinking": True}
+        if budget is not None:
+            body["thinking_budget"] = budget
+        return {"extra_body": body}
+    return {}
 
 
 def _enabled_model(p: ModelProvider | None, model_id: str, *, needs_tools: bool = False) -> dict | None:
@@ -217,6 +333,36 @@ def policy(session: Session) -> dict[str, bool]:
     return {**DEFAULT_POLICY, **(row.value if row else {})}
 
 
+def routing_config(session: Session | None) -> dict[str, Any]:
+    if session is None or not hasattr(session, "get"):
+        return dict(DEFAULT_ROUTING)
+    row = session.get(AppSetting, ROUTING_KEY)
+    value = getattr(row, "value", None)
+    if not isinstance(value, dict):
+        return dict(DEFAULT_ROUTING)
+    return {
+        "enabled": bool(value.get("enabled", False)),
+        "simple_target": value.get("simple_target") if isinstance(value.get("simple_target"), dict) else None,
+        "complex_target": value.get("complex_target") if isinstance(value.get("complex_target"), dict) else None,
+    }
+
+
+def _normalise_backup_list(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict) and item.get("provider_id") and item.get("model_id"):
+            out.append(
+                {
+                    "provider_id": str(item["provider_id"]),
+                    "model_id": str(item["model_id"]),
+                    "reasoning_effort": item.get("reasoning_effort"),
+                }
+            )
+    return out
+
+
 def settings_view(session: Session) -> dict[str, Any]:
     assignments = {a.purpose: a for a in session.scalars(select(ModelAssignment))}
     out = {}
@@ -235,6 +381,7 @@ def settings_view(session: Session) -> dict[str, Any]:
             "reasoning_effort": effort,
             "default_effort": DEFAULT_EFFORT[purpose],
             "effective_effort": effective,
+            "backups": _normalise_backup_list(getattr(a, "backups", None)) if a else [],
         }
     ask = assignments.get("ask")
     provider = session.get(ModelProvider, ask.provider_id) if ask else None
@@ -242,6 +389,7 @@ def settings_view(session: Session) -> dict[str, Any]:
     return {
         "assignments": out,
         "policy": policy(session),
+        "routing": routing_config(session),
         "mode": "configured" if configured else "demo",
         "note": None if configured else gettext("未配置有效的问数理解模型：使用演示模型（规则匹配）"),
     }
@@ -403,6 +551,11 @@ def create_provider(
 def update_provider(session: Session, actor: User, provider_id: str, changes: dict[str, Any]) -> ModelProvider:
     p = _get(session, provider_id)
     fields = []
+    if changes.get("base_url") is not None:
+        cleaned_url = str(changes["base_url"]).strip()
+        if not cleaned_url.startswith(("https://", "http://")):
+            raise Invalid("接口地址必须以 http:// 或 https:// 开头")
+        changes = {**changes, "base_url": cleaned_url}
     connection_changed = changes.get("base_url") is not None and changes["base_url"] != p.base_url
     for key in ("name", "base_url", "enabled"):
         if changes.get(key) is not None:
@@ -439,8 +592,28 @@ def delete_provider(session: Session, actor: User, provider_id: str) -> None:
     session.delete(p)
 
 
+def _validate_target(
+    session: Session, target: dict[str, Any], *, needs_tools: bool, label: str
+) -> tuple[ModelProvider, dict[str, Any], str | None]:
+    p = _get(session, target["provider_id"])
+    if not p.enabled or not p.api_key_enc:
+        raise Conflict(Msg("提供方 {provider} 未启用或未设置密钥", provider=p.name))
+    model = next((m for m in p.models if m["id"] == target["model_id"] and m["enabled"]), None)
+    if model is None:
+        raise Conflict(Msg("模型 {model} 不在 {provider} 的启用列表中", model=target["model_id"], provider=p.name))
+    if needs_tools and _enabled_model(p, model["id"], needs_tools=True) is None:
+        raise Conflict(Msg("{purpose}需要该模型最近一次服务器检测成功且支持工具调用", purpose=Msg(label)))
+    effort = target.get("reasoning_effort")
+    _validate_effort(p, model["id"], effort)
+    return p, model, effort
+
+
 def save_settings(
-    session: Session, actor: User, assignments: dict[str, dict | None], new_policy: dict[str, bool] | None
+    session: Session,
+    actor: User,
+    assignments: dict[str, dict | None],
+    new_policy: dict[str, bool] | None,
+    new_routing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     for purpose, target in assignments.items():
         if purpose not in PURPOSES:
@@ -450,23 +623,38 @@ def save_settings(
             if current is not None:
                 session.delete(current)
             continue
-        p = _get(session, target["provider_id"])
-        if not p.enabled or not p.api_key_enc:
-            raise Conflict(Msg("提供方 {provider} 未启用或未设置密钥", provider=p.name))
-        model = next((m for m in p.models if m["id"] == target["model_id"] and m["enabled"]), None)
-        if model is None:
-            raise Conflict(Msg("模型 {model} 不在 {provider} 的启用列表中", model=target["model_id"], provider=p.name))
-        if PURPOSES[purpose]["needs_tools"] and _enabled_model(p, model["id"], needs_tools=True) is None:
-            raise Conflict(
-                Msg("{purpose}需要该模型最近一次服务器检测成功且支持工具调用", purpose=Msg(PURPOSES[purpose]["label"]))
-            )
-        effort = target.get("reasoning_effort")
-        _validate_effort(p, model["id"], effort)
+        needs_tools = bool(PURPOSES[purpose]["needs_tools"])
+        label = str(PURPOSES[purpose]["label"])
+        p, model, effort = _validate_target(session, target, needs_tools=needs_tools, label=label)
+        backups_in = target.get("backups")
+        validated_backups: list[dict[str, Any]] | None = None
+        if backups_in is not None:
+            if not isinstance(backups_in, list) or len(backups_in) > MAX_BACKUPS:
+                raise Invalid(Msg("每个用途最多配置 {max} 个备选模型", max=MAX_BACKUPS))
+            seen = {(p.id, model["id"])}
+            validated_backups = []
+            for item in backups_in:
+                if not isinstance(item, dict) or not item.get("provider_id") or not item.get("model_id"):
+                    raise Invalid("备选模型格式无效")
+                bp, bm, beffort = _validate_target(session, item, needs_tools=needs_tools, label=label)
+                pair = (bp.id, bm["id"])
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                validated_backups.append({"provider_id": bp.id, "model_id": bm["id"], "reasoning_effort": beffort})
         if current is None:
-            current = ModelAssignment(purpose=purpose, provider_id=p.id, model_id=model["id"], updated_by=actor.id)
+            current = ModelAssignment(
+                purpose=purpose,
+                provider_id=p.id,
+                model_id=model["id"],
+                backups=validated_backups or [],
+                updated_by=actor.id,
+            )
             session.add(current)
         current.provider_id, current.model_id = p.id, model["id"]
         current.reasoning_effort = effort
+        if validated_backups is not None:
+            current.backups = validated_backups
         current.updated_by, current.updated_at = actor.id, utcnow()
     if new_policy is not None:
         row = session.get(AppSetting, POLICY_KEY)
@@ -476,6 +664,29 @@ def save_settings(
             session.add(AppSetting(key=POLICY_KEY, value=value, updated_by=actor.id))
         else:
             row.value, row.updated_by, row.updated_at = value, actor.id, utcnow()
+    if new_routing is not None:
+        current_routing = routing_config(session)
+        enabled = bool(new_routing.get("enabled", current_routing["enabled"]))
+        updated_routing: dict[str, Any] = {"enabled": enabled}
+        for key in ("simple_target", "complex_target"):
+            if key in new_routing:
+                raw_target = new_routing[key]
+                if raw_target is None:
+                    updated_routing[key] = None
+                else:
+                    rp, rm, reffort = _validate_target(session, raw_target, needs_tools=True, label="复杂度路由")
+                    updated_routing[key] = {
+                        "provider_id": rp.id,
+                        "model_id": rm["id"],
+                        "reasoning_effort": reffort,
+                    }
+            else:
+                updated_routing[key] = current_routing.get(key)
+        row = session.get(AppSetting, ROUTING_KEY)
+        if row is None:
+            session.add(AppSetting(key=ROUTING_KEY, value=updated_routing, updated_by=actor.id))
+        else:
+            row.value, row.updated_by, row.updated_at = updated_routing, actor.id, utcnow()
     session.flush()
     audit.record(
         session,
@@ -485,6 +696,7 @@ def save_settings(
         None,
         assignments={k: (v or {}).get("model_id") for k, v in assignments.items()},
         policy=new_policy,
+        routing=new_routing,
     )
     return settings_view(session)
 
@@ -507,9 +719,26 @@ def build_chat_model(
     if not p.api_key_enc:
         raise Conflict(Msg("提供方 {provider} 未设置密钥", provider=p.name))
     key = decrypt_secret(p.api_key_enc)
+    family = _provider_family(p)
     if p.kind == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
+        effective = effective_effort(p, model_id, effort)
+        budget = ANTHROPIC_THINKING_BUDGETS.get(effective or "")
+        if budget is not None:
+            eff_max = (
+                max(max_tokens or 0, budget + 4096) if (max_tokens is None or max_tokens <= budget) else max_tokens
+            )
+            return ChatAnthropic(
+                model=model_id,
+                api_key=key,
+                base_url=p.base_url,
+                temperature=None,
+                timeout=timeout,
+                max_retries=max_retries,
+                max_tokens=eff_max,
+                thinking={"type": "enabled", "budget_tokens": budget},
+            )
         return ChatAnthropic(
             model=model_id,
             api_key=key,
@@ -521,20 +750,28 @@ def build_chat_model(
         )
     from langchain_openai import ChatOpenAI
 
-    from avelis.llm_protocol import ReasoningRoundTripChatOpenAI
+    from avelis.llm_protocol import OpenAICompatibleChatOpenAI, ReasoningRoundTripChatOpenAI
 
-    extra = {"max_tokens": max_tokens} if max_tokens else {}
-    # 核实过思考协议的提供方（目前只有 DeepSeek）用带 reasoning_content 往返的实现；其余按 OpenAI 规范
-    cls = ReasoningRoundTripChatOpenAI if effort_map(p, model_id) else ChatOpenAI
+    extra: dict[str, Any] = {"max_tokens": max_tokens} if max_tokens else {}
+    effort_kw = _effort_kwargs(p, model_id, effort)
+    eff_temp: float | None = temperature
+    if family == "deepseek":
+        cls: type[ChatOpenAI] = ReasoningRoundTripChatOpenAI
+    elif family == "dashscope":
+        cls = OpenAICompatibleChatOpenAI
+    else:
+        cls = ChatOpenAI
+        if family == "openai" and _OPENAI_REASONING_RE.match((model_id or "").strip()):
+            eff_temp = None
     return cls(
         model=model_id,
         api_key=key,
         base_url=p.base_url,
-        temperature=temperature,
+        temperature=eff_temp,
         timeout=timeout,
         max_retries=max_retries,
         **extra,
-        **_effort_kwargs(p, model_id, effort),
+        **effort_kw,
     )
 
 
@@ -548,9 +785,37 @@ class Resolved:
     effort: str | None = None  # 指派的思考强度
     effective_effort: str | None = None  # 实际生效的档位（提供方没有核实过时为 None）
     context_window: int | None = None
+    provider_id: str | None = None
+    model_id: str | None = None
+    provider_code: str | None = None
+    fallbacks: tuple[Resolved, ...] = ()
+    routing_tier: str | None = None
 
     def safe_error(self, error: Exception | str, *, limit: int = 300) -> str:
         return redact_error(str(error), self._api_key, limit=limit)
+
+
+def _resolve_backups(
+    session: Session,
+    backups: list[dict[str, Any]],
+    *,
+    needs_tools: bool,
+    default_effort: str,
+    temperature: float,
+    seen: set[tuple[str, str]],
+) -> tuple[Resolved, ...]:
+    out: list[Resolved] = []
+    for item in backups:
+        pid, mid = item.get("provider_id"), item.get("model_id")
+        if not pid or not mid or (pid, mid) in seen:
+            continue
+        bp = session.get(ModelProvider, pid)
+        if _enabled_model(bp, mid, needs_tools=needs_tools) is None:
+            continue
+        seen.add((pid, mid))
+        beffort = item.get("reasoning_effort") or default_effort
+        out.append(_resolve_model(bp, mid, beffort, temperature=temperature))
+    return tuple(out)
 
 
 def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Resolved | None:
@@ -559,10 +824,23 @@ def resolve(session: Session, purpose: str, *, temperature: float = 0.0) -> Reso
     if a is None:
         return None
     p = session.get(ModelProvider, a.provider_id)
-    if _enabled_model(p, a.model_id, needs_tools=a.purpose in ("ask", "analysis")) is None:
+    needs_tools = a.purpose in ("ask", "analysis")
+    if _enabled_model(p, a.model_id, needs_tools=needs_tools) is None:
         return None
-    effort = a.reasoning_effort or DEFAULT_EFFORT.get(purpose, "medium")
-    return _resolve_model(p, a.model_id, effort, temperature=temperature)
+    default_effort = DEFAULT_EFFORT.get(purpose, "medium")
+    effort = a.reasoning_effort or default_effort
+    primary = _resolve_model(p, a.model_id, effort, temperature=temperature)
+    raw_backups = _normalise_backup_list(getattr(a, "backups", None))
+    if raw_backups:
+        primary.fallbacks = _resolve_backups(
+            session,
+            raw_backups,
+            needs_tools=needs_tools,
+            default_effort=default_effort,
+            temperature=temperature,
+            seen={(p.id, a.model_id)},
+        )
+    return primary
 
 
 def resolve_choice(
@@ -574,7 +852,85 @@ def resolve_choice(
     return _resolve_model(p, model_id, reasoning_effort or DEFAULT_EFFORT["analysis"], temperature=temperature)
 
 
-def _resolve_model(p: ModelProvider, model_id: str, effort: str, *, temperature: float) -> Resolved:
+def classify_ask_complexity(
+    question: str, *, turns_count: int = 1, has_clarification: bool = False
+) -> Literal["simple", "complex"]:
+    text = (question or "").strip()
+    lower = text.casefold()
+    if (
+        turns_count > 1
+        or has_clarification
+        or len(text) >= 60
+        or any(sep in text for sep in ("，", ",", ";", "；", "、"))
+        or any(marker in lower for marker in _ASK_COMPLEX_MARKERS)
+    ):
+        return "complex"
+    return "simple"
+
+
+def classify_analysis_complexity(
+    question: str, *, has_skills: bool = False, is_followup: bool = False
+) -> Literal["simple", "complex"]:
+    text = (question or "").strip()
+    lower = text.casefold()
+    if has_skills or is_followup or len(text) >= 50 or any(marker in lower for marker in _ANALYSIS_COMPLEX_MARKERS):
+        return "complex"
+    return "simple"
+
+
+def resolve_routed(
+    session: Session | None,
+    purpose: str,
+    *,
+    complexity: str | None = None,
+    temperature: float = 0.0,
+) -> Resolved | None:
+    """按复杂度路由选择目标模型；未开启路由或目标不可用时回退默认指派。"""
+    if session is None or not hasattr(session, "get"):
+        return resolve(session, purpose)  # type: ignore[arg-type]
+    primary = resolve(session, purpose) if temperature == 0.0 else resolve(session, purpose, temperature=temperature)
+    routing = routing_config(session)
+    if not routing["enabled"] or complexity not in ("simple", "complex"):
+        if primary is not None:
+            primary.routing_tier = "default"
+        return primary
+    target = routing.get(f"{complexity}_target")
+    if not isinstance(target, dict) or not target.get("provider_id") or not target.get("model_id"):
+        if primary is not None:
+            primary.routing_tier = "default"
+        return primary
+    tp = session.get(ModelProvider, target["provider_id"])
+    needs_tools = purpose in ("ask", "analysis")
+    if _enabled_model(tp, target["model_id"], needs_tools=needs_tools) is None:
+        if primary is not None:
+            primary.routing_tier = "default"
+        return primary
+    default_effort = DEFAULT_EFFORT.get(purpose, "low")
+    effort = target.get("reasoning_effort") or default_effort
+    chosen = _resolve_model(tp, target["model_id"], effort, temperature=temperature, routing_tier=complexity)
+    fallbacks: list[Resolved] = []
+    seen = {(tp.id, target["model_id"])}
+    if primary is not None:
+        if (primary.provider_id, primary.model_id) not in seen:
+            seen.add((primary.provider_id or "", primary.model_id or ""))
+            fallbacks.append(primary)
+        for fb in primary.fallbacks:
+            key = (fb.provider_id or "", fb.model_id or "")
+            if key not in seen:
+                seen.add(key)
+                fallbacks.append(fb)
+    chosen.fallbacks = tuple(fallbacks)
+    return chosen
+
+
+def _resolve_model(
+    p: ModelProvider,
+    model_id: str,
+    effort: str,
+    *,
+    temperature: float,
+    routing_tier: str | None = None,
+) -> Resolved:
     def factory(
         timeout: float, max_retries: int, *, effort: str = effort, max_tokens: int | None = None
     ) -> BaseChatModel:
@@ -598,6 +954,10 @@ def _resolve_model(p: ModelProvider, model_id: str, effort: str, *, temperature:
         effort,
         effective_effort(p, model_id, effort),
         _context_window(p, model)[0],
+        provider_id=p.id,
+        model_id=model_id,
+        provider_code=p.code,
+        routing_tier=routing_tier,
     )
 
 

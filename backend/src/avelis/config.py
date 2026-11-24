@@ -138,6 +138,13 @@ class Settings:
     skills_max_unpacked_bytes: int = 50 * 1024**2
     skills_max_files: int = 500
     ask_max_tool_rounds: int = 8
+    ask_compact_fallback_tokens: int = 24000
+    ask_compact_max_messages: int = 24
+    ask_semantic_cache_enabled: bool = False
+    ask_semantic_cache_ttl_seconds: int = 300
+    ask_semantic_cache_threshold: float = 0.88
+    ask_semantic_cache_max_entries: int = 200
+    ask_rpm_limit: int = 60
     reply_language: str = "auto"
     analysis_tool_calls: int = 30
     analysis_seconds: int = 300
@@ -145,7 +152,12 @@ class Settings:
     analysis_model_requests: int = 16
     analysis_input_tokens: int | None = 552321
     analysis_output_tokens: int | None = 30716
+    analysis_rpm_limit: int = 30
     model_timeout_seconds: int = 60
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = ""
+    embedding_timeout_seconds: int = 5
     env: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
 
     @property
@@ -393,6 +405,25 @@ def _build_settings(env: dict[str, str]) -> Settings:
         ),
         skills_max_files=_positive_int(env, "AVELIS_SKILLS_MAX_FILES", Settings.skills_max_files),
         ask_max_tool_rounds=_positive_int(env, "AVELIS_ASK_MAX_TOOL_ROUNDS", Settings.ask_max_tool_rounds),
+        ask_compact_fallback_tokens=_positive_int(
+            env, "AVELIS_ASK_COMPACT_FALLBACK_TOKENS", Settings.ask_compact_fallback_tokens
+        ),
+        ask_compact_max_messages=_positive_int(
+            env, "AVELIS_ASK_COMPACT_MAX_MESSAGES", Settings.ask_compact_max_messages
+        ),
+        ask_semantic_cache_enabled=_boolean(
+            env, "AVELIS_ASK_SEMANTIC_CACHE_ENABLED", Settings.ask_semantic_cache_enabled
+        ),
+        ask_semantic_cache_ttl_seconds=_positive_int(
+            env, "AVELIS_ASK_SEMANTIC_CACHE_TTL_SECONDS", Settings.ask_semantic_cache_ttl_seconds
+        ),
+        ask_semantic_cache_threshold=_unit_interval(
+            env, "AVELIS_ASK_SEMANTIC_CACHE_THRESHOLD", Settings.ask_semantic_cache_threshold
+        ),
+        ask_semantic_cache_max_entries=_positive_int(
+            env, "AVELIS_ASK_SEMANTIC_CACHE_MAX_ENTRIES", Settings.ask_semantic_cache_max_entries
+        ),
+        ask_rpm_limit=_nonnegative_int(env, "AVELIS_ASK_RPM_LIMIT", Settings.ask_rpm_limit),
         reply_language=_reply_language(env),
         analysis_tool_calls=_positive_int(env, "AVELIS_ANALYSIS_TOOL_CALLS", Settings.analysis_tool_calls),
         analysis_seconds=_positive_int(env, "AVELIS_ANALYSIS_SECONDS", Settings.analysis_seconds),
@@ -402,7 +433,14 @@ def _build_settings(env: dict[str, str]) -> Settings:
         or None,
         analysis_output_tokens=_nonnegative_int(env, "AVELIS_ANALYSIS_OUTPUT_TOKENS", Settings.analysis_output_tokens)
         or None,
+        analysis_rpm_limit=_nonnegative_int(env, "AVELIS_ANALYSIS_RPM_LIMIT", Settings.analysis_rpm_limit),
         model_timeout_seconds=_positive_int(env, "AVELIS_MODEL_TIMEOUT_SECONDS", Settings.model_timeout_seconds),
+        embedding_base_url=env.get("AVELIS_EMBEDDING_BASE_URL", "").strip().rstrip("/"),
+        embedding_api_key=env.get("AVELIS_EMBEDDING_API_KEY", ""),
+        embedding_model=env.get("AVELIS_EMBEDDING_MODEL", "").strip(),
+        embedding_timeout_seconds=_positive_int(
+            env, "AVELIS_EMBEDDING_TIMEOUT_SECONDS", Settings.embedding_timeout_seconds
+        ),
         env=env,
     )
 
@@ -431,11 +469,16 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_SKILLS_MAX_UNPACKED_BYTES",
         "AVELIS_SKILLS_MAX_FILES",
         "AVELIS_ASK_MAX_TOOL_ROUNDS",
+        "AVELIS_ASK_COMPACT_FALLBACK_TOKENS",
+        "AVELIS_ASK_COMPACT_MAX_MESSAGES",
+        "AVELIS_ASK_SEMANTIC_CACHE_TTL_SECONDS",
+        "AVELIS_ASK_SEMANTIC_CACHE_MAX_ENTRIES",
         "AVELIS_ANALYSIS_TOOL_CALLS",
         "AVELIS_ANALYSIS_SECONDS",
         "AVELIS_ANALYSIS_EXPLORE_LIMIT",
         "AVELIS_ANALYSIS_MODEL_REQUESTS",
         "AVELIS_MODEL_TIMEOUT_SECONDS",
+        "AVELIS_EMBEDDING_TIMEOUT_SECONDS",
         "AVELIS_MCP_REGISTRATION_MAX_PER_HOUR",
         "AVELIS_MCP_CONSENT_MAX_PER_HOUR",
         "AVELIS_MCP_MAX_PENDING_CLIENTS",
@@ -458,6 +501,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         "AVELIS_EVENTS_DELIVERED_RETENTION_DAYS",
         "AVELIS_EVENTS_DEAD_RETENTION_DAYS",
         "AVELIS_LOGIN_IP_MAX_FAILURES",
+        "AVELIS_ASK_RPM_LIMIT",
+        "AVELIS_ANALYSIS_RPM_LIMIT",
     }
     bounded = {
         "AVELIS_PORT": 65535,
@@ -485,7 +530,11 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                     except ValueError:
                         raise ValueError(f"{key} 必须为整数") from None
             elif spec.kind is float:
-                if key in ("AVELIS_ANALYSIS_UNIFORM_TOLERANCE", "AVELIS_ANALYSIS_SPIKE_SHARE"):
+                if key in (
+                    "AVELIS_ANALYSIS_UNIFORM_TOLERANCE",
+                    "AVELIS_ANALYSIS_SPIKE_SHARE",
+                    "AVELIS_ASK_SEMANTIC_CACHE_THRESHOLD",
+                ):
                     _unit_interval(values, key, default)
                 else:
                     try:
@@ -498,6 +547,7 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 "AVELIS_REDIS_SSL",
                 "AVELIS_MCP_ENABLED",
                 "AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS",
+                "AVELIS_ASK_SEMANTIC_CACHE_ENABLED",
             ):
                 _boolean(values, key, default)
         except ValueError as exc:

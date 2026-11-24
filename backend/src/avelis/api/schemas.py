@@ -278,6 +278,13 @@ class DatasourceOut(Out):
     engine: EngineOut
 
 
+class TestConnectionOut(Out):
+    ok: bool
+    latency_ms: int
+    server_identity: Json | None = None
+    error: str | None = None
+
+
 class JobOut(Out):
     id: str
     kind: str
@@ -769,6 +776,14 @@ class AnswerOut(Out):
     steps: list[Json] = Field(default_factory=list)
     explanation: str | None = None
     explanation_source: str | None = None
+    feedback_rating: Literal["up", "down"] | None = None
+    feedback_note: str | None = None
+    feedback_at: str | None = None
+
+
+class AnswerFeedbackIn(BaseModel):
+    rating: Literal["up", "down"] | None = None
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class ThreadOut(Out):
@@ -784,6 +799,19 @@ class ThreadDetailOut(Out):
     title: str
     status: str
     answers: list[AnswerOut]
+    compacted_summary: str | None = None
+    compacted_at: str | None = None
+
+
+class ThreadCompactOut(Out):
+    thread_id: str
+    compacted: bool
+    before_messages: int
+    after_messages: int
+    before_tokens: int
+    after_tokens: int
+    compacted_summary: str | None = None
+    compacted_at: str | None = None
 
 
 class AuditOut(Out):
@@ -1083,10 +1111,29 @@ class ExperienceRevokeIn(BaseModel):
     reason: str = Field(default="", max_length=1000)
 
 
+class ExperienceSubmitIn(BaseModel):
+    domain_id: str = Field(min_length=1, max_length=64)
+
+
+class ExperienceApproveIn(BaseModel):
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ExperienceRejectIn(BaseModel):
+    note: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+
 class ExperienceOut(Out):
     id: str
     owner_id: str
-    scope: Literal["personal"]
+    scope: Literal["personal", "domain"]
+    domain_id: str | None = None
+    review_status: Literal["none", "pending", "approved", "rejected"] = "none"
+    submitted_by: str | None = None
+    submitted_at: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: str | None = None
+    review_note: str | None = None
     current_version: int
     status: Literal["active", "revoked", "superseded"]
     created_at: str
@@ -1278,6 +1325,8 @@ class AnalysisDatasetOut(Out):
     summary: Any = None
     metric_version_ids: list[str] = Field(default_factory=list)
     time_column: str | None = None  # 按时间分组时的时间段列（据此画趋势图）
+    window: Json | None = None
+    compare: str | None = None
     units: Json = Field(default_factory=dict)
     polarity: dict[str, Literal["up_good", "down_good"]] = Field(default_factory=dict)
     column_roles: dict[str, ColumnRole] = Field(default_factory=dict)
@@ -1446,6 +1495,9 @@ class AnalysisTaskOut(Out):
     next_run_at: str | None = None
     last_run_id: str | None = None
     window: Json = Field(default_factory=dict)
+    skills: list[str] = Field(default_factory=list)
+    model_choice: AnalysisModelChoice | None = None
+    reasoning_effort: str | None = None
 
 
 class NotificationOut(Out):
@@ -1731,3 +1783,60 @@ class PatCreateIn(BaseModel):
 
 class PatCreatedOut(PatOut):
     token: str = Field(repr=False)
+
+
+class VerifiedQueryCreateIn(BaseModel):
+    domain_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200, pattern=r"\S")
+    question: str = Field(min_length=1, max_length=4000, pattern=r"\S")
+    sql_text: str = Field(min_length=1, max_length=20000, pattern=r"\S")
+    dialect: str = Field(default="postgres", min_length=1, max_length=32)
+    question_variants: list[str] = Field(default_factory=list, max_length=20)
+    datasource_id: str | None = Field(default=None, max_length=64)
+    metric_codes: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    notes: str | None = Field(default=None, max_length=2000)
+    source_answer_id: str | None = Field(default=None, max_length=64)
+    source_run_id: str | None = Field(default=None, max_length=64)
+
+
+class VerifiedQueryUpdateIn(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200, pattern=r"\S")
+    question: str | None = Field(default=None, min_length=1, max_length=4000, pattern=r"\S")
+    sql_text: str | None = Field(default=None, min_length=1, max_length=20000, pattern=r"\S")
+    dialect: str | None = Field(default=None, min_length=1, max_length=32)
+    question_variants: list[str] | None = Field(default=None, max_length=20)
+    datasource_id: str | None = Field(default=None, max_length=64)
+    metric_codes: list[str] | None = Field(default=None, max_length=20)
+    tags: list[str] | None = Field(default=None, max_length=20)
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class VerifiedQueryRejectIn(BaseModel):
+    note: str = Field(min_length=1, max_length=1000, pattern=r"\S")
+
+
+class VerifiedQueryOut(Out):
+    id: str
+    domain_id: str
+    title: str
+    question: str
+    question_variants: list[str]
+    sql_text: str
+    dialect: str
+    datasource_id: str | None = None
+    metric_codes: list[str]
+    tags: list[str]
+    notes: str | None = None
+    source_answer_id: str | None = None
+    source_run_id: str | None = None
+    status: Literal["draft", "pending_review", "approved", "rejected", "archived"]
+    created_by: str
+    created_at: str
+    updated_at: str
+    submitted_by: str | None = None
+    submitted_at: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: str | None = None
+    review_note: str | None = None
+    approved_at: str | None = None

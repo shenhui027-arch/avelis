@@ -120,7 +120,7 @@ export function sqlSections(sql: string): { title?: string; sql: string }[] {
     lines = [];
   };
   for (const line of sql.split(/\r?\n/)) {
-    const header = /^--\s+(.+ V\d+\s+·\s+(?:本期|上一期|去年同期)\s+\d{4}-\d{2}-\d{2}\s+~\s+\d{4}-\d{2}-\d{2})\s*$/.exec(line);
+    const header = /^--\s+(.+?\s+V\d+\s+·\s+.+?\s+\d{4}-\d{2}-\d{2}\s+~\s+\d{4}-\d{2}-\d{2})\s*$/.exec(line);
     if (header) {
       flush();
       title = header[1];

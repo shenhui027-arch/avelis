@@ -24,7 +24,7 @@ function rounded(value: number, places: number, strip = false): string {
 
 /** 两种数字体系都从绝对值 1 万起缩写：cn 用万、亿，intl 用 K、M、B。 */
 export function compact(value: number, places: number, style: NumberStyle, strip = false): string {
-  const scales: [number, string][] = style === "intl" ? [[1e9, "B"], [1e6, "M"], [1e3, "K"]] : [[1e8, "亿"], [1e4, "万"]];
+  const scales: [number, string][] = style === "intl" ? [[1e9, "B"], [1e6, "M"], [1e3, "K"]] : [[1e8, t("亿")], [1e4, t("万")]];
   if (Math.abs(value) >= 1e4) for (const [scale, suffix] of scales) if (Math.abs(value) >= scale) return rounded(value / scale, places, strip) + suffix;
   return rounded(value, places, strip);
 }

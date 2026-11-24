@@ -372,11 +372,33 @@ class SqlServerConnector:
                 pass  # 超时后连接已被驱动断开
         return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
 
+    def execute_explore(
+        self,
+        sql_text: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号在事务内执行后回滚，靠超时与行数上限约束。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
+        return self.execute_select(
+            sql_text,
+            timeout_seconds=timeout_seconds,
+            mem_limit_bytes=mem_limit_bytes,
+            max_rows=max_rows,
+            timezone=timezone,
+        )
+
     def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
         """需要 VIEW SERVER STATE 才能读最近写入时间；不授予，不报告新鲜度（不以统计信息冒充）。"""
         return {}
 
-    def describe_objects(self, objects: list[tuple[str, str]]) -> dict[tuple[str, str], dict[str, Any]]:
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
         """执行前核对：给定 模式.表 当前的列（名称、类型，按位置）、视图定义与 object_id；对象不存在时列为空。"""
         names = [(s, n) for s, n in objects if IDENT.match(s) and IDENT.match(n)]
         out: dict[tuple[str, str], dict[str, Any]] = {
@@ -384,8 +406,10 @@ class SqlServerConnector:
         }
         if not names:
             return out
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise QueryError("timeout", None, "超时值必须为正数，未执行")
         try:
-            conn = self._connect(timeout=30)
+            conn = self._connect(timeout=int(timeout_seconds or 30))
             try:
                 cur = conn.cursor(as_dict=True)
                 cur.execute(

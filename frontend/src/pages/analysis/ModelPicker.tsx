@@ -1,11 +1,12 @@
 // 输入框底栏的模型、思考强度与上下文（参照 Claude Code：只写模型名与档位，上下文是一个小圆环）。
 // 点模型名或档位打开同一个菜单；点圆环看用量，运行中可以手动压缩上下文。选择记在本机，下次默认沿用。
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction } from "../../api/hooks";
 import { Icon } from "../../components/Icon";
+import { usePopover } from "../../components/overlay";
 import { Meter } from "../../components/ui";
 import { t } from "../../i18n";
 
@@ -19,7 +20,7 @@ type ModelList = { models: AnalysisModel[]; default: ModelChoice | null };
 const KEY = "avelis.analysis.model";
 
 export const useAnalysisModels = () => useQuery({ queryKey: ["analysis-models"], staleTime: 60_000,
-  queryFn: () => unwrap(api.GET("/api/analysis/models")) as Promise<ModelList> });
+  queryFn: ({ signal }) => unwrap(api.GET("/api/analysis/models", { signal })) as Promise<ModelList> });
 
 function readSaved(): ModelChoice | null {
   try {
@@ -53,41 +54,23 @@ export function useModelChoice(initial?: ModelChoice | null) {
     body: choice ? { model: { provider_id: choice.provider_id, model_id: choice.model_id }, reasoning_effort: choice.reasoning_effort } : {} };
 }
 
-/** 点外部或按 Esc 关闭的弹出层。 */
-export function usePopover() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      // 菜单里的日期、下拉等浮层挂在 body 上（.av-float-root），点它们不算点到菜单外
-      const inside = (t: EventTarget | null) => ref.current?.contains(t as Node) || !!(t as Element | null)?.closest?.(".av-float-root");
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !inside(e.target)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", close);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); };
-  }, [open]);
-  return { open, setOpen, ref };
-}
-
 /** 模型名与思考档位：一个轻量文字按钮，打开模型与档位菜单。没有可选模型时不显示。 */
 export function ModelPicker({ state }: { state: ReturnType<typeof useModelChoice> }) {
   const { models, model, choice, set } = state;
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, triggerRef, menuRef, onTriggerKeyDown, onMenuKeyDown } = usePopover({ focusChecked: true });
   if (!model || !choice) return null;
   const effortLabel = model.efforts.find((e) => e.value === choice.reasoning_effort)?.label;
   const pick = (m: AnalysisModel) => set({ provider_id: m.provider_id, model_id: m.model_id,
     reasoning_effort: m.efforts.some((x) => x.value === choice.reasoning_effort) ? choice.reasoning_effort : null });
   return (
     <div className="av-mbar" ref={ref}>
-      <button type="button" className="av-mbar__btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}
-        title={t("切换模型与思考强度")}>
+      <button ref={triggerRef} type="button" className="av-mbar__btn" aria-haspopup="menu" aria-expanded={open}
+        onClick={() => setOpen(!open)} onKeyDown={onTriggerKeyDown} title={t("切换模型与思考强度")}>
         <span className="av-mbar__model">{model.model_id}</span>
         {effortLabel ? <span className="av-mbar__effort">{effortLabel}</span> : null}
       </button>
       {open ? (
-        <div className="av-menu av-menu--up av-mbar__menu" role="menu">
+        <div ref={menuRef} className="av-menu av-menu--up av-mbar__menu" role="menu" tabIndex={-1} onKeyDown={onMenuKeyDown}>
           <div className="av-mbar__sec">{t("模型")}</div>
           {models.map((m) => {
             const current = m.provider_id === choice.provider_id && m.model_id === choice.model_id;
@@ -120,7 +103,7 @@ const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n
 /** 上下文：一个小圆环（最近一次请求的输入 token / 上下文窗口）。点开看用量；运行中可以手动压缩。 */
 export function ContextMeter({ run, live }: { run: Run; live?: boolean }) {
   const list = useAnalysisModels();
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, triggerRef } = usePopover();
   const [note, setNote] = useState<string | null>(null);
   const compact = useAction(() => unwrap(api.POST("/api/analysis/runs/{run_id}/compact", {
     params: { path: { run_id: run.id } } })), ["analysis-run"]);
@@ -137,7 +120,7 @@ export function ContextMeter({ run, live }: { run: Run; live?: boolean }) {
   const label = window ? t("上下文 {{v1}} / {{v2}}（{{pct}}%）", { v1: k(used), v2: k(window), pct: Math.max(1, Math.round((ratio ?? 0) * 100)) }) : t("上下文 {{v1}} tokens", { v1: k(used) });
   return (
     <div className={`av-mbar${tone}`} ref={ref}>
-      <button type="button" className="av-mbar__btn av-mbar__ring" aria-haspopup="dialog" aria-expanded={open} aria-label={label}
+      <button ref={triggerRef} type="button" className="av-mbar__btn av-mbar__ring" aria-haspopup="dialog" aria-expanded={open} aria-label={label}
         title={label} onClick={() => setOpen(!open)}>
         <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
           <circle cx="9" cy="9" r="6.5" fill="none" stroke="var(--line-strong)" strokeWidth="2" />

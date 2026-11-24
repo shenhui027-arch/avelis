@@ -6,7 +6,7 @@ html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg-canvas); }
 .av-panel, .av-workspace, .av-stages, .av-answer, .av-composer { box-shadow: var(--shadow-glass); }
 body { font-family: var(--font-sans); }
-.av-app { height: 100vh; min-height: 0; }
+.av-app { height: 100dvh; min-height: 0; }
 .av-main { position: relative; min-height: 0; overflow: hidden; }
 
 /* 开关 */
@@ -42,9 +42,10 @@ body { font-family: var(--font-sans); }
 .av-provider[aria-current="true"] { background: var(--bg-active); }
 .av-provider:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
-/* 窄屏下填充布局高度随内容展开 */
+/* 窄屏下填充布局保持视口高度内可纵向滚动，避免被 .av-main 裁切 */
 @media (max-width: 1023px) {
-  .av-fill { height: auto; overflow: visible; }
+  .av-fill { height: 100%; overflow-y: auto; }
+  .av-fill:not(.av-models):not(.av-import-page) > .av-workspace { flex: none; overflow: visible; }
 }
 
 /* 血缘画布：@xyflow/react 的节点外壳透明，节点外观完全由 av-node 决定 */
@@ -67,7 +68,7 @@ body { font-family: var(--font-sans); }
 .av-input-group .av-input { flex: 1; min-width: 0; }
 
 /* 认证页：登录（品牌区 + 表单）与单卡片页（修改口令） */
-.av-auth { display: grid; place-items: center; min-height: 100vh; padding: var(--space-6); background: transparent; color: var(--text-primary); }
+.av-auth { display: grid; place-items: center; min-height: 100dvh; padding: var(--space-6); background: transparent; color: var(--text-primary); }
 .av-auth__brand { display: flex; align-items: center; gap: var(--space-2); color: var(--text-primary); font: 500 16px/24px var(--font-sans); letter-spacing: -0.01em; }
 .av-auth__card { display: flex; flex-direction: column; gap: var(--space-4); width: 100%; max-width: 360px; padding: var(--space-8) var(--space-6); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-overlay); }
 .av-auth .av-auth__card { max-width: 400px; }
@@ -97,9 +98,10 @@ body { font-family: var(--font-sans); }
 
 /* 查询状态 */
 .av-skeleton { display: flex; flex-direction: column; gap: 1px; padding: var(--space-2) 0; }
-.av-skeleton > span { display: block; margin: 0 var(--space-4); border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--bg-raised), var(--bg-active), var(--bg-raised)); background-size: 200% 100%; animation: av-shimmer 1.4s ease-in-out infinite; opacity: 0.6; }
-@keyframes av-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .av-skeleton > span { animation: none; } .av-switch, .av-switch::after { transition: none; } }
+.av-skeleton > span { position: relative; overflow: hidden; display: block; margin: 0 var(--space-4); border-radius: var(--radius-sm); background: var(--bg-raised); opacity: 0.6; }
+.av-skeleton > span::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--bg-active), transparent); transform: translateX(-100%); animation: av-skeleton-shimmer 1.4s ease-in-out infinite; }
+@keyframes av-skeleton-shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .av-skeleton > span::after { animation: none; display: none; } .av-switch, .av-switch::after { transition: none; } }
 .av-query-error { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-4); }
 .av-empty > .av-icon { width: 20px; height: 20px; color: var(--text-tertiary); }
 

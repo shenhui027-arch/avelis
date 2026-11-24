@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
+from collections.abc import AsyncIterator
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import charts, jobs, modelcfg
-from avelis.analysis import export
+from avelis import cache, charts, jobs, modelcfg, usage
+from avelis.analysis import export, live
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
 from avelis.analysis.dataset_projection import build_column_roles, dataset_meta
 from avelis.analysis.rerun import rerun_dataset
 from avelis.api import schemas as S
-from avelis.api.deps import current_user, get_session
+from avelis.api.deps import ACCESS_COOKIE, current_user, get_session
+from avelis.api.sse import KEEPALIVE_FRAME, format_sse, sse_response
 from avelis.config import get_settings
-from avelis.db import utcnow
+from avelis.db import session_factory, utcnow
 from avelis.governance import access, experiences
 from avelis.governance.errors import Invalid, NotFound
 from avelis.i18n import Msg, current_locale, translate
@@ -34,8 +38,10 @@ from avelis.models import (
     Metric,
     MetricVersion,
     Notification,
+    PersonalAccessToken,
     User,
 )
+from avelis.security import decode_access_token, hash_pat_token, issued_before
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -62,14 +68,39 @@ class TaskCreate(BaseModel):
     question: str = Field(min_length=2, max_length=2000)
     window: Window | None = None
     schedule_cron: str | None = Field(None, description="5 段 cron（业务时区），如 0 9 1 * *；为空表示只手动运行")
+    skills: list[str] | None = None
+    model: S.AnalysisModelIn | None = None
+    reasoning_effort: str | None = None
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str) -> str:
+        cleaned = value.strip()
+        if len(cleaned) < 2:
+            raise ValueError("请输入要分析的问题")
+        return cleaned
 
 
 class TaskPatch(BaseModel):
     title: str | None = None
+    question: str | None = Field(default=None, min_length=2, max_length=2000)
     window: Window | None = None
     schedule_cron: str | None = None
+    skills: list[str] | None = None
+    model: S.AnalysisModelIn | None = None
+    reasoning_effort: str | None = None
     status: str | None = None
     reason: str | None = None
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if len(cleaned) < 2:
+            raise ValueError("请输入要分析的问题")
+        return cleaned
 
 
 class ConversationPatch(BaseModel):
@@ -103,9 +134,14 @@ def list_analysis_models(user: User = Depends(current_user), session: Session = 
 
 @router.post("/analysis/runs", status_code=201, response_model=S.AnalysisRunOut)
 def create_run(
-    body: RunCreate, wait: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)
+    body: RunCreate,
+    request: Request,
+    wait: bool = False,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
 ) -> dict:
-    """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询。"""
+    """发起一次分析。wait=true 时在本次请求内执行完再返回（演示与验收用）；否则交给 worker，前端轮询或 SSE 订阅。"""
+    usage.enforce_llm_preflight(request, session, user, action="analysis")
     analysis.warm_up()
     run = analysis.create_run(
         session,
@@ -189,20 +225,244 @@ def delete_conversation(
     return Response(status_code=204)
 
 
+_ANALYSIS_TERMINAL = frozenset({"succeeded", "failed", "stopped", "clarify", "waiting"})
+
+
 @router.get("/analysis/runs/{run_id}", response_model=S.AnalysisRunOut)
 def get_run(run_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return analysis.run_view(session, analysis.visible_run(session, user, run_id), user=user)
 
 
+@router.get(
+    "/analysis/runs/{run_id}/stream",
+    responses={200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}},
+)
+def stream_run(
+    run_id: str,
+    request: Request,
+    after_seq: int = Query(0, ge=0),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """SSE 实时推送分析运行进度（step / status / thinking / delta / error / done）。"""
+    last_event_id = request.headers.get("last-event-id", "").strip()
+    if after_seq == 0 and last_event_id.isdigit():
+        after_seq = int(last_event_id)
+
+    initial_run = analysis.visible_run(session, user, run_id)
+    initial_view = analysis.run_view(session, initial_run, user=user)
+    user_id = user.id
+    auth_header = request.headers.get("authorization", "")
+    raw_token: str | None = None
+    if auth_header.lower().startswith("bearer "):
+        raw_token = auth_header[7:].strip() or None
+    if not raw_token:
+        raw_token = request.cookies.get(ACCESS_COOKIE)
+    auth_overridden = current_user in request.app.dependency_overrides
+    override = request.app.dependency_overrides.get(get_session)
+    if override is None and hasattr(session, "close"):
+        # 立即释放请求级连接池连接，避免长连接 SSE 占用数据库连接池
+        session.close()
+
+    def _check_stream_auth(tick_session: Session) -> User:
+        u = tick_session.get(User, user_id, populate_existing=True)
+        if u is None or not u.is_active or u.must_change_password:
+            raise HTTPException(status_code=401, detail="会话已失效")
+        if auth_overridden or not raw_token:
+            return u
+        if raw_token.startswith("pat_"):
+            pat = tick_session.scalar(
+                select(PersonalAccessToken).where(PersonalAccessToken.token_hash == hash_pat_token(raw_token))
+            )
+            now = utcnow()
+            if pat is None or pat.revoked_at is not None or (
+                pat.expires_at is not None and pat.expires_at.replace(tzinfo=None) <= now.replace(tzinfo=None)
+            ):
+                raise HTTPException(status_code=401, detail="个人访问令牌无效或已吊销")
+            return u
+        try:
+            claims = decode_access_token(raw_token)
+        except Exception as exc:
+            raise HTTPException(status_code=401, detail="访问令牌无效或已过期") from exc
+        if cache.is_revoked(claims["jti"]):
+            raise HTTPException(status_code=401, detail="访问令牌已注销")
+        if u.sessions_valid_after is not None and issued_before(claims, u.sessions_valid_after):
+            raise HTTPException(status_code=401, detail="会话已失效，请重新登录")
+        return u
+
+    def _poll_view() -> dict[str, Any]:
+        if override is not None:
+            gen = override()
+            tick_session = next(gen)
+            try:
+                u = _check_stream_auth(tick_session)
+                r = analysis.visible_run(tick_session, u, run_id)
+                return analysis.run_view(tick_session, r, user=u)
+            finally:
+                try:
+                    next(gen)
+                except StopIteration:
+                    pass
+        with session_factory()() as tick_session:
+            u = _check_stream_auth(tick_session)
+            r = analysis.visible_run(tick_session, u, run_id)
+            return analysis.run_view(tick_session, r, user=u)
+
+    def _diff_events(view: dict[str, Any], state: dict[str, Any]) -> list[tuple[str, dict[str, Any], int | None]]:
+        events: list[tuple[str, dict[str, Any], int | None]] = []
+        for step in view.get("steps") or []:
+            seq = step.get("seq")
+            if isinstance(seq, int) and seq > state["last_seq"]:
+                state["last_seq"] = seq
+                events.append(("step", {"step": step}, seq))
+
+        status_val = view.get("status")
+        live_state = view.get("live") if isinstance(view.get("live"), dict) else None
+        if status_val != state["last_status"]:
+            state["last_status"] = status_val
+            events.append(
+                (
+                    "status",
+                    {
+                        "run_id": run_id,
+                        "status": status_val,
+                        "phase": live_state.get("phase") if live_state else None,
+                        "after_seq": state["last_seq"],
+                    },
+                    None,
+                )
+            )
+
+        if live_state is not None and (live_state.get("after_seq") or 0) >= state["last_seq"]:
+            live_key = (
+                live_state.get("phase"),
+                live_state.get("after_seq"),
+                live_state.get("started_at"),
+                live_state.get("tool"),
+            )
+            if live_key != state["last_live_key"]:
+                state["last_live_key"] = live_key
+                state["last_thinking"] = ""
+                state["last_text"] = ""
+                events.append(
+                    (
+                        "status",
+                        {
+                            "run_id": run_id,
+                            "status": status_val,
+                            "phase": live_state.get("phase"),
+                            "after_seq": live_state.get("after_seq"),
+                            "tool": live_state.get("tool"),
+                            "args": live_state.get("args"),
+                            "restricted": bool(live_state.get("restricted")),
+                        },
+                        None,
+                    )
+                )
+            if not live_state.get("restricted"):
+                cur_thinking = live_state.get("thinking") or ""
+                if cur_thinking and cur_thinking != state["last_thinking"]:
+                    prev_t = state["last_thinking"]
+                    delta_t = cur_thinking[len(prev_t) :] if cur_thinking.startswith(prev_t) else cur_thinking
+                    state["last_thinking"] = cur_thinking
+                    events.append(
+                        (
+                            "thinking",
+                            {
+                                "delta": delta_t,
+                                "content": cur_thinking,
+                                "phase": live_state.get("phase"),
+                                "after_seq": live_state.get("after_seq"),
+                            },
+                            None,
+                        )
+                    )
+                cur_text = live_state.get("text") or ""
+                if cur_text and cur_text != state["last_text"]:
+                    prev_x = state["last_text"]
+                    delta_x = cur_text[len(prev_x) :] if cur_text.startswith(prev_x) else cur_text
+                    state["last_text"] = cur_text
+                    events.append(
+                        (
+                            "delta",
+                            {
+                                "delta": delta_x,
+                                "content": cur_text,
+                                "phase": live_state.get("phase"),
+                                "after_seq": live_state.get("after_seq"),
+                            },
+                            None,
+                        )
+                    )
+
+        if status_val in _ANALYSIS_TERMINAL:
+            if status_val == "failed":
+                events.append(("error", {"code": "analysis_failed", "message": view.get("error") or ""}, None))
+            events.append(("done", view, None))
+            state["done"] = True
+        return events
+
+    async def event_stream() -> AsyncIterator[str]:
+        loop = asyncio.get_running_loop()
+        state: dict[str, Any] = {
+            "last_seq": after_seq,
+            "last_status": None,
+            "last_live_key": None,
+            "last_thinking": "",
+            "last_text": "",
+            "done": False,
+        }
+        view = initial_view
+        last_sent = time.monotonic()
+        known_gen = live.generation(run_id)
+        try:
+            while True:
+                emitted = False
+                for ev, payload, ev_id in _diff_events(view, state):
+                    emitted = True
+                    last_sent = time.monotonic()
+                    yield format_sse(ev, payload, event_id=ev_id)
+                if state["done"]:
+                    break
+                if await request.is_disconnected():
+                    break
+                known_gen = await loop.run_in_executor(
+                    None, live.wait_for_update, run_id, known_gen, 0.25 if emitted else 1.5
+                )
+                if await request.is_disconnected():
+                    break
+                if not emitted and time.monotonic() - last_sent >= 15.0:
+                    last_sent = time.monotonic()
+                    yield KEEPALIVE_FRAME
+                view = await loop.run_in_executor(None, _poll_view)
+        except HTTPException as exc:
+            if not state["done"]:
+                yield format_sse(
+                    "error",
+                    {"code": "unauthorized" if exc.status_code == 401 else "stream_error", "message": str(exc.detail)},
+                )
+        except Exception as exc:  # noqa: BLE001
+            if not state["done"]:
+                yield format_sse("error", {"code": "stream_error", "message": type(exc).__name__})
+
+    return sse_response(event_stream())
+
+
 @router.post("/analysis/runs/{run_id}/resume", response_model=S.AnalysisRunOut)
 def resume_run(
-    run_id: str, body: S.AnalysisResumeIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+    run_id: str,
+    body: S.AnalysisResumeIn,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
 ) -> dict:
     """确认本次提议并原子领取，重复提交不会创建第二个 Job。"""
+    usage.enforce_llm_preflight(request, session, user, action="analysis")
     run = analysis.resume_run(session, user, run_id, body.model_dump())
     job_id = run.budget["job_id"]
     session.commit()
     jobs._wake(job_id)
+    live.notify(run.id)
     return analysis.run_view(session, run, user=user)
 
 
@@ -221,6 +481,7 @@ def stop_run(run_id: str, user: User = Depends(current_user), session: Session =
     """请求在下一个安全点停止；等待确认的运行立即结束。"""
     run = analysis.stop_run(session, user, run_id)
     session.commit()
+    live.notify(run.id)
     return analysis.run_view(session, run, user=user)
 
 
@@ -234,9 +495,14 @@ def compact_run(run_id: str, user: User = Depends(current_user), session: Sessio
 
 @router.post("/analysis/runs/{run_id}/followup", status_code=201, response_model=S.AnalysisRunOut)
 def followup_run(
-    run_id: str, body: S.AnalysisFollowupIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+    run_id: str,
+    body: S.AnalysisFollowupIn,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
 ) -> dict:
     """对已完成报告发起新运行，继承已确认的范围与假设。"""
+    usage.enforce_llm_preflight(request, session, user, action="analysis")
     analysis.warm_up()
     run = analysis.followup_run(
         session,
@@ -258,8 +524,14 @@ def followup_run(
 
 
 @router.get("/analysis/experiences", response_model=list[S.ExperienceOut])
-def list_experiences(user: User = Depends(current_user), session: Session = Depends(get_session)) -> list[dict]:
-    return experiences.list_experiences(session, user)
+def list_experiences(
+    scope: Literal["personal", "domain", "all"] = "personal",
+    domain_id: str | None = None,
+    review_status: Literal["none", "pending", "approved", "rejected"] | None = None,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    return experiences.list_experiences(session, user, scope=scope, domain_id=domain_id, review_status=review_status)
 
 
 @router.post("/analysis/experiences", status_code=201, response_model=S.ExperienceOut)
@@ -288,6 +560,42 @@ def replace_experience(
     session: Session = Depends(get_session),
 ) -> dict:
     return experiences.replace_experience(session, user, experience_id, **body.model_dump(exclude_none=True))
+
+
+@router.post("/analysis/experiences/{experience_id}/submit", response_model=S.ExperienceOut)
+def submit_experience(
+    experience_id: str,
+    body: S.ExperienceSubmitIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = experiences.submit_experience(session, user, experience_id, domain_id=body.domain_id)
+    session.commit()
+    return result
+
+
+@router.post("/analysis/experiences/{experience_id}/approve", response_model=S.ExperienceOut)
+def approve_experience(
+    experience_id: str,
+    body: S.ExperienceApproveIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = experiences.approve_experience(session, user, experience_id, note=body.note)
+    session.commit()
+    return result
+
+
+@router.post("/analysis/experiences/{experience_id}/reject", response_model=S.ExperienceOut)
+def reject_experience(
+    experience_id: str,
+    body: S.ExperienceRejectIn,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    result = experiences.reject_experience(session, user, experience_id, note=body.note)
+    session.commit()
+    return result
 
 
 @router.post("/analysis/experiences/{experience_id}/to-join-path", response_model=S.JoinPathOut)
@@ -573,7 +881,17 @@ def _task(session: Session, user: User, task_id: str) -> AnalysisTask:
 @router.post("/analysis/tasks", status_code=201, response_model=S.AnalysisTaskOut)
 def create_task(body: TaskCreate, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
     return analysis.task_view(
-        analysis.create_task(session, user, body.title, body.question, _window(body.window), body.schedule_cron)
+        analysis.create_task(
+            session,
+            user,
+            body.title,
+            body.question,
+            _window(body.window),
+            body.schedule_cron,
+            skills=body.skills,
+            model=body.model.model_dump() if body.model else None,
+            reasoning_effort=body.reasoning_effort,
+        )
     )
 
 
@@ -597,9 +915,20 @@ def patch_task(
     return analysis.task_view(analysis.update_task(session, user, _task(session, user, task_id), changes))
 
 
+@router.delete("/analysis/tasks/{task_id}", status_code=204)
+def delete_task(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> None:
+    analysis.delete_task(session, user, _task(session, user, task_id))
+
+
 @router.post("/analysis/tasks/{task_id}/run", response_model=S.AnalysisRunOut)
-def run_task_now(task_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+def run_task_now(
+    task_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     """立即运行一次（与定时同一路径：重新检查发起人权限，完成后发站内通知）。在本次请求内执行。"""
+    usage.enforce_llm_preflight(request, session, user, action="analysis")
     task = _task(session, user, task_id)
     job_id = jobs._enqueue(
         session, "analysis", {"task_id": task.id, "trigger": "manual", "request_locale": current_locale()}, user.id

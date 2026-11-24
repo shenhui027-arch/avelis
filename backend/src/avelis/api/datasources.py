@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from avelis import audit, jobs
@@ -15,11 +18,23 @@ from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
 from avelis.collect.service import CollectionFailed
 from avelis.config import get_settings
-from avelis.engines import engine_of, engines, get_engine
+from avelis.engines import CredentialMissing, collect_connector, engine_of, engines, get_engine
 from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
-from avelis.i18n import Msg, gettext
-from avelis.models import CollectionRun, Datasource, DatasourceCredential, EndpointAlias, Job, User
+from avelis.i18n import Msg, gettext, translate
+from avelis.models import (
+    Asset,
+    ChangeSet,
+    CollectionRun,
+    Datasource,
+    DatasourceCredential,
+    EndpointAlias,
+    ImportBatch,
+    ImportJob,
+    Job,
+    User,
+    VerifiedQuery,
+)
 from avelis.security import encrypt_secret
 
 router = APIRouter(prefix="/api", tags=["数据源与采集"])
@@ -48,6 +63,34 @@ class DatasourceCreate(BaseModel):
         except UnsupportedEngine as exc:
             raise ValueError(str(exc)) from exc
         return kind
+
+
+class DatasourceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    host: str | None = Field(default=None, min_length=1, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    options: dict | None = None
+    collect_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
+def _validate_engine_options(engine, options: dict | None) -> None:
+    opts = options or {}
+    # 配置项名是适配器的固定标签，连同列表分隔符按请求语言取译文；可选值是协议取值，原样列出
+    missing = [gettext(o.label) for o in engine.options if o.required and not opts.get(o.key)]
+    if missing:
+        raise HTTPException(
+            422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label, options=gettext("、").join(missing))
+        )
+    invalid = [
+        gettext("{label}（可选 {choices}）", label=gettext(o.label), choices=gettext("、").join(o.choices))
+        for o in engine.options
+        if o.choices and opts.get(o.key) not in (None, "", *o.choices)
+    ]
+    if invalid:
+        raise HTTPException(
+            422,
+            Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label, options=gettext("；").join(invalid)),
+        )
 
 
 def datasource_view(session: Session, ds: Datasource) -> dict:
@@ -151,22 +194,7 @@ def create_datasource(
     engine = get_engine(body.kind)
     if body.query is not None and not engine.supports(QUERY):
         raise HTTPException(422, Msg("{engine} 适配器不支持问数执行，不需要只读查询账号", engine=engine.label))
-    # 配置项名是适配器的固定标签，连同列表分隔符按请求语言取译文；可选值是协议取值，原样列出
-    missing = [gettext(o.label) for o in engine.options if o.required and not (body.options or {}).get(o.key)]
-    if missing:
-        raise HTTPException(
-            422, Msg("{engine} 数据源缺少配置：{options}", engine=engine.label, options=gettext("、").join(missing))
-        )
-    invalid = [
-        gettext("{label}（可选 {choices}）", label=gettext(o.label), choices=gettext("、").join(o.choices))
-        for o in engine.options
-        if o.choices and (body.options or {}).get(o.key) not in (None, "", *o.choices)
-    ]
-    if invalid:
-        raise HTTPException(
-            422,
-            Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label, options=gettext("；").join(invalid)),
-        )
+    _validate_engine_options(engine, body.options)
     interval = (
         body.collect_interval_minutes
         if "collect_interval_minutes" in body.model_fields_set
@@ -202,6 +230,96 @@ def create_datasource(
         credentials=[p for p in ("collect", "query") if getattr(body, p)],
     )
     return datasource_view(session, ds)
+
+
+@router.patch("/datasources/{datasource_id}", response_model=S.DatasourceOut)
+def update_datasource(
+    datasource_id: str,
+    body: DatasourceUpdate,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    access.require_role(session, user, "steward")
+    ds = session.get(Datasource, datasource_id) or _404("数据源不存在")
+    changes = body.model_dump(exclude_unset=True)
+    if "name" in changes and changes["name"] is not None:
+        dup = session.scalar(select(Datasource.id).where(Datasource.name == changes["name"], Datasource.id != ds.id))
+        if dup:
+            raise HTTPException(409, Msg("数据源 {name} 已存在", name=changes["name"]))
+    if "options" in changes and changes["options"] is not None:
+        _validate_engine_options(engine_of(ds), changes["options"])
+    for key in ("name", "host", "port", "options", "collect_interval_minutes"):
+        if key in changes and changes[key] is not None:
+            setattr(ds, key, changes[key])
+    session.flush()
+    audit.record(
+        session,
+        user,
+        "datasource.update",
+        "datasource",
+        ds.id,
+        fields=sorted(k for k, v in changes.items() if v is not None),
+    )
+    return datasource_view(session, ds)
+
+
+@router.delete("/datasources/{datasource_id}", status_code=204)
+def delete_datasource(
+    datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> None:
+    access.require_role(session, user, "steward")
+    ds = session.get(Datasource, datasource_id) or _404("数据源不存在")
+    has_history = any(
+        session.scalar(select(model.id).where(model.datasource_id == ds.id).limit(1)) is not None
+        for model in (Asset, CollectionRun, ChangeSet, ImportBatch, ImportJob)
+    )
+    if not has_history:
+        active_collect = any(
+            (job.payload or {}).get("datasource_id") == ds.id
+            for job in session.scalars(select(Job).where(Job.kind == "collect", Job.status.in_(("queued", "running"))))
+        )
+        has_history = active_collect
+    if has_history:
+        raise HTTPException(409, "该数据源已有采集或血缘记录，不能删除")
+    session.execute(delete(DatasourceCredential).where(DatasourceCredential.datasource_id == ds.id))
+    session.execute(delete(EndpointAlias).where(EndpointAlias.datasource_id == ds.id))
+    session.execute(update(VerifiedQuery).where(VerifiedQuery.datasource_id == ds.id).values(datasource_id=None))
+    audit.record(session, user, "datasource.delete", "datasource", ds.id, name=ds.name, kind=ds.kind)
+    session.delete(ds)
+    session.flush()
+
+
+@router.post("/datasources/{datasource_id}/test", response_model=S.TestConnectionOut)
+def test_datasource_connection(
+    datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    access.require_role(session, user, "steward")
+    ds = session.get(Datasource, datasource_id) or _404("数据源不存在")
+    started = time.monotonic()
+    try:
+        collector = collect_connector(session, ds)
+    except (CredentialMissing, UnsupportedEngine) as exc:
+        return {"ok": False, "latency_ms": 0, "server_identity": None, "error": translate(str(exc))}
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(collector.server_identity)
+    try:
+        identity = future.result(timeout=8)
+        latency_ms = int((time.monotonic() - started) * 1000)
+        if isinstance(identity, dict) and identity:
+            ds.server_identity = identity
+        audit.record(session, user, "datasource.test", "datasource", ds.id, ok=True, latency_ms=latency_ms)
+        return {"ok": True, "latency_ms": latency_ms, "server_identity": identity, "error": None}
+    except FuturesTimeoutError:
+        future.cancel()
+        latency_ms = int((time.monotonic() - started) * 1000)
+        audit.record(session, user, "datasource.test", "datasource", ds.id, ok=False, latency_ms=latency_ms)
+        return {"ok": False, "latency_ms": latency_ms, "server_identity": None, "error": translate("连接超时（8秒）")}
+    except Exception as exc:  # noqa: BLE001
+        latency_ms = int((time.monotonic() - started) * 1000)
+        audit.record(session, user, "datasource.test", "datasource", ds.id, ok=False, latency_ms=latency_ms)
+        return {"ok": False, "latency_ms": latency_ms, "server_identity": None, "error": str(exc)[:300]}
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 @router.put("/datasources/{datasource_id}/exploration", response_model=S.DatasourceOut)

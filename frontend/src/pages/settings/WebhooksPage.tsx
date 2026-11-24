@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { api, unwrap, type Schemas } from "../../api/client";
 import { errorText, useAction, useTimeZone } from "../../api/hooks";
 import {
-  Banner, ConfirmDialog, Count, Drawer, Empty, Hint, Pager, PaneHeader, Pill, QueryState, Select, Switch, useMessage,
+  Banner, ConfirmDialog, Count, Crumbs, Drawer, Empty, Hint, Pager, PaneHeader, Pill, QueryState, Select, Switch, useMessage,
 } from "../../components/ui";
 import { formatTime } from "../../format";
 import { t } from "../../i18n";
@@ -38,7 +38,7 @@ export function WebhooksPage() {
   const me = useMe();
   const isAdmin = !!me.data?.roles.includes("admin");
   const subs = useQuery({ queryKey: ["webhook-subscriptions"], enabled: isAdmin,
-    queryFn: () => unwrap(api.GET("/api/webhook-subscriptions")) });
+    queryFn: ({ signal }) => unwrap(api.GET("/api/webhook-subscriptions", { signal })) });
   const [selected, setSelected] = useState<string>();
   const [editing, setEditing] = useState<Subscription | "new" | null>(null);
   const [secret, setSecret] = useState<{ name: string; secret: string } | null>(null);
@@ -47,6 +47,7 @@ export function WebhooksPage() {
 
   return (
     <div className="av-fill">
+      <Crumbs back={{ label: t("工作台"), to: "/" }} items={[t("设置"), t("通知订阅")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("设置")}</h1><SettingsTabs current="webhooks" /></div>
         {isAdmin ? <div className="av-actions">
@@ -99,8 +100,8 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
   const outbox = useQuery({ queryKey: ["event-outbox", sub.id, status, offset],
     placeholderData: (prev) => prev,
     refetchInterval: (query) => (query.state.data?.items.some((d) => d.status === "pending") ? 5_000 : 30_000),
-    queryFn: () => unwrap(api.GET("/api/event-outbox", { params: { query: {
-      subscription_id: sub.id, ...(status ? { status: status as "pending" | "delivered" | "dead" } : {}), limit: PAGE, offset } } })) });
+    queryFn: ({ signal }: { signal: AbortSignal }) => unwrap(api.GET("/api/event-outbox", { params: { query: {
+      subscription_id: sub.id, ...(status ? { status: status as "pending" | "delivered" | "dead" } : {}), limit: PAGE, offset } }, signal })) });
   // 轮询或筛选后当前非首页变空时自动退回有效上一页，避免卡在没有分页条的空状态
   useEffect(() => {
     if (!outbox.isSuccess || outbox.isPlaceholderData || offset === 0 || outbox.data.items.length > 0) return;
@@ -175,7 +176,7 @@ function SubscriptionDetail({ sub, onEdit, onSecret, onMessage }: {
 function SubscriptionEditor({ sub, onClose, onSaved }: {
   sub: Subscription | null; onClose: () => void; onSaved: (sub: Subscription, secret?: string) => void;
 }) {
-  const types = useQuery({ queryKey: ["event-types"], queryFn: () => unwrap(api.GET("/api/events/types")) });
+  const types = useQuery({ queryKey: ["event-types"], queryFn: ({ signal }) => unwrap(api.GET("/api/events/types", { signal })) });
   const [form, setForm] = useState({
     name: sub?.name ?? "", url: sub?.url ?? "", event_types: new Set<EventType>(sub?.event_types ?? []),
     outcome: !sub?.outcomes || sub.outcomes.length === 2 ? "both" : sub.outcomes[0],

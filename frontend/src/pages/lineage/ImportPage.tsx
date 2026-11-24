@@ -3,15 +3,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { ApiError, api, token, unwrap } from "../../api/client";
+import { ApiError, api, apiFetch, unwrap } from "../../api/client";
 import {
   errorText, useAction, useDatasources, useImport, useImportCandidates, useImportContent, useImportPayload, useImports,
   useImportStatements, useSqlFunctions, useTimeZone, type ImportBatch, type ImportCandidate, type ImportStatement,
 } from "../../api/hooks";
 import {
-  Banner, Count, Empty, Hint, Icon, PaneHeader, QueryState, RELATION_LABEL, Seg, Select, Status, Switch, Tabs, highlight,
+  Banner, Count, Crumbs, Empty, Hint, Icon, PaneHeader, QueryState, RELATION_LABEL, Seg, Select, Status, Switch, Tabs, highlight,
   shortName, useMessage,
 } from "../../components/ui";
+import { useOverlay } from "../../components/overlay";
 import { formatShortTime, formatTime } from "../../format";
 import { t } from "../../i18n";
 
@@ -30,8 +31,10 @@ export function ImportPage() {
   const imports = useImports();
   const tz = useTimeZone();
   const [historyOpen, setHistoryOpen] = useState(false);
+  useOverlay(historyOpen, () => setHistoryOpen(false));
   return (
     <div className="av-fill av-import-page">
+      <Crumbs back={{ label: t("血缘图"), to: "/lineage" }} items={[t("导入血缘")]} />
       <div className="av-pagehd">
         <div className="av-pagehd__title"><h1>{t("导入血缘")}</h1><Hint text={t("按语法树解析；中间表自动折叠；模型候选需人工确认")} /></div>
         <div className="av-actions av-import-actions">
@@ -41,8 +44,7 @@ export function ImportPage() {
           <Link className="av-btn av-btn--primary" to="/lineage/import"><Icon name="plus" />{t("新建导入")}</Link>
         </div>
       </div>
-      <div className="av-workspace av-import-workspace" data-history-open={historyOpen}
-        onKeyDown={(e) => { if (e.key === "Escape") setHistoryOpen(false); }}>
+      <div className="av-workspace av-import-workspace" data-history-open={historyOpen}>
         <section id="import-history" className="av-pane av-pane--rail av-import-history" aria-label={t("导入记录")}>
           <PaneHeader title={t("导入记录")} count={imports.isSuccess ? imports.data.length : undefined}>
             <button type="button" className="av-btn av-btn--ghost av-btn--sm av-import-history-toggle" onClick={() => setHistoryOpen(false)}>{t("收起")}</button>
@@ -136,10 +138,8 @@ function NewImport() {
         if (defaultDb.trim()) form.append("default_db", defaultDb.trim());
         form.append("model_assist", JSON.stringify(modelAssist));
         form.append("sql_functions", JSON.stringify(sqlFunctions));
-        const resp = await fetch("/api/imports/upload", { method: "POST", body: form, headers: { Authorization: `Bearer ${token.get()}` } });
-        const json = await resp.json();
-        if (!resp.ok) throw new Error(typeof json.detail === "string" ? json.detail : json.detail?.message ?? t("上传失败"));
-        batch = json;
+        const resp = await apiFetch("/api/imports/upload", { method: "POST", body: form });
+        batch = await resp.json();
       } else {
         batch = await unwrap(api.POST("/api/imports", { body: {
           datasource_id: ds, filename: filename.trim(), content, source_type: null, default_db: defaultDb.trim() || null, params: {},
@@ -264,7 +264,7 @@ function BatchContent({ b }: { b: Batch }) {
   return <>
     <div className="av-import-summary" aria-label={t("导入结果摘要")}>
       {running ? <div className="av-import-progress" role="status" aria-live="polite">
-        <span className="av-import-progress__bar"><i style={{ width: `${progressPercent(progress)}%` }} /></span>
+        <span className="av-import-progress__bar"><i style={{ transform: `scaleX(${progressPercent(progress) / 100})` }} /></span>
         <span className="av-caption">{PHASE[progress.phase ?? "queued"] ?? t("处理中")}{done ? ` · ${t("{{n}} 条", { n: done.toLocaleString() })}` : ""}
           {progress.files_total ? ` · ${t("文件 {{done}}/{{total}}", { done: progress.files_done ?? 0, total: progress.files_total })}` : ""}
           {progress.current_file ? ` · ${progress.current_file}` : ""}</span>

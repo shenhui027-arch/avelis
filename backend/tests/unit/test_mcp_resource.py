@@ -377,17 +377,273 @@ def test_each_tool_accepts_its_own_scope(resource_app, monkeypatch, name, scope)
     assert "private-query-marker" not in snapshot
 
 
-@pytest.mark.parametrize("version", [None, "2025-11-25", "2025-06-18"])
-def test_legacy_and_missing_protocol_headers_are_rejected(resource_app, version):
+@pytest.mark.parametrize("version", [None, "2025-03-26", "2025-06-18", "2025-11-25"])
+def test_legacy_and_missing_protocol_headers_are_accepted(resource_app, version):
     seed_token(resource_app)
-    headers = request_headers()
-    if version is None:
-        headers.pop("MCP-Protocol-Version")
-    else:
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Authorization": "Bearer " + RAW_TOKEN,
+    }
+    if version is not None:
         headers["MCP-Protocol-Version"] = version
-    response = resource_app.client.post("/mcp", json=modern_message(), headers=headers)
-    assert response.status_code == 400
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    response = resource_app.client.post("/mcp", json=payload, headers=headers)
+    assert response.status_code == 200, response.text
     assert "Mcp-Session-Id" not in response.headers
+    assert response.headers.get("mcp-protocol-version") == (version or "2025-03-26")
+    assert {tool["name"] for tool in response.json()["result"]["tools"]} == set(TOOL_SCOPES)
+
+
+@pytest.mark.parametrize(
+    "requested,expected",
+    [
+        ("2025-03-26", "2025-03-26"),
+        ("2025-06-18", "2025-06-18"),
+        ("2025-11-25", "2025-11-25"),
+        ("2099-01-01", "2025-11-25"),
+        ("2026-07-28", "2025-11-25"),
+    ],
+)
+def test_initialize_negotiates_protocol_version(resource_app, requested, expected):
+    seed_token(resource_app)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": requested,
+            "capabilities": {},
+            "clientInfo": {"name": "legacy-client", "version": "1.0"},
+        },
+    }
+    response = resource_app.client.post(
+        "/mcp",
+        json=payload,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + RAW_TOKEN,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["protocolVersion"] == expected
+    assert response.headers.get("mcp-protocol-version") == expected
+
+
+def test_initialize_2024_11_05_does_not_stamp_contradictory_header(resource_app):
+    seed_token(resource_app)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "legacy-client", "version": "1.0"},
+        },
+    }
+    response = resource_app.client.post(
+        "/mcp",
+        json=payload,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + RAW_TOKEN,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "mcp-protocol-version" not in response.headers
+
+
+@pytest.mark.parametrize("version", [None, "2025-03-26", "2025-06-18", "2025-11-25"])
+def test_legacy_tools_call_enforces_scope_args_and_audits(resource_app, monkeypatch, version):
+    from avelis.mcp.tools import ToolService
+
+    seen = []
+    monkeypatch.setattr(ToolService, "search_metrics", lambda self, **kwargs: seen.append(kwargs) or [])
+    seed_token(resource_app, scope="metrics:read")
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Authorization": "Bearer " + RAW_TOKEN,
+    }
+    if version is not None:
+        headers["MCP-Protocol-Version"] = version
+    expected_header = version or "2025-03-26"
+
+    ok_resp = resource_app.client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "search_metrics", "arguments": {"keyword": "rev"}},
+        },
+        headers=headers,
+    )
+    assert ok_resp.status_code == 200, ok_resp.text
+    assert ok_resp.headers.get("mcp-protocol-version") == expected_header
+    assert seen == [{"keyword": "rev", "domain_id": None, "limit": 50}]
+
+    denied_resp = resource_app.client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "ask_metric", "arguments": {"metric": "m1"}},
+        },
+        headers=headers,
+    )
+    assert denied_resp.status_code == 403
+    assert denied_resp.headers.get("mcp-protocol-version") == expected_header
+    assert 'scope="ask:execute"' in denied_resp.headers["www-authenticate"]
+
+    seed_token(
+        resource_app, id="boundary-token-2", access_token_hash=credential_hash("raw-token-2"), scope="ask:execute"
+    )
+    bad_arg_resp = resource_app.client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "ask_metric", "arguments": {"metric": "m1", "sql": "SELECT 1"}},
+        },
+        headers={**headers, "Authorization": "Bearer raw-token-2"},
+    )
+    assert bad_arg_resp.status_code == 400
+    assert bad_arg_resp.json()["error"] == "invalid_request"
+
+    with resource_app.maker() as session:
+        events = list(session.scalars(select(AuditEvent)))
+        assert len(events) == 3
+        assert [e.action for e in events] == ["mcp.search_metrics", "mcp.ask_metric", "mcp.ask_metric"]
+
+
+@pytest.mark.parametrize("method", ["POST", "GET", "DELETE"])
+@pytest.mark.parametrize("version", ["", "   ", "2024-11-05", "2025-01-01", "2099-01-01", "invalid"])
+def test_unsupported_protocol_headers_are_rejected(resource_app, method, version):
+    seed_token(resource_app)
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Authorization": "Bearer " + RAW_TOKEN,
+        "MCP-Protocol-Version": version,
+    }
+    kwargs = {"headers": headers}
+    if method == "POST":
+        kwargs["json"] = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    response = resource_app.client.request(method, "/mcp", **kwargs)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "unsupported_protocol_version"
+    assert body["supported_versions"] == ["2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"]
+    assert "Mcp-Session-Id" not in response.headers
+
+
+@pytest.mark.parametrize("method", ["POST", "GET", "DELETE"])
+def test_duplicate_protocol_headers_are_rejected(resource_app, method):
+    seed_token(resource_app)
+    headers = [
+        ("accept", "application/json, text/event-stream"),
+        ("authorization", "Bearer " + RAW_TOKEN),
+        ("mcp-protocol-version", "2025-11-25"),
+        ("mcp-protocol-version", "2026-07-28"),
+    ]
+    kwargs = {"headers": headers}
+    if method == "POST":
+        kwargs["json"] = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+    response = resource_app.client.request(method, "/mcp", **kwargs)
+    assert response.status_code == 400
+    assert response.json()["error"] == "unsupported_protocol_version"
+
+
+@pytest.mark.parametrize("version", [None, "2025-11-25"])
+def test_get_and_delete_legacy_and_missing_headers_reach_transport(resource_app, version):
+    seed_token(resource_app)
+    base_headers = {"Authorization": "Bearer " + RAW_TOKEN}
+    if version is not None:
+        base_headers["MCP-Protocol-Version"] = version
+    expected = version or "2025-03-26"
+
+    del_resp = resource_app.client.delete("/mcp", headers=base_headers)
+    assert del_resp.status_code == 405
+    assert del_resp.headers.get("mcp-protocol-version") == expected
+
+    get_resp = resource_app.client.get("/mcp", headers={**base_headers, "Accept": "application/json"})
+    assert get_resp.status_code == 406
+    assert get_resp.headers.get("mcp-protocol-version") == expected
+
+    modern_get = resource_app.client.get(
+        "/mcp",
+        headers={
+            "Authorization": "Bearer " + RAW_TOKEN,
+            "MCP-Protocol-Version": "2026-07-28",
+            "Accept": "application/json",
+        },
+    )
+    assert modern_get.status_code == 405
+
+
+def test_ask_metric_metrics_and_order_are_accepted_and_audited(resource_app, monkeypatch):
+    from avelis.mcp.tools import ToolService
+
+    seen = []
+    monkeypatch.setattr(ToolService, "ask_metric", lambda self, **kwargs: seen.append(kwargs) or {"status": "answered"})
+    seed_token(resource_app, scope="ask:execute")
+    response = call(
+        resource_app,
+        "ask_metric",
+        {
+            "metrics": ["metric_a", "metric_d"],
+            "start_date": "2026-01-01",
+            "end_date": "2026-01-31",
+            "dimensions": ["dim_a"],
+            "order": "desc",
+            "limit": 10,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(seen) == 1
+    assert seen[0]["metrics"] == ["metric_a", "metric_d"]
+    assert seen[0]["start_date"] == datetime(2026, 1, 1).date()
+    assert seen[0]["end_date"] == datetime(2026, 1, 31).date()
+    assert seen[0]["dimensions"] == ["dim_a"]
+    assert seen[0]["order"] == "desc"
+    assert seen[0]["limit"] == 10
+    with resource_app.maker() as session:
+        event = session.scalar(select(AuditEvent))
+        summary = event.detail["parameters"]
+        assert "metrics" in summary["argument_names"]
+        assert "order" in summary["argument_names"]
+        assert summary["unknown_argument_count"] == 0
+
+
+async def test_sdk_legacy_client_session_initialize_handshake(resource_app, monkeypatch):
+    import httpx2
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    from avelis.mcp.server import create_mcp_app
+    from avelis.mcp.tools import ToolService
+
+    seed_token(resource_app)
+    child = create_mcp_app(resource_app.settings, session_maker=resource_app.maker)
+    monkeypatch.setattr(ToolService, "search_metrics", lambda self, **kwargs: [])
+    async with child.router.lifespan_context(child):
+        app = FastAPI()
+        app.mount("/", child)
+        transport = httpx2.ASGITransport(app=app)
+        async with httpx2.AsyncClient(
+            transport=transport,
+            base_url=BASE,
+            headers={"Authorization": "Bearer " + RAW_TOKEN, "Origin": BASE},
+        ) as client:
+            async with streamable_http_client(RESOURCE, http_client=client) as streams:
+                async with ClientSession(*streams) as session:
+                    init_result = await session.initialize()
+                    assert init_result.protocol_version == "2025-11-25"
+                    tools = await session.list_tools()
+                    assert {tool.name for tool in tools.tools} == set(TOOL_SCOPES)
+                    result = await session.call_tool("search_metrics", {})
+                    assert not result.is_error
 
 
 @pytest.mark.parametrize(
@@ -576,3 +832,76 @@ def test_public_url_path_preserves_issuer_resource_but_origin_is_the_origin(reso
     token = asyncio.run(StoredTokenVerifier(resource_app.maker, settings).verify_token(RAW_TOKEN))
     assert token.claims["iss"] == settings.public_url
     assert token.resource == resource
+
+
+def test_whitespace_padded_protocol_headers_are_normalized_before_sdk(resource_app):
+    seed_token(resource_app)
+    legacy_resp = resource_app.client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + RAW_TOKEN,
+            "MCP-Protocol-Version": " 2025-11-25 ",
+        },
+    )
+    assert legacy_resp.status_code == 200, legacy_resp.text
+    assert legacy_resp.headers.get("mcp-protocol-version") == "2025-11-25"
+    assert {tool["name"] for tool in legacy_resp.json()["result"]["tools"]} == set(TOOL_SCOPES)
+
+    get_resp = resource_app.client.get(
+        "/mcp",
+        headers={
+            "Authorization": "Bearer " + RAW_TOKEN,
+            "MCP-Protocol-Version": " 2025-11-25 ",
+            "Accept": "application/json",
+        },
+    )
+    assert get_resp.status_code == 406
+    assert get_resp.headers.get("mcp-protocol-version") == "2025-11-25"
+
+    modern_resp = resource_app.client.post(
+        "/mcp",
+        json=modern_message(),
+        headers={
+            **request_headers(),
+            "MCP-Protocol-Version": " 2026-07-28 ",
+        },
+    )
+    assert modern_resp.status_code == 200, modern_resp.text
+    assert modern_resp.headers.get("mcp-protocol-version") == "2026-07-28"
+
+
+@pytest.mark.parametrize(
+    "header_pv,requested,expected",
+    [
+        ("2025-03-26", "2025-11-25", "2025-11-25"),
+        ("2025-11-25", "2025-03-26", "2025-03-26"),
+        ("2025-03-26", "2026-07-28", "2025-11-25"),
+        ("2025-03-26", "2024-11-05", None),
+    ],
+)
+def test_initialize_with_explicit_header_matches_negotiated_body(resource_app, header_pv, requested, expected):
+    seed_token(resource_app)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": requested,
+            "capabilities": {},
+            "clientInfo": {"name": "legacy-client", "version": "1.0"},
+        },
+    }
+    response = resource_app.client.post(
+        "/mcp",
+        json=payload,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Authorization": "Bearer " + RAW_TOKEN,
+            "MCP-Protocol-Version": header_pv,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["protocolVersion"] == (expected or "2024-11-05")
+    assert response.headers.get("mcp-protocol-version") == expected

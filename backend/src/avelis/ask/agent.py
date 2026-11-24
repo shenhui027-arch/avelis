@@ -34,9 +34,10 @@ from langgraph.types import Command, interrupt
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import charts, modelcfg
+from avelis import audit, cache, charts, modelcfg, usage
 from avelis.analysis.grounding import _unit, display, number
 from avelis.ask import service
 from avelis.ask.alignment import (
@@ -46,17 +47,33 @@ from avelis.ask.alignment import (
     confirmed_values,
     has_dimension_table,
 )
+from avelis.ask.grounding import verify_explanation
 from avelis.ask.intent import DemoIntentModel, DimensionFilter, Intent, business_today, matched_dimension_values
 from avelis.ask.llm import DEMO_ADAPTER
 from avelis.config import get_settings
+from avelis.connectors.base import sha256_json
 from avelis.db import utcnow
-from avelis.governance.errors import NotFound
+from avelis.governance import access, vqr
+from avelis.governance.errors import Conflict, NotFound
 from avelis.i18n import current_locale, gettext, reply_language_instruction
-from avelis.llm_protocol import has_leaked_tool_markup, protocol_problem
+from avelis.llm_protocol import (
+    _text,
+    call_with_failover,
+    has_leaked_tool_markup,
+    model_usage,
+    protocol_problem,
+    sanitize_messages_for_target,
+    stream_reply,
+    streams_live,
+)
 from avelis.models import Answer, AskThread, ModelProvider, User
+from avelis.retrieval_hybrid import SearchDocument, embed_texts, hybrid_rank
 
 AGENT_SCHEMA = "avelis_agent"
 RESET = "\x00reset"
+ASK_RECENT_MESSAGES = 6
+ASK_COMPACT_THRESHOLD_RATIO = 0.75
+ASK_COMPACT_SUMMARY_ID = "ask:context_summary"
 logger = logging.getLogger(__name__)
 
 SKILL_CONTEXT_ID = "analysis-skill-context"
@@ -73,14 +90,24 @@ def _merge_turns(old: list[str] | None, new: list[str] | None) -> list[str]:
     return (old or []) + new
 
 
+def _merge_messages(old: list[AnyMessage] | None, new: list[AnyMessage] | None) -> list[AnyMessage]:
+    new = new or []
+    if new and getattr(new[0], "id", None) == RESET:
+        return list(new[1:])
+    return add_messages(old or [], new)
+
+
 class AgentState(TypedDict, total=False):
     turns: Annotated[list[str], _merge_turns]  # 本问题的用户原话（含追问的回答）
-    messages: Annotated[list[AnyMessage], add_messages]  # 与模型的对话（跨问题保留，用于理解上下文）
+    messages: Annotated[list[AnyMessage], _merge_messages]  # 与模型的对话（跨问题保留，支持 RESET 原子压缩）
     intent: dict | None
     clarification: dict | None
     alignment_clarifications: list[dict]  # 实际展示的候选和用户回答；每个新问题重置
     steps: Annotated[list[dict], operator.add]
     context: dict  # 当前轮的请求语言，随既有会话检查点保存
+    compacted_summary: str | None
+    compacted_at: str | None
+    semantic_cache_hit: dict | None
 
 
 # --- 工具：全部在后端执行，按当前用户的权限过滤 ------------------------------------------------
@@ -157,21 +184,36 @@ class Toolbox:
         return next((c for c in self.catalog.cards if c.code == code), None)
 
     def search_metrics(self, keyword: str = "") -> str:
-        cards = [
-            c
-            for c in self.catalog.cards
-            if not keyword
-            or any(
-                keyword in text
-                for text in (
-                    c.name,
-                    c.code,
-                    *c.aliases,
-                    *c.ai_context.get("synonyms", []),
-                    *c.ai_context.get("examples", []),
+        cards = list(self.catalog.cards)
+        if keyword and keyword.strip():
+            docs = []
+            by_code = {}
+            for c in cards:
+                by_code[c.code] = c
+                docs.append(
+                    SearchDocument(
+                        key=c.code,
+                        fields=[
+                            (3.0, c.name),
+                            *((3.0, a) for a in c.aliases or []),
+                            *((3.0, s) for s in c.ai_context.get("synonyms", [])),
+                            *((2.0, e) for e in c.ai_context.get("examples", [])),
+                            (1.0, c.code),
+                            (1.0, c.description or ""),
+                        ],
+                        semantic_text=" ".join(
+                            p
+                            for p in (
+                                c.name,
+                                *(c.aliases or []),
+                                *c.ai_context.get("synonyms", []),
+                                c.description or "",
+                            )
+                            if p
+                        ),
+                    )
                 )
-            )
-        ]
+            cards = [by_code[code] for code, score in hybrid_rank(keyword, docs) if score > 0.0]
         return json.dumps(
             [
                 {
@@ -489,16 +531,353 @@ def _reply_instruction(state: AgentState, config) -> str:
     return reply_language_instruction(locale)
 
 
+def _estimate_tokens(messages: list[AnyMessage]) -> int:
+    total = 0
+    for m in messages:
+        content = m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False, default=str)
+        total += len(content)
+        tool_calls = getattr(m, "tool_calls", None)
+        if tool_calls:
+            total += len(json.dumps(tool_calls, ensure_ascii=False, default=str))
+        redacted = (getattr(m, "additional_kwargs", None) or {}).get("redacted")
+        if redacted and redacted != content:
+            total += len(str(redacted))
+    return total
+
+
+def _compact_messages(
+    session: Session | None,
+    thread_id: str | None,
+    messages: list[AnyMessage],
+    *,
+    send_results: bool,
+    reason: str,
+) -> tuple[list[AnyMessage], dict[str, Any]]:
+    if len(messages) <= ASK_RECENT_MESSAGES + 1:
+        toks = _estimate_tokens(messages)
+        return messages, {
+            "compacted": False,
+            "reason": reason,
+            "before_messages": len(messages),
+            "after_messages": len(messages),
+            "before_tokens": toks,
+            "after_tokens": toks,
+        }
+
+    recent = max(0, len(messages) - ASK_RECENT_MESSAGES)
+    while recent > 0 and isinstance(messages[recent], ToolMessage):
+        recent -= 1
+    if recent > 0 and isinstance(messages[recent], AIMessage) and getattr(messages[recent], "tool_calls", None):
+        # 尽量保留本轮触发工具调用的提问起点，避免孤立工具轮
+        if isinstance(messages[recent - 1], HumanMessage):
+            recent -= 1
+
+    older = [m for m in messages[:recent] if getattr(m, "id", None) != ASK_COMPACT_SUMMARY_ID]
+    tail = [m for m in messages[recent:] if getattr(m, "id", None) != ASK_COMPACT_SUMMARY_ID]
+    if len(older) < 2:
+        toks = _estimate_tokens(messages)
+        return messages, {
+            "compacted": False,
+            "reason": reason,
+            "before_messages": len(messages),
+            "after_messages": len(messages),
+            "before_tokens": toks,
+            "after_tokens": toks,
+        }
+
+    prior_answers: list[Answer] = []
+    if session is not None and thread_id:
+        try:
+            prior_answers = [
+                row
+                for row in session.scalars(
+                    select(Answer).where(Answer.thread_id == thread_id).order_by(Answer.asked_at)
+                )
+                if isinstance(row, Answer)
+            ]
+        except Exception:
+            prior_answers = []
+
+    if prior_answers:
+        redacted_lines = [_answer_context(ans, getattr(ans, "intent", None)) for ans in prior_answers[-12:]]
+        full_lines = [f"[{ans.status}] {ans.question} -> {ans.message or ''}" for ans in prior_answers[-12:]]
+    else:
+        redacted_lines = []
+        full_lines = []
+        for m in older:
+            text = m.content if isinstance(m.content, str) else json.dumps(m.content, ensure_ascii=False, default=str)
+            snippet = text.strip().replace("\n", " ")[:80]
+            if isinstance(m, HumanMessage):
+                redacted_lines.append(f"问：{snippet}")
+                full_lines.append(f"问：{snippet}")
+            elif isinstance(m, AIMessage) and not m.tool_calls:
+                redacted_piece = (m.additional_kwargs or {}).get("redacted") or "[answered]（结果未发送给模型）"
+                redacted_lines.append(str(redacted_piece))
+                full_lines.append(snippet if send_results else str(redacted_piece))
+
+    redacted_summary = "历史上下文摘要（已脱敏）：\n" + "\n".join(f"- {line}" for line in redacted_lines[-10:])
+    full_summary = (
+        ("历史上下文摘要：\n" + "\n".join(f"- {line}" for line in full_lines[-10:]))
+        if send_results
+        else redacted_summary
+    )
+    summary_msg = AIMessage(
+        full_summary,
+        id=ASK_COMPACT_SUMMARY_ID,
+        additional_kwargs={"avelis_summary": True, "avelis_compact": True, "redacted": redacted_summary},
+    )
+    compacted = [summary_msg, *tail]
+    before_tokens = _estimate_tokens(messages)
+    after_tokens = _estimate_tokens(compacted)
+    if len(compacted) >= len(messages) or after_tokens >= before_tokens:
+        return messages, {
+            "compacted": False,
+            "reason": reason,
+            "before_messages": len(messages),
+            "after_messages": len(messages),
+            "before_tokens": before_tokens,
+            "after_tokens": before_tokens,
+        }
+    return compacted, {
+        "compacted": True,
+        "reason": reason,
+        "before_messages": len(messages),
+        "after_messages": len(compacted),
+        "before_tokens": before_tokens,
+        "after_tokens": after_tokens,
+        "summary": full_summary if send_results else redacted_summary,
+        "redacted_summary": redacted_summary,
+        "compacted_at": utcnow().isoformat(),
+    }
+
+
+def _semantic_scope_sig(
+    session: Session, user: User, catalog: service.Catalog, *, today: date, locale: str, send_results: bool
+) -> str:
+    allowed = sorted(access.domain_ids(session, user))
+    roles = sorted(access.roles_of(session, user))
+    catalog_fp = [
+        (code, version.id, version.dependency_fingerprint) for code, (_, version) in sorted(catalog.versions.items())
+    ]
+    return sha256_json(
+        {
+            "domains": allowed,
+            "roles": roles,
+            "today": str(today),
+            "locale": locale,
+            "send_results": send_results,
+            "catalog": catalog_fp,
+        }
+    )
+
+
+def _stream_emit(config: dict[str, Any] | None) -> Callable[[str, dict[str, Any]], None] | None:
+    if not isinstance(config, dict):
+        return None
+    fn = (config.get("configurable") or {}).get("stream_emit")
+    return fn if callable(fn) else None
+
+
+def _resolve_ask(
+    session: Session,
+    purpose: str,
+    question: str,
+    *,
+    turns_count: int = 1,
+    has_clarification: bool = False,
+    temperature: float = 0.0,
+) -> modelcfg.Resolved | None:
+    if modelcfg.routing_config(session)["enabled"]:
+        tier = modelcfg.classify_ask_complexity(question, turns_count=turns_count, has_clarification=has_clarification)
+        return modelcfg.resolve_routed(session, purpose, complexity=tier, temperature=temperature)
+    return (
+        modelcfg.resolve(session, purpose)
+        if temperature == 0.0
+        else modelcfg.resolve(session, purpose, temperature=temperature)
+    )
+
+
+def _invoke_ask_model(
+    resolved: Any,
+    messages: list[AnyMessage],
+    *,
+    tools: list[Any] | None = None,
+    emit: Callable[[str, dict[str, Any]], None] | None = None,
+    phase: str = "understand",
+    session: Session | None = None,
+    user: User | None = None,
+    answer: Answer | None = None,
+    thread_id: str | None = None,
+    purpose: str = "ask",
+    domain_id: str | None = None,
+    stream_text: bool = True,
+) -> tuple[AIMessage, Any, str | None]:
+    started = time.monotonic()
+    stream_state = {"thinking": "", "text": ""}
+
+    failover_active = {"active": False}
+
+    def _reset_stream() -> None:
+        failover_active["active"] = True
+        stream_state["thinking"] = ""
+        stream_state["text"] = ""
+        if emit is not None:
+            emit("status", {"phase": phase, "status": "failover"})
+
+    def _on_delta(thinking: str, text: str) -> None:
+        if emit is None:
+            return
+        if len(thinking) > len(stream_state["thinking"]):
+            delta_t = thinking[len(stream_state["thinking"]) :]
+            stream_state["thinking"] = thinking
+            emit("thinking", {"delta": delta_t, "content": thinking, "phase": phase})
+        if stream_text and len(text) > len(stream_state["text"]):
+            delta_x = text[len(stream_state["text"]) :]
+            stream_state["text"] = text
+            emit("delta", {"delta": delta_x, "content": text, "phase": phase})
+
+    def _call_one(candidate: Any) -> AIMessage:
+        raw_model = getattr(candidate, "model", candidate)
+        prepared = sanitize_messages_for_target(messages, raw_model) if failover_active["active"] else messages
+        bound = raw_model.bind_tools(tools) if tools else raw_model
+        if emit is not None and streams_live(bound):
+            timeout_s = float(getattr(get_settings(), "model_timeout_seconds", 60))
+            return stream_reply(bound, prepared, _on_delta, deadline=time.monotonic() + max(timeout_s, 1.0))
+        return bound.invoke(prepared)
+
+    try:
+        reply, used, failover_from = call_with_failover(resolved, _call_one, reset_stream=_reset_stream)
+    except Exception as exc:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        usage.record_usage(
+            session,
+            user_id=getattr(user, "id", None),
+            domain_id=domain_id,
+            purpose=purpose,
+            phase=phase,
+            provider_id=getattr(resolved, "provider_id", None),
+            provider_code=getattr(resolved, "provider_code", None),
+            model_id=getattr(resolved, "model_id", None) or getattr(resolved, "adapter", "unknown"),
+            adapter=getattr(resolved, "adapter", None),
+            thread_id=thread_id,
+            answer_id=getattr(answer, "id", None),
+            usage=None,
+            latency_ms=latency_ms,
+            status="error",
+            routing_tier=getattr(resolved, "routing_tier", None),
+            error_code=type(exc).__name__,
+        )
+        raise
+
+    latency_ms = int((time.monotonic() - started) * 1000)
+    used_usage = model_usage(reply) if isinstance(reply, AIMessage) else {}
+    usage.record_usage(
+        session,
+        user_id=getattr(user, "id", None),
+        domain_id=domain_id,
+        purpose=purpose,
+        phase=phase,
+        provider_id=getattr(used, "provider_id", None),
+        provider_code=getattr(used, "provider_code", None),
+        model_id=getattr(used, "model_id", None) or getattr(used, "adapter", "unknown"),
+        adapter=getattr(used, "adapter", None),
+        thread_id=thread_id,
+        answer_id=getattr(answer, "id", None),
+        usage=used_usage,
+        latency_ms=latency_ms,
+        status="failover" if failover_from else "ok",
+        failover_from=failover_from,
+        routing_tier=getattr(used, "routing_tier", None),
+    )
+    return reply, used, failover_from
+
+
 def understand(state: AgentState, config) -> dict[str, Any]:
     session, user, answer = _ctx(config)
     settings = get_settings()
-    resolved = modelcfg.resolve(session, "ask")
+    emit = _stream_emit(config)
+    thread_id = config["configurable"].get("thread_id")
+    if emit is not None:
+        emit(
+            "status",
+            {
+                "phase": "understand",
+                "status": "running",
+                "thread_id": thread_id,
+                "answer_id": getattr(answer, "id", None),
+            },
+        )
+    question_text = " ".join(state.get("turns", []))
+    turns_count = len([t for t in state.get("turns", []) if t != RESET])
+    resolved = _resolve_ask(
+        session,
+        "ask",
+        question_text,
+        turns_count=max(turns_count, 1),
+        has_clarification=bool(state.get("alignment_clarifications")),
+    )
+    if resolved is not None and isinstance(getattr(answer, "evidence", None), dict):
+        model_meta = answer.evidence.get("model")
+        if isinstance(model_meta, dict):
+            model_meta["adapter"] = resolved.adapter
+            if getattr(resolved, "routing_tier", None):
+                model_meta["routing_tier"] = resolved.routing_tier
     model = resolved.model if resolved else None
     catalog = service.visible_catalog(session, user, with_values=model is None)
     answer.evidence["visible_metrics"] = [c.code for c in catalog.cards]
     today = business_today(settings.business_timezone)
+    locale = _request_context(state, config)["request_locale"]
+    standalone = bool(config["configurable"].get("standalone")) and not state.get("alignment_clarifications")
+    sem_cache_enabled = bool(getattr(settings, "ask_semantic_cache_enabled", False))
+
+    scope_sig: str | None = None
+    query_vec: list[float] | None = None
+    if sem_cache_enabled and standalone and question_text.strip() and session is not None:
+        send_results = modelcfg.policy(session)["send_results"]
+        scope_sig = _semantic_scope_sig(session, user, catalog, today=today, locale=locale, send_results=send_results)
+        vecs = embed_texts([question_text], settings=settings)
+        query_vec = vecs[0] if vecs else None
+        hit = cache.semantic_cache_lookup(
+            scope_sig,
+            question_text,
+            query_vec=query_vec,
+            threshold=getattr(settings, "ask_semantic_cache_threshold", 0.88),
+            max_entries=getattr(settings, "ask_semantic_cache_max_entries", 200),
+        )
+        if hit and isinstance(hit.get("intent"), dict):
+            raw_alignment = hit.get("filter_alignment")
+            alignment_list = raw_alignment if isinstance(raw_alignment, list) else []
+            if alignment_list and service.filter_alignment_restricted(session, user, alignment_list):
+                hit = None
+        if hit and isinstance(hit.get("intent"), dict):
+            sim = round(float(hit.get("similarity") or 0.0), 4)
+            answer.evidence["semantic_cache"] = {"hit": True, "similarity": sim}
+            if hit.get("filter_alignment"):
+                answer.evidence["filter_alignment"] = hit["filter_alignment"]
+            return {
+                "intent": hit["intent"],
+                "clarification": None,
+                "semantic_cache_hit": {**hit, "scope_sig": scope_sig},
+                "steps": [
+                    {
+                        "node": "understand",
+                        "adapter": "semantic_cache",
+                        "cache_hit": True,
+                        "similarity": sim,
+                        "at": utcnow().isoformat(),
+                        "result": "intent",
+                    }
+                ],
+            }
+
+    vqr_refs = vqr.recall_vqr(session, user, question=question_text, k=3, char_limit=1500)
+    if vqr_refs:
+        answer.evidence["vqr_refs"] = [
+            {"id": ref["id"], "title": ref["title"], "metric_codes": ref["metric_codes"]} for ref in vqr_refs
+        ]
+
     if model is None:
-        intent = DemoIntentModel().parse(" ".join(state.get("turns", [])), catalog.cards, today=today)
+        intent = DemoIntentModel().parse(question_text, catalog.cards, today=today)
         step = {"node": "understand", "adapter": "demo-rules", "at": utcnow().isoformat()}
         if intent.clarification:
             return {
@@ -518,28 +897,104 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         selection for record in records for selection in confirmed_values(record["items"], record["answer"])
     ]
     tools = {t.name: t for t in toolbox.tools()}
-    bound = model.bind_tools(list(tools.values()))
     system = SystemMessage(SYSTEM_PROMPT.format(tz=settings.business_timezone, today=today))
-    history = _history_for_model(list(state.get("messages", [])), modelcfg.policy(session)["send_results"])
+
+    send_results = modelcfg.policy(session)["send_results"]
+    raw_messages = list(state.get("messages", []))
+    compact_prefix: list[AnyMessage] = []
+    compact_state: dict[str, Any] = {}
+    compact_steps: list[dict[str, Any]] = []
+    est_tokens = _estimate_tokens(raw_messages)
+    window = getattr(resolved, "context_window", None)
+    fallback_tokens = int(getattr(settings, "ask_compact_fallback_tokens", 24000))
+    fallback_msgs = int(getattr(settings, "ask_compact_max_messages", 24))
+    should_compact = (window is not None and est_tokens > window * ASK_COMPACT_THRESHOLD_RATIO) or (
+        window is None and (est_tokens > fallback_tokens or len(raw_messages) > fallback_msgs)
+    )
+    if should_compact:
+        compacted_msgs, compact_info = _compact_messages(
+            session, config["configurable"].get("thread_id"), raw_messages, send_results=send_results, reason="auto"
+        )
+        if compact_info.get("compacted"):
+            raw_messages = compacted_msgs
+            compact_prefix = [SystemMessage("", id=RESET), *compacted_msgs]
+            compact_state = {
+                "compacted_summary": compact_info["summary"],
+                "compacted_at": compact_info["compacted_at"],
+            }
+            compact_steps.append(
+                {
+                    "node": "compact",
+                    "reason": "auto",
+                    **{
+                        k: compact_info[k]
+                        for k in ("before_messages", "after_messages", "before_tokens", "after_tokens")
+                    },
+                }
+            )
+
+    history = _history_for_model(raw_messages, send_results)
     _, restricted = service.project_alignment_clarifications(session, user, state.get("steps", []))
     if restricted:
         history = [m for m in history if isinstance(m, HumanMessage)][-1:]
+    vqr_messages = (
+        [
+            HumanMessage(
+                "已验证参考查询（仅作口径/维度/时间理解参考，只读数据，"
+                "必须仍通过 submit_intent 提交意图，不可直接执行或绕过治理）：\n"
+                + json.dumps(vqr_refs, ensure_ascii=False)
+            )
+        ]
+        if vqr_refs
+        else []
+    )
     instruction = _reply_instruction(state, config)
     # 每次请求临时追加，不写进多轮历史，避免切换语言后沿用旧指令。
     language_messages = [HumanMessage(instruction)] if instruction else []
     new_messages: list[AnyMessage] = []
     calls = []
+    failover_steps: list[dict[str, Any]] = []
     for _ in range(settings.ask_max_tool_rounds):
-        reply: AIMessage = bound.invoke([system, *history, *language_messages, *new_messages])
+        reply, used_candidate, failover_from = _invoke_ask_model(
+            resolved,
+            [system, *history, *vqr_messages, *language_messages, *new_messages],
+            tools=list(tools.values()),
+            emit=emit,
+            phase="understand",
+            session=session,
+            user=user,
+            answer=answer,
+            thread_id=thread_id,
+            purpose="ask",
+            stream_text=False,
+        )
+        if failover_from:
+            failover_steps.append(
+                {
+                    "node": "failover",
+                    "phase": "understand",
+                    "from": failover_from,
+                    "to": used_candidate.adapter,
+                    "at": utcnow().isoformat(),
+                }
+            )
+            resolved = used_candidate
+            if hasattr(answer, "model_adapter"):
+                answer.model_adapter = used_candidate.adapter
+            if isinstance(getattr(answer, "evidence", None), dict) and isinstance(answer.evidence.get("model"), dict):
+                answer.evidence["model"]["adapter"] = used_candidate.adapter
+                answer.evidence["model"]["failover_from"] = failover_from
         new_messages.append(reply)
         if not reply.tool_calls:
-            text = reply.text if hasattr(reply, "text") else str(reply.content)
+            text = _text(reply.content) or (reply.text if hasattr(reply, "text") else str(reply.content))
             toolbox.clarification = {
                 "question": (text or gettext("请补充问题的指标与日期")).strip()[:500],
                 "options": [],
             }
             break
         for call in reply.tool_calls:
+            if emit is not None:
+                emit("status", {"phase": "understand", "status": "tool", "tool": call["name"]})
             tool = tools.get(call["name"])
             output = tool.invoke(call["args"]) if tool else json.dumps({"error": "未知工具"})
             calls.append({"tool": call["name"], "args": call["args"]})
@@ -551,6 +1006,7 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         "adapter": resolved.adapter,
         "tool_calls": calls,
         "at": utcnow().isoformat(),
+        **({"routing_tier": resolved.routing_tier} if getattr(resolved, "routing_tier", None) else {}),
         **({"alignment_candidates": toolbox.alignment_candidates} if toolbox.alignment_candidates else {}),
     }
     if toolbox.alignment_candidates:
@@ -561,21 +1017,29 @@ def understand(state: AgentState, config) -> dict[str, Any]:
         step["filter_alignment"] = toolbox.filter_alignment
         if toolbox.filter_alignment_unknown:
             step["filter_alignment_unknown"] = toolbox.filter_alignment_unknown
+        out_step = {**step, "result": "intent"}
+        if emit is not None:
+            emit("step", {"step": out_step})
         return {
             "intent": toolbox.intent.model_dump(mode="json"),
             "clarification": None,
-            "messages": new_messages,
-            "steps": [{**step, "result": "intent"}],
+            "messages": [*compact_prefix, *new_messages],
+            **compact_state,
+            "steps": [*compact_steps, *failover_steps, out_step],
         }
     clarification = toolbox.clarification or {
         "question": gettext("没能确定要查询的指标与日期，请换个说法或补充信息"),
         "options": [],
     }
+    out_step = {**step, "result": "clarify"}
+    if emit is not None:
+        emit("step", {"step": out_step})
     return {
         "clarification": clarification,
         "intent": None,
-        "messages": new_messages,
-        "steps": [{**step, "result": "clarify"}],
+        "messages": [*compact_prefix, *new_messages],
+        **compact_state,
+        "steps": [*compact_steps, *failover_steps, out_step],
     }
 
 
@@ -602,23 +1066,27 @@ def clarify(state: AgentState, config) -> dict[str, Any]:
 
 def govern(state: AgentState, config) -> dict[str, Any]:
     session, user, answer = _ctx(config)
+    emit = _stream_emit(config)
+    if emit is not None:
+        emit("status", {"phase": "govern", "status": "running", "answer_id": getattr(answer, "id", None)})
     catalog = service.visible_catalog(session, user, with_values=False)
     alignment_evidence = {
         key: answer.evidence[key] for key in ("filter_alignment", "filter_alignment_unknown") if key in answer.evidence
     }
     service.fulfil(session, user, Intent(**state["intent"]), answer, catalog)
     answer.evidence.update(alignment_evidence)
-    return {
-        "steps": [
-            {
-                "node": "govern",
-                "status": answer.status,
-                "error_code": answer.error_code,
-                "sql_executed": answer.executed_at is not None and not answer.cache_hit,
-                "at": utcnow().isoformat(),
-            }
-        ]
+    domain_id = usage.resolve_answer_domain_id(session, getattr(answer, "metric_version_ids", None))
+    usage.backfill_answer_domain(session, getattr(answer, "id", None), domain_id)
+    gov_step = {
+        "node": "govern",
+        "status": answer.status,
+        "error_code": answer.error_code,
+        "sql_executed": answer.executed_at is not None and not answer.cache_hit,
+        "at": utcnow().isoformat(),
     }
+    if emit is not None:
+        emit("step", {"step": gov_step})
+    return {"steps": [gov_step]}
 
 
 def _explain_payload(answer, intent: dict) -> dict:
@@ -693,6 +1161,7 @@ def explain_answer(
     instruction: str | None = None,
     invoke: Callable[..., AIMessage | None] | None = None,
     skills_text: str | None = None,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> list[dict]:
     """为已有答案补充说明与图表偏好；模型失败或 invoke 返回 None 时保留模板说明。
 
@@ -703,15 +1172,44 @@ def explain_answer(
     steps = []
     try:
         send_results = modelcfg.policy(session)["send_results"]
-        resolved = modelcfg.resolve(session, "explain", temperature=0.2) if send_results else None
+        resolved = None
+        if send_results:
+            if modelcfg.routing_config(session)["enabled"]:
+                tier = modelcfg.classify_ask_complexity(getattr(answer, "question", "") or "")
+                resolved = modelcfg.resolve_routed(session, "explain", complexity=tier, temperature=0.2)
+            else:
+                resolved = modelcfg.resolve(session, "explain", temperature=0.2)
         model = resolved.model if resolved else None
+        domain_id = usage.resolve_answer_domain_id(session, getattr(answer, "metric_version_ids", None))
 
-        def request(messages, *, tools=None):
+        def request(messages, *, tools=None, stream_text: bool = True):
             if invoke is not None:
                 reply = invoke(resolved, messages, tools=tools)
-            else:
-                bound = model.bind_tools(tools) if tools else model
-                reply = bound.invoke(messages)
+                return reply if reply is not None else AIMessage("")
+            reply, used_cand, failover_from = _invoke_ask_model(
+                resolved,
+                messages,
+                tools=tools,
+                emit=on_event,
+                phase="explain",
+                session=session,
+                user=user,
+                answer=answer,
+                thread_id=getattr(answer, "thread_id", None),
+                purpose="explain",
+                domain_id=domain_id,
+                stream_text=stream_text,
+            )
+            if failover_from:
+                steps.append(
+                    {
+                        "node": "failover",
+                        "phase": "explain",
+                        "from": failover_from,
+                        "to": used_cand.adapter,
+                        "at": utcnow().isoformat(),
+                    }
+                )
             return reply if reply is not None else AIMessage("")
 
         if answer.status == "answered" and model is not None:
@@ -758,7 +1256,9 @@ def explain_answer(
                 HumanMessage(text, id=SKILL_CONTEXT_ID if skills_text else None),
             ]
             reply = request(messages, tools=tools)
-            explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
+            explanation = (
+                _text(reply.content) or (reply.text if hasattr(reply, "text") else str(reply.content))
+            ).strip()
             leaked = has_leaked_tool_markup(explanation)
             tool_results = []
             if tools_enabled and not leaked:
@@ -808,17 +1308,60 @@ def explain_answer(
                     followup = [reply, *tool_results]
                 # 第二轮不绑定工具；泄漏的正文与参数不回传。
                 reply = request([*messages, *followup])
-                explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
+                explanation = (
+                    _text(reply.content) or (reply.text if hasattr(reply, "text") else str(reply.content))
+                ).strip()
                 if has_leaked_tool_markup(explanation) and not leaked:
                     # 带着工具调用记录的第二轮也可能把调用写进正文：最后用不含任何工具记录的上下文只要说明文字
                     leaked = True
                     reply = request([*messages, HumanMessage("请直接给出说明文字，不调用工具。")])
-                    explanation = (reply.text if hasattr(reply, "text") else str(reply.content)).strip()
+                    explanation = (
+                        _text(reply.content) or (reply.text if hasattr(reply, "text") else str(reply.content))
+                    ).strip()
                 if has_leaked_tool_markup(explanation):
                     leaked = True
                     explanation = ""
             if leaked:
                 steps.append({"node": "explain", "protocol": "leaked_tool_markup"})
+            if explanation:
+                grounding = verify_explanation(explanation, answer, intent)
+                if not grounding["ok"]:
+                    if on_event is not None:
+                        on_event("status", {"phase": "explain", "status": "retrying"})
+                    retry_hint = HumanMessage(
+                        f"以下数字在查询结果与洞察中没有依据：{', '.join(grounding['ungrounded'])}。"
+                        "请只使用查询结果与洞察中真实出现的数字（或改为纯定性表述），重新给出说明文字，不调用工具。"
+                    )
+                    try:
+                        retry_reply = request([*messages, AIMessage(explanation), retry_hint])
+                        retry_text = (
+                            _text(retry_reply.content)
+                            or (retry_reply.text if hasattr(retry_reply, "text") else str(retry_reply.content))
+                        ).strip()
+                    except StopIteration:
+                        retry_text = ""
+                    if retry_text and not has_leaked_tool_markup(retry_text):
+                        retry_grounding = verify_explanation(retry_text, answer, intent)
+                        if retry_grounding["ok"]:
+                            explanation = retry_text
+                            grounding = retry_grounding
+                        else:
+                            explanation = ""
+                            grounding = {**retry_grounding, "fallback": "template"}
+                    else:
+                        explanation = ""
+                        grounding = {**grounding, "fallback": "template"}
+                    if on_event is not None and grounding.get("fallback") == "template":
+                        on_event("status", {"phase": "explain", "status": "fallback", "fallback": "template"})
+                answer.evidence["explanation_grounding"] = grounding
+                steps.append(
+                    {
+                        "node": "explain_grounding",
+                        "ok": grounding["ok"],
+                        "checked_count": grounding["checked_count"],
+                        "ungrounded_count": len(grounding["ungrounded"]),
+                    }
+                )
             if explanation:
                 answer.explanation = explanation
                 answer.explanation_source = "model"
@@ -830,8 +1373,93 @@ def explain_answer(
 
 def explain(state: AgentState, config) -> dict[str, Any]:
     session, user, answer = _ctx(config)
-    steps = explain_answer(session, user, answer, state.get("intent"), instruction=_reply_instruction(state, config))
+    settings = get_settings()
+    emit = _stream_emit(config)
+    if emit is not None:
+        emit("status", {"phase": "explain", "status": "running", "answer_id": getattr(answer, "id", None)})
     send_results = modelcfg.policy(session)["send_results"]
+    sem_hit = state.get("semantic_cache_hit")
+    reused_explanation = False
+    steps: list[dict[str, Any]] = []
+    if (
+        isinstance(sem_hit, dict)
+        and answer.status == "answered"
+        and answer.cache_hit
+        and send_results
+        and isinstance(sem_hit.get("explanation"), str)
+        and sem_hit["explanation"].strip()
+    ):
+        cached_exp = sem_hit["explanation"].strip()
+        grounding = verify_explanation(cached_exp, answer, state.get("intent"))
+        if grounding["ok"]:
+            answer.explanation = cached_exp
+            answer.explanation_source = "model"
+            answer.evidence["explanation_grounding"] = grounding
+            steps = [
+                {
+                    "node": "explain_grounding",
+                    "ok": True,
+                    "checked_count": grounding["checked_count"],
+                    "ungrounded_count": 0,
+                },
+                {"node": "explain", "source": "model", "semantic_cache_hit": True, "at": utcnow().isoformat()},
+            ]
+            reused_explanation = True
+
+    if not reused_explanation:
+        steps = explain_answer(
+            session,
+            user,
+            answer,
+            state.get("intent"),
+            instruction=_reply_instruction(state, config),
+            on_event=emit,
+        )
+    if emit is not None:
+        for step in steps:
+            emit("step", {"step": step})
+
+    standalone = bool(config["configurable"].get("standalone")) and not state.get("alignment_clarifications")
+    if (
+        getattr(settings, "ask_semantic_cache_enabled", False)
+        and not sem_hit
+        and standalone
+        and session is not None
+        and answer.status == "answered"
+        and state.get("intent")
+    ):
+        try:
+            catalog = service.visible_catalog(session, user, with_values=False)
+            today = business_today(settings.business_timezone)
+            locale = _request_context(state, config)["request_locale"]
+            scope_sig = _semantic_scope_sig(
+                session, user, catalog, today=today, locale=locale, send_results=send_results
+            )
+            vecs = embed_texts([answer.question], settings=settings)
+            query_vec = vecs[0] if vecs else None
+            tags = [f"metric_version:{vid}" for vid in (answer.metric_version_ids or [])]
+            evidence = answer.evidence or {}
+            for asset_info in [*(evidence.get("sources") or []), *(evidence.get("assets") or [])]:
+                if isinstance(asset_info, dict):
+                    aid = asset_info.get("asset_id") or asset_info.get("id")
+                    if aid:
+                        tags.append(f"asset:{aid}")
+            cache.semantic_cache_store(
+                scope_sig,
+                answer.question,
+                query_vec=query_vec,
+                payload={
+                    "intent": state["intent"],
+                    "filter_alignment": (answer.evidence or {}).get("filter_alignment") or [],
+                    "explanation": answer.explanation if answer.explanation_source == "model" else None,
+                },
+                ttl_seconds=settings.ask_semantic_cache_ttl_seconds,
+                max_entries=settings.ask_semantic_cache_max_entries,
+                tags=list(dict.fromkeys(tags)),
+            )
+        except Exception:
+            logger.debug("写入语义缓存失败，已忽略")
+
     # 写入会话历史的本轮摘要：只有允许发送查询结果时才含数值
     redacted = _answer_context(answer, state.get("intent"))
     summary = AIMessage(
@@ -919,7 +1547,102 @@ def reset_state_cache() -> None:
 # --- 对外入口 ------------------------------------------------------------------------
 
 
-def run_turn(session: Session, user: User, question: str, thread_id: str | None) -> Answer:
+def thread_compaction_info(session: Session, thread_id: str) -> tuple[str | None, str | None]:
+    """读取会话检查点里的压缩摘要与时间；检查点不可用时安全返回 (None, None)。"""
+    try:
+        app = graph()
+        snapshot = app.get_state({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        return None, None
+    values = getattr(snapshot, "values", None) or {}
+    summary = values.get("compacted_summary")
+    compacted_at = values.get("compacted_at")
+    if summary and not modelcfg.policy(session)["send_results"]:
+        for m in values.get("messages") or []:
+            if getattr(m, "id", None) == ASK_COMPACT_SUMMARY_ID:
+                summary = (getattr(m, "additional_kwargs", None) or {}).get("redacted") or summary
+                break
+    return summary, compacted_at
+
+
+def compact_thread(session: Session, user: User, thread_id: str) -> dict[str, Any]:
+    """手动压缩问数长会话历史：保留最近完整轮次，旧轮次折叠为受外发策略约束的摘要。"""
+    thread = session.get(AskThread, thread_id)
+    if thread is None or thread.user_id != user.id:
+        raise NotFound("会话不存在")
+    if thread.status == "waiting":
+        raise Conflict("会话正在等待追问回答，请先回答后再压缩")
+
+    config = {"configurable": {"thread_id": thread.id}}
+    app = graph()
+    try:
+        snapshot = app.get_state(config)
+    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+        reset_state_cache()
+        app = graph()
+        snapshot = app.get_state(config)
+
+    values = getattr(snapshot, "values", None) or {}
+    messages = list(values.get("messages") or [])
+    send_results = modelcfg.policy(session)["send_results"]
+    compacted, info = _compact_messages(session, thread.id, messages, send_results=send_results, reason="manual")
+    if info.get("compacted"):
+        app.update_state(
+            config,
+            {
+                "messages": [SystemMessage("", id=RESET), *compacted],
+                "compacted_summary": info["summary"],
+                "compacted_at": info["compacted_at"],
+                "steps": [
+                    {
+                        "node": "compact",
+                        "reason": "manual",
+                        "before_messages": info["before_messages"],
+                        "after_messages": info["after_messages"],
+                        "before_tokens": info["before_tokens"],
+                        "after_tokens": info["after_tokens"],
+                        "at": info["compacted_at"],
+                    }
+                ],
+            },
+        )
+        audit.record(
+            session,
+            user,
+            "ask.compact",
+            "ask_thread",
+            thread.id,
+            before_messages=info["before_messages"],
+            after_messages=info["after_messages"],
+            before_tokens=info["before_tokens"],
+            after_tokens=info["after_tokens"],
+        )
+    summary = info.get("summary") or values.get("compacted_summary")
+    if not info.get("compacted") and summary and not send_results:
+        for m in messages:
+            if getattr(m, "id", None) == ASK_COMPACT_SUMMARY_ID:
+                summary = (getattr(m, "additional_kwargs", None) or {}).get("redacted") or summary
+                break
+    return {
+        "thread_id": thread.id,
+        "compacted": bool(info.get("compacted")),
+        "before_messages": info["before_messages"],
+        "after_messages": info["after_messages"],
+        "before_tokens": info["before_tokens"],
+        "after_tokens": info["after_tokens"],
+        "compacted_summary": summary,
+        "compacted_at": info.get("compacted_at") or values.get("compacted_at"),
+    }
+
+
+def run_turn(
+    session: Session,
+    user: User,
+    question: str,
+    thread_id: str | None,
+    *,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> Answer:
     started = time.monotonic()
     locale = current_locale()
     if thread_id:
@@ -930,7 +1653,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
         thread = AskThread(user_id=user.id, title=question[:255], status="active")
         session.add(thread)
         session.flush()
-    resolved = modelcfg.resolve(session, "ask")
+    resolved = _resolve_ask(session, "ask", question)
     adapter = resolved.adapter if resolved else DEMO_ADAPTER
     is_demo = resolved is None
     answer = service.start_answer(session, user, question, adapter, thread.id)
@@ -940,6 +1663,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
             "adapter": adapter,
             "is_demo": is_demo,
             "orchestrator": "langgraph",
+            "routing_tier": getattr(resolved, "routing_tier", None) if resolved else None,
             "note": "演示模型（规则匹配），真实模型端到端未验证" if is_demo else None,
         },
     }
@@ -950,6 +1674,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
             "user": user,
             "answer": answer,
             "request_locale": locale,
+            **({"stream_emit": on_event} if on_event is not None else {}),
         }
     }
     app = graph()
@@ -960,6 +1685,10 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
         reset_state_cache()
         app = graph()
         pending = app.get_state(config)
+    is_standalone = not (pending.values and pending.values.get("messages")) and not (
+        pending.next and thread.status == "waiting"
+    )
+    config["configurable"]["standalone"] = is_standalone
     steps_before = len(pending.values.get("steps", [])) if pending.values else 0
     try:
         if pending.next and thread.status == "waiting":
@@ -972,6 +1701,7 @@ def run_turn(session: Session, user: User, question: str, thread_id: str | None)
                     "intent": None,
                     "clarification": None,
                     "alignment_clarifications": [],
+                    "semantic_cache_hit": None,
                     "context": {"request_locale": locale},
                 },
                 config,

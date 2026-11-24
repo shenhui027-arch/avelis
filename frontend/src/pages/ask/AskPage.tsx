@@ -1,16 +1,21 @@
 // 问数：对话模式 —— 会话线程 | 依据栏（口径、来源、SQL、步骤）。追问以候选按钮回答，同一会话保留上下文。
+import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, unwrap } from "../../api/client";
-import { errorText, useAction, useExampleQuestions, useNumberStyle, useThread, useThreads, useTimeZone, type Answer } from "../../api/hooks";
+import { api, ApiError, unwrap } from "../../api/client";
+import { errorText, useAction, useExampleQuestions, useNumberStyle, useThread, useThreads, useTimeZone, type Answer, type ThreadDetail } from "../../api/hooks";
+import { consumeSse } from "../../api/sse";
 import { Code, CommentDoc, Empty, Hint, Icon, Pill, Status, Tabs } from "../../components/ui";
+import { Banner, useMessage } from "../../components/ui";
+import { submitOnEnter } from "../../components/shortcuts";
 import { formatClock, formatShortTime, formatTime } from "../../format";
 import { cellText, changeTone, columnLabel, columnRole, dateRange, PERIOD_LABEL, planQueries, sqlSections, type AskIntent, type AskResult, type DerivedMetric, type PlanQuery } from "./presentation";
 import { t } from "../../i18n";
 import { ChartPanel } from "../../components/charts/ChartPanel";
 import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
 import { Insights, Narrative } from "../../components/AnswerInsights";
+import { AnswerEvidenceBadges, AnswerFeedback, GroundingWarning, parseAnswerEvidence, SaveAsVqrButton } from "../../components/AnswerActions";
 
 const STEP_LABEL: Record<string, string> = { understand: t("理解"), clarify: t("追问"), govern: t("版本与权限"), explain: t("解释") };
 
@@ -29,8 +34,21 @@ function stepClass(s: Record<string, unknown>, a: { status: string }): string {
   }
 }
 
+type PendingAsk = {
+  question: string;
+  phase: string | null;
+  status: string | null;
+  tool: string | null;
+  steps: Record<string, unknown>[];
+  thinking: string;
+  explanation: string;
+};
+
+class StreamRejectedError extends Error {}
+
 export function AskPage() {
   const tz = useTimeZone();
+  const qc = useQueryClient();
   const { threadId } = useParams();
   const navigate = useNavigate();
   const thread = useThread(threadId);
@@ -39,24 +57,140 @@ export function AskPage() {
   const examples = (useExampleQuestions("ask").data?.questions ?? []).map((q) => q.text);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [compactMsg, setCompactMsg] = useMessage();
   const [showHistory, setShowHistory] = useState(false);
+  const [pending, setPending] = useState<PendingAsk | null>(null);
+  const streamAbort = useRef<AbortController | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const ask = useAction((question: string) => unwrap(api.POST("/api/ask", { body: { question, thread_id: threadId ?? null } })),
     ["thread", "threads"]);
+  const compact = useAction(() => unwrap(api.POST("/api/ask/threads/{thread_id}/compact", {
+    params: { path: { thread_id: threadId! } },
+  })), ["thread", "threads"]);
   const answers = thread.data?.answers ?? [];
   const current = answers.find((a) => a.id === selected) ?? [...answers].reverse().find((a) => a.status !== "clarify") ?? answers[answers.length - 1];
+  const isBusy = !!pending || ask.isPending;
 
-  useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [answers.length, ask.isPending]);
+  useEffect(() => () => { streamAbort.current?.abort(); }, []);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [answers.length, isBusy, pending?.steps.length, pending?.thinking.length, pending?.explanation.length]);
 
-  function send(question: string) {
-    if (!question.trim()) return;
-    setError(null);
-    ask.mutate(question.trim(), {
-      onSuccess: (a) => { setText(""); setSelected(a.id); if (!threadId && a.thread_id) navigate(`/ask/${a.thread_id}`); },
-      onError: (e) => setError(errorText(e)),
+  const finishAnswer = (a: Answer) => {
+    qc.setQueryData<ThreadDetail>(["thread", a.thread_id], (prev) => {
+      if (!prev) return prev;
+      const exists = prev.answers.some((item) => item.id === a.id);
+      return { ...prev, answers: exists ? prev.answers.map((item) => (item.id === a.id ? a : item)) : [...prev.answers, a] };
     });
+    void qc.invalidateQueries({ queryKey: ["thread", a.thread_id] });
+    void qc.invalidateQueries({ queryKey: ["threads"] });
+    setText("");
+    setSelected(a.id);
+    if (!threadId && a.thread_id) navigate(`/ask/${a.thread_id}`);
+  };
+
+  async function send(question: string) {
+    const trimmed = question.trim();
+    if (!trimmed || isBusy) return;
+    setError(null);
+    streamAbort.current?.abort();
+    const ctrl = new AbortController();
+    streamAbort.current = ctrl;
+    setPending({
+      question: trimmed,
+      phase: "understand",
+      status: "running",
+      tool: null,
+      steps: [],
+      thinking: "",
+      explanation: "",
+    });
+    let completed = false;
+    let streamOpened = false;
+    try {
+      const res = await consumeSse<Answer>("/api/ask/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: trimmed, thread_id: threadId ?? null }),
+        signal: ctrl.signal,
+        onEvent: (ev) => {
+          streamOpened = true;
+          if (ctrl.signal.aborted) return;
+          const payload = (ev.data && typeof ev.data === "object" ? ev.data : {}) as Record<string, unknown>;
+          if (ev.event === "status") {
+            setPending((prev) => (prev ? {
+              ...prev,
+              phase: typeof payload.phase === "string" ? payload.phase : prev.phase,
+              status: typeof payload.status === "string" ? payload.status : prev.status,
+              tool: typeof payload.tool === "string" ? payload.tool : null,
+            } : prev));
+          } else if (ev.event === "step") {
+            const step = payload.step as Record<string, unknown> | undefined;
+            if (step) setPending((prev) => (prev ? { ...prev, steps: [...prev.steps, step] } : prev));
+          } else if (ev.event === "thinking") {
+            const content = typeof payload.content === "string" ? payload.content : undefined;
+            const delta = typeof payload.delta === "string" ? payload.delta : "";
+            const phase = typeof payload.phase === "string" ? payload.phase : undefined;
+            setPending((prev) => (prev ? {
+              ...prev,
+              phase: phase ?? prev.phase,
+              thinking: content !== undefined ? content : `${prev.thinking}${delta}`,
+            } : prev));
+          } else if (ev.event === "delta") {
+            const content = typeof payload.content === "string" ? payload.content : undefined;
+            const delta = typeof payload.delta === "string" ? payload.delta : "";
+            const phase = typeof payload.phase === "string" ? payload.phase : undefined;
+            setPending((prev) => (prev ? {
+              ...prev,
+              phase: phase ?? prev.phase,
+              explanation: content !== undefined ? content : `${prev.explanation}${delta}`,
+            } : prev));
+          } else if (ev.event === "error") {
+            const msg = typeof payload.detail === "string" ? payload.detail
+              : typeof payload.message === "string" ? payload.message : t("操作失败");
+            throw new StreamRejectedError(msg);
+          } else if (ev.event === "done") {
+            completed = true;
+            setPending(null);
+            finishAnswer(ev.data as Answer);
+          }
+        },
+      });
+      if (ctrl.signal.aborted) return;
+      if (res.mode === "json" && res.data) {
+        completed = true;
+        setPending(null);
+        finishAnswer(res.data);
+        return;
+      }
+      if (!completed) throw new Error("stream_incomplete");
+    } catch (e) {
+      if (ctrl.signal.aborted) return;
+      if (e instanceof StreamRejectedError) {
+        setPending(null);
+        setError(e.message);
+        return;
+      }
+      if (e instanceof ApiError && ![404, 405, 406, 501].includes(e.status)) {
+        setPending(null);
+        setError(errorText(e));
+        return;
+      }
+      if (streamOpened) {
+        // 流式已开始执行后中途中断，不自动重发避免重复执行与双重扣费
+        setPending(null);
+        setError(t("流式连接已中断，请刷新查看结果或重试"));
+        return;
+      }
+      // 仅在流式端点不可用（未实际开始执行）时回退到普通 JSON 问数接口
+      setPending(null);
+      ask.mutate(trimmed, {
+        onSuccess: (a) => finishAnswer(a),
+        onError: (err) => setError(errorText(err)),
+      });
+    }
   }
-  const pendingQuestion = ask.isPending ? ask.variables : null;
+  const pendingQuestion = isBusy ? (pending?.question ?? ask.variables ?? null) : null;
   const model = current?.evidence?.model as { adapter?: string; is_demo?: boolean } | undefined;
 
   // 高度与窄屏单列堆叠移入 pages.css，内联间距与列宽统一提取为语义类名
@@ -68,10 +202,34 @@ export function AskPage() {
             {model ? (model.is_demo ? <Pill tone="warn" title={t("意图解析使用演示规则")}>{t("演示模型")}</Pill> : <Pill tone="info">{model.adapter}</Pill>) : null}
             <Hint text={t("只按已发布口径回答；口径受影响时拦截，不会悄悄改用其他口径")} /></div>
           <div className="av-actions">
+            {threadId && answers.length >= 2 ? (
+              <button
+                type="button"
+                className="av-btn av-btn--ghost"
+                disabled={compact.isPending || isBusy}
+                onClick={() => {
+                  setCompactMsg(null);
+                  compact.mutate(undefined, {
+                    onSuccess: (res) => setCompactMsg({
+                      ok: true,
+                      text: res.compacted
+                        ? t("已压缩上下文（{{before}} → {{after}} 条消息）", { before: res.before_messages, after: res.after_messages })
+                        : t("当前上下文较短，暂无需压缩"),
+                    }),
+                    onError: (e) => setCompactMsg({ ok: false, text: errorText(e) }),
+                  });
+                }}
+              >
+                <Icon name="fit" small />
+                {compact.isPending ? t("压缩中…") : t("压缩上下文")}
+              </button>
+            ) : null}
+            <Link to="/analysis" className="av-btn av-btn--ghost">{t("前往统一分析工作区")}</Link>
             <button type="button" className="av-btn av-btn--ghost" onClick={() => setShowHistory(!showHistory)}><Icon name="audit" />{t("会话")}</button>
             <button type="button" className="av-btn av-btn--secondary" onClick={() => { setSelected(null); navigate("/analysis"); }}><Icon name="plus" />{t("新建会话")}</button>
           </div>
         </div>
+        <Banner message={compactMsg} />
         {showHistory ? (
           <div className="av-ask-page__history">
             {(threads.data ?? []).map((thread) => (
@@ -84,35 +242,48 @@ export function AskPage() {
         ) : null}
         <div className="av-ask-page__scroll">
           <div className="av-thread">
+            {thread.data?.compacted_summary || thread.data?.compacted_at ? (
+              <details className="av-fold av-ask-compact">
+                <summary>
+                  <Icon name="fit" small />
+                  <span>{t("已压缩早期上下文")}</span>
+                  {thread.data.compacted_at ? (
+                    <span className="av-caption av-mono av-fold__aside">{formatShortTime(thread.data.compacted_at, tz)}</span>
+                  ) : null}
+                </summary>
+                {thread.data.compacted_summary ? (
+                  <pre className="av-ask-compact__summary">{thread.data.compacted_summary}</pre>
+                ) : null}
+              </details>
+            ) : null}
             {!answers.length && !pendingQuestion ? (
               <Empty text={t("选择一个示例，或输入你的问题")} />
             ) : null}
             {answers.map((a) => (
               <Fragment key={a.id}>
                 <div className="av-ask">{a.question}</div>
-                <AnswerCard a={a} active={a.id === current?.id} onSelect={() => setSelected(a.id)} onPick={send} disabled={ask.isPending} />
+                <AnswerCard a={a} active={a.id === current?.id} onSelect={() => setSelected(a.id)} onPick={send} disabled={isBusy} />
               </Fragment>
             ))}
-            {pendingQuestion ? <><div className="av-ask">{pendingQuestion}</div>
-              <article className="av-answer"><div className="av-trace"><span className="is-ok">{t("理解中")}</span></div></article></> : null}
+            {pendingQuestion ? <PendingAnswerCard question={pendingQuestion} pending={pending} /> : null}
             <div ref={bottom} />
           </div>
         </div>
         <div className="av-ask-page__foot">
-          {error ? <div className="av-banner av-banner--danger av-ask-page__error">{error}</div> : null}
+          {error ? <div className="av-banner av-banner--danger av-ask-page__error" role="alert">{error}</div> : null}
           {!answers.length && !pendingQuestion ? (
             <div className="av-ask-examples" aria-label={t("问题示例")}>
               {examples.map((example) => <button key={example} type="button" className="av-btn av-btn--ghost av-btn--sm"
                 onClick={() => { setText(example); document.getElementById("q")?.focus(); }}>{example}</button>)}
             </div>
           ) : null}
-          <form className="av-composer" onSubmit={(e) => { e.preventDefault(); send(text); }}>
+          <form className="av-composer" onSubmit={(e) => { e.preventDefault(); void send(text); }}>
             <label htmlFor="q" className="av-sr">{t("问题")}</label>
             <textarea id="q" rows={2} value={text} placeholder={thread.data?.status === "waiting" ? t("回答上面的追问") : t("问一个问题")}
               onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(text); }} />
+              onKeyDown={(e) => { if (submitOnEnter(e, "mod-enter")) { e.preventDefault(); void send(text); } }} />
             <div className="av-actions"><span className="av-kbd">Ctrl ↵</span>
-              <button className="av-btn av-btn--primary" type="submit" disabled={ask.isPending || !text.trim()}><Icon name="send" />{t("发送")}</button></div>
+              <button className="av-btn av-btn--primary" type="submit" disabled={isBusy || !text.trim()}><Icon name="send" />{t("发送")}</button></div>
           </form>
         </div>
       </div>
@@ -120,6 +291,53 @@ export function AskPage() {
         {current ? <Evidence a={current} /> : <Empty text={t("回答的依据显示在这里")} />}
       </aside>
     </div>
+  );
+}
+
+function PendingAnswerCard({ question, pending }: { question: string; pending: PendingAsk | null }) {
+  const phase = pending?.phase ?? "understand";
+  const phaseLabel = pending?.status === "failover"
+    ? t("正在切换备选模型…")
+    : phase === "govern"
+      ? t("校验口径与权限中…")
+      : phase === "explain"
+        ? t("生成解读中…")
+        : t("理解中");
+  return (
+    <>
+      <div className="av-ask">{question}</div>
+      <article className="av-answer is-streaming" aria-live="polite">
+        <div className="av-answer__hd">
+          <span className="av-status av-status--info">
+            <span className="av-spinner" aria-hidden />
+            {phaseLabel}
+          </span>
+          {pending?.tool ? <span className="av-tag av-mono">{pending.tool}</span> : null}
+        </div>
+        {pending?.thinking ? (
+          <p className="av-thought__text">
+            {pending.thinking}
+            {!pending.explanation ? <span className="av-caret" aria-hidden /> : null}
+          </p>
+        ) : null}
+        {pending?.explanation ? (
+          <div className="av-runlog__said">
+            {pending.explanation}
+            <span className="av-caret" aria-hidden />
+          </div>
+        ) : null}
+        <div className="av-trace">
+          {(pending?.steps ?? []).map((s, i) => (
+            <span key={i} className="is-ok">
+              {STEP_LABEL[String(s.node)] ?? String(s.node)}
+            </span>
+          ))}
+          {!pending?.steps.some((s) => String(s.node) === phase) ? (
+            <span className="is-ok">{STEP_LABEL[phase] ?? phaseLabel}</span>
+          ) : null}
+        </div>
+      </article>
+    </>
   );
 }
 
@@ -142,12 +360,14 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
   const partiallyCompleted = !a.executed_at && queries.some((q) => q.status === "answered");
   const comparisonRanges = [...new Set(queries.filter((q) => q.period === intent.compare).map((q) => dateRange(q.range)))];
   const warning = a.evidence?.warning;
+  const { grounding } = parseAnswerEvidence(a);
+  const showModelNarrative = !!(a.explanation && a.explanation_source === "model");
   return (
     <article className={`av-answer${blocked ? " is-blocked" : ""}${active ? " is-active" : ""}`} onClick={onSelect}>
       <div className="av-answer__hd">
         <Status value={a.status} />
         {mv ? <span className="av-tag">{mv.metric_name} V{mv.version_no}</span> : null}
-        {a.cache_hit ? <span className="av-tag">{t("缓存")}</span> : null}
+        <AnswerEvidenceBadges a={a} />
         <BasisState a={a} />
         <span className="av-caption av-mono av-answer__duration">{a.duration_ms ? `${(a.duration_ms / 1000).toFixed(2)} s` : ""}</span>
       </div>
@@ -166,7 +386,8 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
       ) : <span className="av-answer__text">{a.status === "clarify" ? clarification?.question ?? a.message : a.message}</span>}
       <FilterAlignmentNote items={a.filter_alignment} />
       {result?.insights?.length && !single ? <Insights items={result.insights} /> : null}
-      {a.explanation && a.explanation_source === "model" ? <Narrative text={a.explanation} onPick={onPick} disabled={disabled} /> : null}
+      {showModelNarrative ? <Narrative text={a.explanation!} onPick={onPick} disabled={disabled} grounding={grounding} />
+        : grounding?.ok === false ? <GroundingWarning grounding={grounding} /> : null}
       {result?.rows && !single && result.rows.length ? (
         <ChartPanel charts={result.charts ?? []} title={a.message ?? a.question}>
           <ResultTable result={result} dimensions={intent.group_by ?? []} />
@@ -196,7 +417,11 @@ function AnswerCard({ a, active, onSelect, onPick, disabled }: {
         ))}
         {a.sql ? <span className={a.status === "error" && a.executed_at ? "is-blocked" : a.executed_at ? "is-ok" : ""}>{t("只读执行")}</span> : null}
       </div>
-      {a.status === "answered" && result?.rows?.length ? <DeepenButton a={a} result={result} dimensions={intent.group_by ?? []} /> : null}
+      <div className="av-actions av-answer__actions">
+        <AnswerFeedback answer={a} />
+        <SaveAsVqrButton answer={a} />
+        {a.status === "answered" && result?.rows?.length ? <DeepenButton a={a} result={result} dimensions={intent.group_by ?? []} /> : null}
+      </div>
       </div>
     </article>
   );
@@ -287,6 +512,7 @@ export function Evidence({ a }: { a: Answer }) {
   const queries = planQueries(a);
   const partiallyCompleted = !a.executed_at && queries.some((q) => q.status === "answered");
   const derived = (ev.derived as DerivedMetric[] | undefined) ?? [];
+  const { vqrRefs, semanticCache } = parseAnswerEvidence(a);
   return (
     <>
       <div className="av-inspector__hd">
@@ -350,8 +576,20 @@ export function Evidence({ a }: { a: Answer }) {
                 ))}
               </div>
             ) : null}
+            {vqrRefs.length ? (
+              <div className="av-evidence-section">
+                <span className="av-section-label">{t("参考标准查询")}</span>
+                <div className="av-evidence-tags">
+                  {vqrRefs.map((ref) => (
+                    <Link key={ref.id} to={`/catalog/queries?id=${encodeURIComponent(ref.id)}`} className="av-pill av-pill--info">
+                      <Icon name="check" small />{ref.title}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <dl className="av-kv">
-              <dt>{t("执行")}</dt><dd className="av-mono">{a.executed_at ? formatTime(a.executed_at, tz) : partiallyCompleted ? t("部分子查询已完成") : t("未执行")}{a.cache_hit ? t(" · 缓存") : ""}</dd>
+              <dt>{t("执行")}</dt><dd className="av-mono">{a.executed_at ? formatTime(a.executed_at, tz) : partiallyCompleted ? t("部分子查询已完成") : t("未执行")}{a.cache_hit ? (semanticCache?.hit ? t(" · 语义缓存") : t(" · 缓存")) : ""}</dd>
               <dt>{t("限制")}</dt><dd>{limits ? t("只读 · 超时 {{query_timeout_seconds}}s · ≤{{max_rows}} 行", { query_timeout_seconds: limits.query_timeout_seconds, max_rows: limits.max_rows }) : "—"}</dd>
               <dt>{t("元数据")}</dt><dd className="av-mono">{fresh?.last_collected_at ? formatTime(fresh.last_collected_at, tz) : "—"}</dd>
               <dt>{t("数据")}</dt><dd className="av-mono">{Object.entries(fresh?.tables ?? {}).map(([t, v]) => `${t} ${v ?? ""}`).join(" · ") || "—"}</dd>

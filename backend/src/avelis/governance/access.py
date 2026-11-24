@@ -88,11 +88,40 @@ def can_see_object(
 ) -> bool:
     """列表、详情、工作台、审计共用的对象可见性：资产按业务域（含未归属策略）；指标按所属业务域；
     关联路径要两侧资产都可见；答案只给提问人；用户只能看自己。管理员可见全部。"""
-    from avelis.models import Answer, Asset, Experience, JoinPath, Metric, MetricVersion
+    from avelis.models import Answer, Asset, Experience, JoinPath, Metric, MetricVersion, VerifiedQuery
 
     if object_type == "experience":
         experience = session.get(Experience, object_id)
-        return experience is not None and experience.owner_id == user.id and experience.scope == "personal"
+        if experience is None:
+            return False
+        if experience.scope == "personal":
+            return experience.owner_id == user.id
+        if experience.scope == "domain":
+            if experience.owner_id == user.id or is_admin(session, user):
+                return True
+            allowed = domain_ids(session, user) if allowed is None else allowed
+            if not experience.domain_id or experience.domain_id not in allowed:
+                return False
+            return experience.review_status == "approved" or domain_role(session, user, experience.domain_id) in (
+                "owner",
+                "maintainer",
+            )
+        return False
+    if object_type == "verified_query":
+        vq = session.get(VerifiedQuery, object_id)
+        if vq is None:
+            return False
+        if is_admin(session, user):
+            return True
+        allowed = domain_ids(session, user) if allowed is None else allowed
+        if vq.domain_id not in allowed:
+            return False
+        if vq.status == "approved" or vq.created_by == user.id:
+            return True
+        return "reviewer" in roles_of(session, user) or domain_role(session, user, vq.domain_id) in (
+            "owner",
+            "maintainer",
+        )
     if is_admin(session, user):
         return True
     allowed = domain_ids(session, user) if allowed is None else allowed

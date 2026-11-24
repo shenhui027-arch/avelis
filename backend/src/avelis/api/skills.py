@@ -2,24 +2,33 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import threading
+import time
+from collections import OrderedDict
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRoute
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from avelis import cache
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.config import get_settings
 from avelis.governance.errors import Invalid
-from avelis.i18n import Msg
+from avelis.i18n import Msg, translate
 from avelis.models import User
 from avelis.skills import service
+
+log = logging.getLogger(__name__)
 
 
 class _SkillRoute(APIRoute):
@@ -61,6 +70,91 @@ router = APIRouter(
 
 
 _MULTIPART_OVERHEAD = 64 * 1024
+_RATE_WINDOW_SECONDS = 60
+_LOCAL_RATE_LIMITS: OrderedDict[str, tuple[int, float]] = OrderedDict()
+_LOCAL_RATE_LIMITS_LOCK = threading.Lock()
+_LOCAL_RATE_LIMITS_MAX = 4096
+
+
+def _clear_local_rate_limits() -> None:
+    with _LOCAL_RATE_LIMITS_LOCK:
+        _LOCAL_RATE_LIMITS.clear()
+
+
+def _skill_rpm(env_key: str, default: int) -> int:
+    raw = get_settings().env.get(env_key)
+    if raw is None:
+        raw = os.environ.get(env_key)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return default
+    return max(value, 0)
+
+
+def _fixed_window_incr(key: str) -> tuple[int, int]:
+    now = time.time()
+    bucket = int(now) // _RATE_WINDOW_SECONDS
+    retry_after = max(_RATE_WINDOW_SECONDS - int(now) % _RATE_WINDOW_SECONDS, 1)
+    redis_key = f"avelis:skills-limit:{key}:{bucket}"
+    try:
+        with cache.client().pipeline(transaction=True) as pipe:
+            pipe.incr(redis_key)
+            pipe.expire(redis_key, _RATE_WINDOW_SECONDS + 1, nx=True)
+            count, _ = pipe.execute()
+        return int(count), retry_after
+    except RedisError:
+        log.warning("Redis 不可用，技能接口限流降级为进程内计数器", exc_info=True)
+    mono_now = time.monotonic()
+    deadline = mono_now + retry_after
+    with _LOCAL_RATE_LIMITS_LOCK:
+        expired = [k for k, (_, exp) in _LOCAL_RATE_LIMITS.items() if exp <= mono_now]
+        for k in expired:
+            _LOCAL_RATE_LIMITS.pop(k, None)
+        entry = _LOCAL_RATE_LIMITS.get(redis_key)
+        if entry is None or entry[1] <= mono_now:
+            count = 1
+            _LOCAL_RATE_LIMITS[redis_key] = (count, deadline)
+        else:
+            count = entry[0] + 1
+            _LOCAL_RATE_LIMITS[redis_key] = (count, entry[1])
+            _LOCAL_RATE_LIMITS.move_to_end(redis_key)
+        while len(_LOCAL_RATE_LIMITS) > _LOCAL_RATE_LIMITS_MAX:
+            _LOCAL_RATE_LIMITS.popitem(last=False)
+    return count, retry_after
+
+
+def _rate_limited(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        headers={"Retry-After": str(retry_after)},
+        detail={
+            "code": "skills_rate_limited",
+            "detail": translate(Msg("操作过于频繁，请 {seconds} 秒后再试", seconds=retry_after)),
+            "retry_after": int(retry_after),
+        },
+    )
+
+
+def _enforce_rate_limit(request: Request, user: User, action: str) -> None:
+    if action == "validate":
+        user_limit = _skill_rpm("AVELIS_SKILLS_VALIDATE_RPM", 30)
+        ip_floor = 60
+    else:
+        user_limit = _skill_rpm("AVELIS_SKILLS_UPLOAD_RPM", 10)
+        ip_floor = 30
+    if user_limit <= 0:
+        return
+    count, retry_after = _fixed_window_incr(f"{action}:user:{user.id}")
+    if count > user_limit:
+        raise _rate_limited(retry_after)
+    ip_limit = max(user_limit * 3, ip_floor)
+    client_ip = request.client.host if request.client else "-"
+    ip_count, ip_retry_after = _fixed_window_incr(f"{action}:ip:{client_ip}")
+    if ip_count > ip_limit:
+        raise _rate_limited(ip_retry_after)
 
 
 def _multipart_schema(**properties) -> dict:
@@ -179,6 +273,7 @@ def download(
 async def validate(
     request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
+    await run_in_threadpool(_enforce_rate_limit, request, user, "validate")
     data, _, _ = await _read_upload(request)
     return await run_in_threadpool(service.validate, session, user, data)
 
@@ -193,6 +288,7 @@ async def validate(
     ),
 )
 async def upload(request: Request, user: User = Depends(current_user), session: Session = Depends(get_session)) -> dict:
+    await run_in_threadpool(_enforce_rate_limit, request, user, "upload")
     data, mode, note = await _read_upload(request)
     return await run_in_threadpool(_commit_upload, session, user, data, mode, note)
 

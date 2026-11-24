@@ -1,18 +1,25 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { api, logout, unwrap } from "../api/client";
 import { useAnalysisTasks, useAppSettings, useDatasources } from "../api/hooks";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Icon } from "../components/Icon";
 import { Logo, LogoMark } from "../components/Logo";
+import { useOverlay, usePopover } from "../components/overlay";
+import { isImeComposing } from "../components/shortcuts";
 import { RecentConversations } from "./Conversations";
-import { Plat } from "../components/ui";
+import { Plat, Skeleton } from "../components/ui";
 import { formatTime } from "../format";
 import { t } from "../i18n";
 import { LanguageMenuGroup } from "../i18n/LanguageMenu";
 import { setThemePref, useThemePref, type ThemePref } from "../theme";
+
+const CommandPalette = lazy(() =>
+  import("../components/CommandPalette").then((m) => ({ default: m.CommandPalette })),
+);
 
 // 侧边栏：品牌、数据源、新问题、主导航、我的（经验与定时任务）、最近对话，底部是设置、通知与用户菜单。
 // 收起后只留图标（72px），偏好存在本机浏览器。
@@ -27,7 +34,7 @@ const NAV: { to: string; label: string; icon: string; mod: string; end?: boolean
 ];
 
 export function useMe() {
-  return useQuery({ queryKey: ["me"], queryFn: () => unwrap(api.GET("/api/me")), retry: false });
+  return useQuery({ queryKey: ["me"], queryFn: ({ signal }) => unwrap(api.GET("/api/me", { signal })), retry: false });
 }
 
 export function useRoles(): Set<string> {
@@ -60,41 +67,25 @@ function NavPill({ active }: { active: boolean }) {
 const ROLE_LABEL: Record<string, string> = { admin: t("管理员"), steward: t("维护者"), reviewer: t("复核者"), analyst: t("查询者") };
 const THEMES: [ThemePref, string][] = [["system", t("跟随系统")], ["dark", t("深色")], ["light", t("浅色")]];
 
-/** 点外部或按 Esc 关闭的弹出菜单。 */
-function usePopover() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", close);
-    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", close); };
-  }, [open]);
-  return { open, setOpen, ref };
-}
-
 function UserMenu() {
   const me = useMe();
   const tz = useAppSettings().data?.business_timezone;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const theme = useThemePref();
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, triggerRef, menuRef, onTriggerKeyDown, onMenuKeyDown } = usePopover();
   if (!me.data) return null;
   const u = me.data;
   return (
     <div className="av-usermenu av-sb__user" ref={ref}>
-      <button type="button" className="av-sb__me" aria-haspopup="menu" aria-expanded={open} title={u.display_name}
-        onClick={() => setOpen(!open)}>
+      <button ref={triggerRef} type="button" className="av-sb__me" aria-haspopup="menu" aria-expanded={open} title={u.display_name}
+        onClick={() => setOpen(!open)} onKeyDown={onTriggerKeyDown}>
         <span className="av-avatar">{u.display_name.slice(0, 1)}</span>
         <span className="av-sb__label av-sb__who"><b>{u.display_name}</b>
           <span>{u.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}</span></span>
       </button>
       <AnimatePresence>{open ? (
-        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
+        <motion.div ref={menuRef} className="av-menu av-menu--up" role="menu" tabIndex={-1} onKeyDown={onMenuKeyDown} data-motion {...MENU_MOTION}>
           <div className="av-menu__head">
             <b>{u.display_name}</b>
             <span className="av-mono">{u.username}</span>
@@ -119,11 +110,14 @@ function UserMenu() {
           </button>
           <button type="button" role="menuitem" className="av-menu__item"
             onClick={async () => {
-              await logout();
-              // 先取消进行中的查询再清缓存：下一个登录的账号不会看到上一个账号的数据
-              await queryClient.cancelQueries();
-              queryClient.clear();
-              navigate("/login", { replace: true });
+              try {
+                await logout();
+              } finally {
+                // 先取消进行中的查询再清缓存：下一个登录的账号不会看到上一个账号的数据
+                await queryClient.cancelQueries();
+                queryClient.clear();
+                navigate("/login", { replace: true });
+              }
             }}>
             <Icon name="logout" />{t("退出登录")}
           </button>
@@ -138,20 +132,20 @@ function NotificationBell() {
   const me = useMe();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { open, setOpen, ref } = usePopover();
-  const list = useQuery({ queryKey: ["notifications"], queryFn: () => unwrap(api.GET("/api/notifications")),
+  const { open, setOpen, ref, triggerRef, menuRef, onTriggerKeyDown, onMenuKeyDown } = usePopover();
+  const list = useQuery({ queryKey: ["notifications"], queryFn: ({ signal }) => unwrap(api.GET("/api/notifications", { signal })),
     enabled: !!me.data, refetchInterval: 60_000 });
   const items = list.data ?? [];
   const unread = items.filter((n) => !n.read_at).length;
   return (
     <div className="av-usermenu av-notices" ref={ref}>
-      <button type="button" className="av-sb__icon" aria-haspopup="menu" aria-expanded={open}
-        aria-label={unread ? t("通知（{{count}} 条未读）", { count: unread }) : t("通知")} onClick={() => setOpen(!open)}>
+      <button ref={triggerRef} type="button" className="av-sb__icon" aria-haspopup="menu" aria-expanded={open}
+        aria-label={unread ? t("通知（{{count}} 条未读）", { count: unread }) : t("通知")} onClick={() => setOpen(!open)} onKeyDown={onTriggerKeyDown}>
         <Icon name="bell" />
         {unread ? <span className="av-notices__count">{unread > 99 ? "99+" : unread}</span> : null}
       </button>
       <AnimatePresence>{open ? (
-        <motion.div className="av-menu av-menu--up" role="menu" data-motion {...MENU_MOTION}>
+        <motion.div ref={menuRef} className="av-menu av-menu--up" role="menu" tabIndex={-1} onKeyDown={onMenuKeyDown} data-motion {...MENU_MOTION}>
           {items.length === 0 ? <div className="av-menu__head">{t("没有通知")}</div> : null}
           {items.slice(0, Math.max(30, unread)).map((n) => ( // 后端未读优先：未读的都能看到
             <button key={n.id} type="button" role="menuitem" className="av-menu__item av-notice"
@@ -211,7 +205,7 @@ function useCollapsed() {
   return [compact || collapsed, setCollapsed, compact] as const;
 }
 
-function Sidebar() {
+function Sidebar({ onOpenCommand }: { onOpenCommand: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const sources = useDatasources();
@@ -221,14 +215,23 @@ function Sidebar() {
   const [overlay, setOverlay] = useState(false);
   const collapsed = compact ? !overlay : wideCollapsed;
   useEffect(() => { setOverlay(false); }, [location.pathname, compact]);
-  useEffect(() => {
-    if (!overlay) return;
-    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") setOverlay(false); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [overlay]);
-  const primary = sources.data?.find((d) => d.engine.capabilities.includes("query")) ?? sources.data?.[0];
-  const ok = primary?.last_run ? primary.last_run.status === "succeeded" : null;
+  useOverlay(compact && overlay, () => setOverlay(false));
+  const allSources = sources.data ?? [];
+  const failedSources = allSources.filter((d) => d.last_run?.status === "failed");
+  const primary = failedSources[0] ?? allSources.find((d) => d.engine.capabilities.includes("query")) ?? allSources[0];
+  const ok = failedSources.length > 0 ? false : (primary?.last_run ? primary.last_run.status === "succeeded" : null);
+  const wsTitle = failedSources.length > 0
+    ? t("采集失败：{{names}}", { names: failedSources.map((d) => d.name).join("、") })
+    : t("数据源与最近一次采集");
+  const wsSummary = failedSources.length > 1
+    ? t("{{count}} 个数据源异常", { count: failedSources.length })
+    : failedSources.length === 1
+      ? t("采集失败")
+      : ok === null
+        ? t("尚未采集")
+        : allSources.length > 1
+          ? t("{{count}} 个数据源正常", { count: allSources.length })
+          : t("采集正常");
   const toggle = () => {
     if (compact) { setOverlay(!overlay); return; }
     setCollapsed(!collapsed);
@@ -250,15 +253,20 @@ function Sidebar() {
         </button>
       </div>
       {primary ? (
-        <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title={t("数据源与最近一次采集")}>
+        <Link className="av-sb__ws" to={`/settings/datasources/${primary.id}`} title={wsTitle}>
           <Plat kind={primary.kind} />
           <span className="av-sb__label">{primary.name}
             <small><span className={`av-dot${ok === null ? "" : ok ? " av-dot--ok" : " av-dot--danger"}`} />
-              {ok === null ? t("尚未采集") : ok ? t("采集正常") : t("采集失败")}</small></span>
+              {wsSummary}</small></span>
         </Link>
       ) : null}
       <button type="button" className="av-sb__new" onClick={() => navigate("/analysis")} title={t("新建提问")}>
         <Icon name="plus" /><span className="av-sb__label">{t("新建提问")}</span>
+      </button>
+      <button type="button" className="av-sb__cmd" onClick={onOpenCommand} title={t("命令面板")}>
+        <Icon name="search" small />
+        <span className="av-sb__label">{t("快速跳转")}</span>
+        <kbd className="av-kbd av-sb__label">⌘K</kbd>
       </button>
       {NAV.map((n) => n.to === "/analysis" ? (
         // 问数下的经验与定时任务归“我的”，这里只在对话相关页面高亮
@@ -293,22 +301,80 @@ function Sidebar() {
   );
 }
 
+function routeTitle(pathname: string, search: string): string {
+  if (pathname === "/") return t("工作台");
+  if (pathname.startsWith("/lineage/import")) return t("导入血缘");
+  if (pathname.startsWith("/lineage")) return t("血缘图");
+  if (pathname.startsWith("/catalog/metrics")) return t("指标口径");
+  if (pathname.startsWith("/catalog/assets")) return t("数据资产");
+  if (pathname.startsWith("/catalog/domains")) return t("业务域");
+  if (pathname.startsWith("/catalog/joins")) return t("关联路径");
+  if (pathname.startsWith("/catalog/queries")) return t("标准查询");
+  if (pathname.startsWith("/catalog")) return t("目录");
+  if (pathname.startsWith("/changes")) {
+    return new URLSearchParams(search).get("view") === "records" ? t("变更记录") : t("变更集");
+  }
+  if (pathname.startsWith("/skills/mine")) return t("我的技能");
+  if (pathname.startsWith("/skills/review")) return t("技能审核");
+  if (pathname.startsWith("/skills")) return t("技能市场");
+  if (pathname.startsWith("/analysis/experiences")) return t("个人经验");
+  if (pathname.startsWith("/analysis/tasks")) return t("定时任务");
+  if (pathname.startsWith("/analysis/archived")) return t("已归档对话");
+  if (pathname.startsWith("/analysis") || pathname.startsWith("/ask")) return t("问数与分析");
+  if (pathname.startsWith("/settings/datasources")) return t("数据源");
+  if (pathname.startsWith("/settings/models")) return t("模型配置");
+  if (pathname.startsWith("/settings/users")) return t("用户");
+  if (pathname.startsWith("/settings/calendar")) return t("业务日历");
+  if (pathname.startsWith("/settings/webhooks")) return t("通知订阅");
+  if (pathname.startsWith("/settings/mcp")) return t("MCP 接入");
+  if (pathname.startsWith("/settings/auth")) return t("认证与品牌");
+  if (pathname.startsWith("/account/security")) return t("账号安全");
+  return "Avelis";
+}
+
 export function Shell() {
   const location = useLocation();
   const me = useMe();
+  const roles = useRoles();
+  const [cmdOpen, setCmdOpen] = useState(false);
+
+  useEffect(() => {
+    const title = routeTitle(location.pathname, location.search);
+    document.title = title === "Avelis" ? "Avelis" : `${title} · Avelis`;
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (isImeComposing(e)) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (me.isPending) return null;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   // 首次登录或密码被重置：先设置新密码
   if (me.data.must_change_password) return <Navigate to="/account/password" replace state={{ from: location.pathname }} />;
   return (
     <div className="av-root av-app">
-      <Sidebar />
-      <main className="av-main">
-        <motion.div key={location.pathname.split("/")[1] || "home"} className="av-route"
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <Outlet />
-        </motion.div>
+      <a href="#av-main" className="av-skip">{t("跳到主要内容")}</a>
+      <Sidebar onOpenCommand={() => setCmdOpen(true)} />
+      <main id="av-main" tabIndex={-1} className="av-main">
+        <div className="av-route">
+          <ErrorBoundary resetKey={location.pathname + location.search} label={t("页面渲染异常")}>
+            <Suspense fallback={<div className="av-page"><Skeleton rows={4} /></div>}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
       </main>
+      <Suspense fallback={null}>
+        {cmdOpen ? <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} roles={roles} /> : null}
+      </Suspense>
     </div>
   );
 }

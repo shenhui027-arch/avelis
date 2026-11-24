@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -26,6 +27,46 @@ FLUSH_SECONDS = 0.5
 MAX_CHARS = 32_000  # 实时显示只保留末尾这么多字；完整文字在步骤记录里
 BACKOFF_SECONDS = 30  # Redis 出错后本进程暂停写入实时过程的时长
 _unavailable_until = 0.0
+
+_WAITERS_LOCK = threading.Lock()
+_WAITERS: dict[str, tuple[threading.Condition, int]] = {}
+
+
+def notify(run_id: str) -> None:
+    """唤醒同进程内订阅该运行 SSE 的连接。"""
+    with _WAITERS_LOCK:
+        entry = _WAITERS.get(run_id)
+        if entry is None:
+            return
+        cond, gen = entry
+        _WAITERS[run_id] = (cond, gen + 1)
+    with cond:
+        cond.notify_all()
+
+
+def generation(run_id: str) -> int:
+    with _WAITERS_LOCK:
+        entry = _WAITERS.get(run_id)
+        return entry[1] if entry is not None else 0
+
+
+def wait_for_update(run_id: str, known_gen: int, timeout: float = 0.3) -> int:
+    with _WAITERS_LOCK:
+        entry = _WAITERS.get(run_id)
+        if entry is None:
+            entry = (threading.Condition(), 0)
+            _WAITERS[run_id] = entry
+        cond, gen = entry
+    if gen != known_gen:
+        return gen
+    with cond:
+        cond.wait(timeout=max(timeout, 0.01))
+    return generation(run_id)
+
+
+def release_waiter(run_id: str) -> None:
+    with _WAITERS_LOCK:
+        _WAITERS.pop(run_id, None)
 
 
 def _key(run_id: str) -> str:
@@ -47,6 +88,7 @@ class LiveSink:
         self.disabled = False
         self._state: dict[str, Any] | None = None
         self._flushed = 0.0
+        self._lock = threading.Lock()
 
     def _redis(self):
         if self._client is None:
@@ -67,39 +109,44 @@ class LiveSink:
             _unavailable_until = time.monotonic() + BACKOFF_SECONDS
             log.warning("分析 %s 的实时过程写入失败，本次运行不再写入：%s", self.run_id, type(exc).__name__)
         self._flushed = time.monotonic()
+        notify(self.run_id)
 
     def model_started(self, after_seq: int) -> None:
-        self._state = {
-            "phase": "model",
-            "after_seq": after_seq,
-            "started_at": utcnow().isoformat(),
-            "thinking": "",
-            "text": "",
-        }
-        self._write(self._state)
+        with self._lock:
+            self._state = {
+                "phase": "model",
+                "after_seq": after_seq,
+                "started_at": utcnow().isoformat(),
+                "thinking": "",
+                "text": "",
+            }
+            self._write(self._state)
 
     def model_delta(self, thinking: str, text: str, *, force: bool = False) -> None:
         """累计到目前为止的推理文字与正文；按节流间隔写入。"""
-        if self._state is None or self._state.get("phase") != "model":
-            return
-        self._state["thinking"] = thinking[-MAX_CHARS:]
-        self._state["text"] = text[-MAX_CHARS:]
-        if force or time.monotonic() - self._flushed >= FLUSH_SECONDS:
-            self._write(self._state)
+        with self._lock:
+            if self._state is None or self._state.get("phase") != "model":
+                return
+            self._state["thinking"] = thinking[-MAX_CHARS:]
+            self._state["text"] = text[-MAX_CHARS:]
+            if force or time.monotonic() - self._flushed >= FLUSH_SECONDS:
+                self._write(self._state)
 
     def tool_started(self, after_seq: int, name: str, args: Any) -> None:
-        self._state = {
-            "phase": "tool",
-            "after_seq": after_seq,
-            "started_at": utcnow().isoformat(),
-            "tool": name,
-            "args": args if isinstance(args, dict) else {},
-        }
-        self._write(self._state)
+        with self._lock:
+            self._state = {
+                "phase": "tool",
+                "after_seq": after_seq,
+                "started_at": utcnow().isoformat(),
+                "tool": name,
+                "args": args if isinstance(args, dict) else {},
+            }
+            self._write(self._state)
 
     def clear(self) -> None:
-        self._state = None
-        self._write(None)
+        with self._lock:
+            self._state = None
+            self._write(None)
 
 
 def read(run_id: str) -> dict[str, Any] | None:

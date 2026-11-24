@@ -11,10 +11,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
+import { ErrorBoundary } from "../../components/ErrorBoundary";
 import {
-  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, Switch, statusOf, shortName,
+  Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, SWATCHES, Switch, statusOf, shortName,
 } from "../../components/ui";
-import { SWATCHES } from "../catalog/CatalogPage";
+import { useOverlay } from "../../components/overlay";
 import { t } from "../../i18n";
 
 type GNode = Graph["nodes"][number];
@@ -101,7 +102,15 @@ function AssetNode({ data }: NodeProps<Node<AssetData>>) {
 
 // 流动连线：数据沿边从上游流向下游。选中列的路径用渐变亮线和较快的光点，其余边变暗；
 // 边不多时其余边也有慢而淡的光点。系统设置“减少动态效果”时光点隐藏（见 pages.css）。
-type FlowData = { tone: "value" | "influence" | "identity" | "join"; design: boolean; onPath: boolean; dim: boolean; ambient: boolean };
+type FlowData = {
+  tone: "value" | "influence" | "identity" | "join";
+  design: boolean;
+  onPath: boolean;
+  dim: boolean;
+  ambient: boolean;
+  labelDx?: number;
+  labelDy?: number;
+};
 
 function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, label, labelStyle,
   labelBgStyle }: EdgeProps<Edge<FlowData>>) {
@@ -111,7 +120,8 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   return (
     <>
       {d.onPath ? <path d={path} className="av-flow__glow" /> : null}
-      <BaseEdge id={id} path={path} label={label} labelX={labelX} labelY={labelY} labelStyle={labelStyle} labelBgStyle={labelBgStyle}
+      <BaseEdge id={id} path={path} label={label} labelX={labelX + (d.labelDx ?? 0)} labelY={labelY + (d.labelDy ?? 0)}
+        labelStyle={labelStyle} labelBgStyle={labelBgStyle} labelBgPadding={[6, 3]} labelBgBorderRadius={4}
         className={`av-flow av-flow--${d.tone}${d.design ? " is-design" : ""}${d.onPath ? " is-path" : ""}${d.dim ? " is-dim" : ""}`}
         />
       {dots.length ? <g className={`av-flow__dots${d.onPath ? " is-path" : ""}`}>
@@ -148,25 +158,22 @@ function Canvas() {
   const [domainOpen, setDomainOpen] = useState(false);
   const domainFilterRef = useRef<HTMLDivElement>(null);
   const domainTriggerRef = useRef<HTMLButtonElement>(null);
-  // 业务域筛选弹层：点击外部（含画布捕获阶段）或按 Esc 自动收起
+  // 业务域筛选弹层：点击外部（含画布捕获阶段）或按 Esc（走统一浮层栈）自动收起
+  useOverlay(domainOpen, () => {
+    const hadFocus = domainFilterRef.current?.contains(document.activeElement);
+    setDomainOpen(false);
+    if (hadFocus) domainTriggerRef.current?.focus();
+  });
   useEffect(() => {
     if (!domainOpen) return;
     const onOutside = (e: Event) => {
       if (!domainFilterRef.current?.contains(e.target as globalThis.Node)) setDomainOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const hadFocus = domainFilterRef.current?.contains(document.activeElement);
-      setDomainOpen(false);
-      if (hadFocus) domainTriggerRef.current?.focus();
-    };
     window.addEventListener("pointerdown", onOutside, true);
     window.addEventListener("mousedown", onOutside, true);
-    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("pointerdown", onOutside, true);
       window.removeEventListener("mousedown", onOutside, true);
-      window.removeEventListener("keydown", onKey);
     };
   }, [domainOpen]);
   const [inspectorWidth, setInspectorWidth] = useState(readInspectorWidth);
@@ -270,31 +277,77 @@ function Canvas() {
     return { cols, edgeKeys };
   }, [column, selected, graph.data]);
 
-  const { nodes, edges } = useMemo(() => {
-    if (!graph.data) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
+  // dagre.layout 几何位置只依赖图结构、节点密度与宽度，不随选中列、悬停路径或关联路径显隐重算
+  const layoutData = useMemo(() => {
+    if (!graph.data) return null;
     const g = graph.data;
     const columnsByNode = graphColumns(g);
     const linkOf = new Map(g.identity_links.filter((l) => l.target).map((l) => [l.source, l]));
     const layout = new dagre.graphlib.Graph();
     layout.setGraph({ rankdir: "LR", nodesep: density === "overview" ? 16 : 28, ranksep: 96, marginx: 40, marginy: 40 });
     layout.setDefaultEdgeLabel(() => ({}));
-    const built: Node<AssetData>[] = g.nodes.map((n) => {
+    const heights = new Map<string, number>();
+    const links = new Map<string, { status: string; target: string } | null>();
+    for (const n of g.nodes) {
       const cols = columnsByNode.get(n.id) ?? [];
       const l = linkOf.get(n.qualified);
       const link = l ? { status: l.status, target: shortName(l.target?.qualified) } : null;
+      links.set(n.id, link);
       const height = nodeHeight(cols.length, !!link, n.grains.length > 0, density);
+      heights.set(n.id, height);
       layout.setNode(n.id, { width: nodeWidth, height });
-      return {
-        id: n.id, type: "asset", position: { x: 0, y: 0 }, width: nodeWidth, height,
-        data: {
-          node: n, columns: cols, link, selected: n.id === selected, density,
-          domainSwatch: n.domain_id ? swatchOf.get(n.domain_id) ?? null : null,
-          pathCols: new Set([...path.cols].filter((k) => k.startsWith(`${n.id}::`)).map((k) => k.split("::")[1])),
-          onColumn: (col: string) => { setSelected(n.id); setColumn(`${n.id}::${col}`); },
-          onAllColumns: () => { setSelected(n.id); setColumn(null); setShowColumns(true); },
-        },
-      };
+    }
+    const linked = new Set<string>();
+    for (const e of g.edges) {
+      layout.setEdge(e.source, e.target);
+      linked.add(e.source);
+      linked.add(e.target);
+    }
+    const idNodes = new Set(g.nodes.map((n) => n.id));
+    const qualifiedNode = new Map(g.nodes.map((n) => [n.qualified, n]));
+    for (const l of g.identity_links) {
+      const src = qualifiedNode.get(l.source);
+      if (!src || !l.target || !idNodes.has(l.target.id)) continue;
+      layout.setEdge(l.target.id, src.id);
+      linked.add(l.target.id);
+      linked.add(src.id);
+    }
+    // 没有任何连线的表不参与分层，排成网格放在血缘图下方，避免把第一列拉成一长条
+    const lonely = g.nodes.filter((n) => !linked.has(n.id));
+    lonely.forEach((n) => layout.removeNode(n.id));
+    dagre.layout(layout);
+    const positions = new Map<string, { x: number; y: number }>();
+    let bottom = 0;
+    for (const n of g.nodes) {
+      if (!linked.has(n.id)) continue;
+      const p = layout.node(n.id);
+      const h = heights.get(n.id) ?? 0;
+      const pos = { x: p.x - nodeWidth / 2, y: p.y - h / 2 };
+      positions.set(n.id, pos);
+      bottom = Math.max(bottom, pos.y + h);
+    }
+    const perRow = 6;
+    const rowHeight = Math.max(0, ...lonely.map((n) => heights.get(n.id) ?? 0)) + 16;
+    lonely.forEach((n, i) => {
+      positions.set(n.id, { x: 40 + (i % perRow) * (nodeWidth + 24), y: (linked.size ? bottom + 96 : 40) + Math.floor(i / perRow) * rowHeight });
     });
+    return { columnsByNode, links, heights, positions, qualifiedNode, idNodes };
+  }, [graph.data, density, nodeWidth]);
+
+  const { nodes, edges } = useMemo(() => {
+    if (!graph.data || !layoutData) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
+    const g = graph.data;
+    const { columnsByNode, links, heights, positions, qualifiedNode, idNodes } = layoutData;
+    const built: Node<AssetData>[] = g.nodes.map((n) => ({
+      id: n.id, type: "asset", position: positions.get(n.id) ?? { x: 0, y: 0 }, width: nodeWidth, height: heights.get(n.id),
+      data: {
+        node: n, columns: columnsByNode.get(n.id) ?? [], link: links.get(n.id) ?? null, selected: n.id === selected, density,
+        domainSwatch: n.domain_id ? swatchOf.get(n.domain_id) ?? null : null,
+        pathCols: new Set([...path.cols].filter((k) => k.startsWith(`${n.id}::`)).map((k) => k.split("::")[1])),
+        onColumn: (col: string) => { setSelected(n.id); setColumn(`${n.id}::${col}`); },
+        onAllColumns: () => { setSelected(n.id); setColumn(null); setShowColumns(true); },
+      },
+    }));
     const builtEdges: Edge<FlowData>[] = [];
     const hasPath = path.edgeKeys.size > 0;
     const ambient = g.edges.length <= AMBIENT_LIMIT;
@@ -303,7 +356,6 @@ function Canvas() {
       const designTime = e.origins.every((o) => o !== "parsed" && o !== "manual");
       const key = `${e.source}->${e.target}`;
       const onPath = path.edgeKeys.has(key);
-      layout.setEdge(e.source, e.target);
       builtEdges.push({
         id: key, source: e.source, target: e.target, type: "flow",
         label: !value && e.relations.includes("join_key") ? t("关联") : undefined,
@@ -313,9 +365,8 @@ function Canvas() {
       });
     }
     for (const l of g.identity_links) {
-      const src = g.nodes.find((n) => n.qualified === l.source);
-      if (!src || !l.target || !g.nodes.some((n) => n.id === l.target!.id)) continue;
-      layout.setEdge(l.target.id, src.id);
+      const src = qualifiedNode.get(l.source);
+      if (!src || !l.target || !idNodes.has(l.target.id)) continue;
       const onPath = path.edgeKeys.has(`id:${l.id}`);
       builtEdges.push({
         id: `id:${l.id}`, source: l.target.id, target: src.id, type: "flow", label: t("同一张表"),
@@ -325,9 +376,8 @@ function Canvas() {
     }
     // 治理里的关联路径：画成独立的虚线，不参与布局（不改变血缘的上下游位置）；待审核的更淡
     if (showJoins) {
-      const present = new Set(g.nodes.map((n) => n.id));
       for (const j of g.joins ?? []) {
-        if (!present.has(j.left_asset_id) || !present.has(j.right_asset_id)) continue;
+        if (!idNodes.has(j.left_asset_id) || !idNodes.has(j.right_asset_id)) continue;
         const touches = selected === j.left_asset_id || selected === j.right_asset_id;
         builtEdges.push({
           id: `join:${j.id}`, source: j.left_asset_id, target: j.right_asset_id, type: "flow",
@@ -338,25 +388,28 @@ function Canvas() {
         });
       }
     }
-    // 没有任何连线的表不参与分层，排成网格放在血缘图下方，避免把第一列拉成一长条
-    const linked = new Set(builtEdges.filter((e) => !e.id.startsWith("join:")).flatMap((e) => [e.source, e.target]));
-    const lonely = built.filter((n) => !linked.has(n.id));
-    lonely.forEach((n) => layout.removeNode(n.id));
-    dagre.layout(layout);
-    let bottom = 0;
-    for (const n of built) {
-      if (!linked.has(n.id)) continue;
-      const p = layout.node(n.id);
-      n.position = { x: p.x - nodeWidth / 2, y: p.y - (n.height ?? 0) / 2 };
-      bottom = Math.max(bottom, n.position.y + (n.height ?? 0));
+    const placed: { x: number; y: number }[] = [];
+    for (const edge of builtEdges) {
+      if (!edge.label || !edge.data) continue;
+      const sp = positions.get(edge.source);
+      const tp = positions.get(edge.target);
+      if (!sp || !tp) continue;
+      const sh = heights.get(edge.source) ?? 80;
+      const th = heights.get(edge.target) ?? 80;
+      const mx = (sp.x + tp.x + nodeWidth) / 2;
+      const my = (sp.y + sh / 2 + tp.y + th / 2) / 2;
+      let chosenDy = 0;
+      for (const cand of [0, -22, 22, -44, 44, -66, 66, -88, 88]) {
+        if (placed.every((p) => Math.abs(p.x - mx) >= 110 || Math.abs(p.y - (my + cand)) >= 22)) {
+          chosenDy = cand;
+          break;
+        }
+      }
+      edge.data.labelDy = chosenDy;
+      placed.push({ x: mx, y: my + chosenDy });
     }
-    const perRow = 6;
-    const rowHeight = Math.max(0, ...lonely.map((n) => n.height ?? 0)) + 16;
-    lonely.forEach((n, i) => {
-      n.position = { x: 40 + (i % perRow) * (nodeWidth + 24), y: (linked.size ? bottom + 96 : 40) + Math.floor(i / perRow) * rowHeight };
-    });
     return { nodes: built, edges: builtEdges };
-  }, [graph.data, selected, path, swatchOf, density, nodeWidth, showJoins]);
+  }, [layoutData, graph.data, selected, path, swatchOf, density, nodeWidth, showJoins]);
 
   const clearFilters = () => { setParams(new URLSearchParams()); setSelected(null); setColumn(null); setShowColumns(false); };
   const toggleDomain = (id: string) => {
@@ -428,10 +481,14 @@ function Canvas() {
           <QueryState query={graph} isEmpty={(data) => !data.nodes.length}
             emptyText={domainIds.length || focusAsset ? t("没有匹配的血缘") : t("暂无血缘")}
             emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>{t("清除筛选")}</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">{t("导入血缘")}</Link>}>
-            {() => <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} minZoom={0.1} maxZoom={1.6}
-              proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
-              onNodeClick={(_, node) => pick(node.id)}
-              onPaneClick={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />}
+            {() => (
+              <ErrorBoundary compact label={t("血缘画布渲染异常")}>
+                <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} minZoom={0.1} maxZoom={1.6}
+                  proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
+                  onNodeClick={(_, node) => pick(node.id)}
+                  onPaneClick={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />
+              </ErrorBoundary>
+            )}
           </QueryState>
           {graph.isSuccess && graph.data.nodes.length ? <>
             <details className="av-float av-disclosure av-lineage__legend">
@@ -446,11 +503,15 @@ function Canvas() {
               </div>
             </details>
             <div className="av-float av-lineage__zoom" role="group" aria-label={t("画布缩放")}>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("缩小")} onClick={() => flow.zoomOut()}><Icon name="zoomout" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("缩小")}
+                onClick={() => flow.zoomOut({ duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200 })}><Icon name="zoomout" /></button>
               <button type="button" className="av-btn av-btn--sm av-btn--ghost av-lineage__zoom-value" title={t("恢复到 100%")}
-                aria-label={t("当前缩放 {{pct}}%，恢复到 100%", { pct: Math.round(zoom * 100) })} onClick={() => flow.zoomTo(1, { duration: 200 })}>{Math.round(zoom * 100)}%</button>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("放大")} onClick={() => flow.zoomIn()}><Icon name="zoomin" /></button>
-              <button type="button" className="av-btn av-btn--sm av-btn--ghost" onClick={() => flow.fitView({ padding: 0.16 })}><Icon name="fit" />{t("适应画布")}</button>
+                aria-label={t("当前缩放 {{pct}}%，恢复到 100%", { pct: Math.round(zoom * 100) })}
+                onClick={() => flow.zoomTo(1, { duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200 })}>{Math.round(zoom * 100)}%</button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost av-btn--icon" aria-label={t("放大")}
+                onClick={() => flow.zoomIn({ duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200 })}><Icon name="zoomin" /></button>
+              <button type="button" className="av-btn av-btn--sm av-btn--ghost"
+                onClick={() => flow.fitView({ padding: 0.16, duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : undefined })}><Icon name="fit" />{t("适应画布")}</button>
             </div>
           </> : null}
         </div>
@@ -459,7 +520,9 @@ function Canvas() {
         <div className="av-lineage__resize" role="separator" aria-orientation="vertical" aria-label={t("拖动调整检查器宽度")}
           title={t("拖动调整宽度，双击恢复默认")} onPointerDown={startResize}
           onDoubleClick={() => { setInspectorWidth(INSPECTOR_DEFAULT); try { localStorage.removeItem(INSPECTOR_KEY); } catch { /* 忽略 */ } }} />
-        <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data} column={column?.split("::")[1] ?? null}
+        <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data}
+          graphColumnNames={(layoutData?.columnsByNode.get(selectedNode.id) ?? []).map((item) => item.name)}
+          column={column?.split("::")[1] ?? null}
           showColumns={showColumns} onShowColumns={() => setShowColumns(true)} onColumn={(name) => setColumn(selectedNode.id + "::" + name)}
           onPick={pick} onPickColumn={(id, col) => { setSelected(id); setColumn(`${id}::${col}`); setShowColumns(false); }}
           onClose={() => { setSelected(null); setColumn(null); setShowColumns(false); }} />
@@ -517,8 +580,8 @@ function Legend({ tone, label }: { tone: "value" | "influence" | "identity" | "j
   </span>;
 }
 
-function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, onPick, onPickColumn, onClose }: {
-  node: GNode; graph: Graph; column: string | null; showColumns: boolean; onShowColumns: () => void;
+function Inspector({ node, graph, graphColumnNames, column, showColumns, onShowColumns, onColumn, onPick, onPickColumn, onClose }: {
+  node: GNode; graph: Graph; graphColumnNames: string[]; column: string | null; showColumns: boolean; onShowColumns: () => void;
   onColumn: (column: string) => void; onPick: (id: string) => void; onPickColumn: (id: string, column: string) => void; onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -534,7 +597,6 @@ function Inspector({ node, graph, column, showColumns, onShowColumns, onColumn, 
     new Map<string, typeof influences>())];
   const colOut = column ? outgoing.flatMap((e) => e.columns.filter((c) => c.source_column === column).map((c) => ({ ...c, to: name(e.target), toId: e.target }))) : [];
   const col = asset.data?.columns.find((c) => c.name === column);
-  const graphColumnNames = useMemo(() => (graphColumns(graph).get(node.id) ?? []).map((item) => item.name), [graph, node.id]);
   const columns = [...new Set([...(asset.data?.columns.map((item) => item.name) ?? []), ...graphColumnNames])];
   const visibleColumns = columns.filter((name) => name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   return (

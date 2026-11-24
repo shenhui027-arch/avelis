@@ -1,12 +1,8 @@
 import i18n from "i18next";
-import LanguageDetector from "i18next-browser-languagedetector";
 import { initReactI18next } from "react-i18next";
 
-import en from "./locales/en.json";
-import zhTW from "./locales/zh-TW.json";
-
 // 界面语言：简体中文（默认）、繁体中文、英文（ADR 0015）。
-// 键就是简体原文（gettext 风格，与后端 .po 的 msgid 一致）：写 t("保存")，简体直接显示原文，繁体与英文查语言包。
+// 键就是简体原文（gettext 风格，与后端 .po 的 msgid 一致）：写 t("保存")，简体直接显示原文，繁体与英文按需异步分包加载。
 // 选择只存在本机浏览器；没选过时按浏览器语言，匹配不上用简体中文。用户与模型产出的内容不翻译。
 export const LANGUAGES = [
   { code: "zh-CN", label: "简体中文" },
@@ -29,20 +25,55 @@ export function normalizeLanguage(tag: string | null | undefined): Language | un
   return undefined;
 }
 
+/** 按 querystring -> localStorage -> sessionStorage -> navigator 顺序同步探测当前语言，仅按需加载对应语言包。 */
+function detectInitialLanguage(): Language {
+  try {
+    const q = new URLSearchParams(window.location.search).get(PARAM);
+    const fromQuery = normalizeLanguage(q);
+    if (fromQuery) return fromQuery;
+  } catch {
+    // 忽略不可用 URL 环境
+  }
+  for (const getStore of [() => localStorage, () => sessionStorage]) {
+    try {
+      const hit = normalizeLanguage(getStore().getItem(KEY));
+      if (hit) return hit;
+    } catch {
+      // 禁用存储时跳过
+    }
+  }
+  try {
+    const candidates = navigator.languages?.length ? navigator.languages : [navigator.language];
+    for (const tag of candidates) {
+      const hit = normalizeLanguage(tag);
+      if (hit) return hit;
+    }
+  } catch {
+    // 忽略不可用 navigator 环境
+  }
+  return DEFAULT_LANGUAGE;
+}
+
+const initialLang = detectInitialLanguage();
+const initialResources: Record<string, { translation: Record<string, string> }> = {
+  "zh-CN": { translation: {} },
+};
+if (initialLang === "zh-TW") {
+  initialResources["zh-TW"] = { translation: (await import("./locales/zh-TW.json")).default };
+} else if (initialLang === "en") {
+  initialResources.en = { translation: (await import("./locales/en.json")).default };
+}
+
 void i18n
-  .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources: { "zh-CN": { translation: {} }, "zh-TW": { translation: zhTW }, en: { translation: en } },
+    resources: initialResources,
+    lng: initialLang,
     supportedLngs: LANGUAGES.map((l) => l.code),
     fallbackLng: DEFAULT_LANGUAGE,
     keySeparator: false, // 键是原文，里面的“.”“：”不是层级
     nsSeparator: false,
-    initAsync: false, // 语言包是静态打包的：同步初始化，模块级常量里的 t() 也能取到当前语言
-    // 只在用户主动切换时记下选择（setLanguage），自动检测的结果不落盘，浏览器语言变了还会跟着变
-    detection: { order: ["querystring", "localStorage", "sessionStorage", "navigator"], lookupQuerystring: PARAM,
-      lookupLocalStorage: KEY, lookupSessionStorage: KEY, caches: [],
-      convertDetectedLanguage: (lng: string) => normalizeLanguage(lng) ?? lng },
+    initAsync: false, // 仅加载当前语言包后同步初始化，模块级常量里的 t() 也能立即可用
     interpolation: { escapeValue: false }, // React 自己转义
     returnNull: false,
   });

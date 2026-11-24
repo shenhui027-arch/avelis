@@ -97,6 +97,26 @@ class MySQLMetaConnector:
                 finally:
                     conn.close()
 
+    def execute_explore(
+        self,
+        sql: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：只读账号、只读事务、MAX_EXECUTION_TIME 与 SQL_SELECT_LIMIT。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, gettext("超时值必须为正数，未执行"))
+        return self.execute_select(
+            sql,
+            timeout_seconds=timeout_seconds,
+            mem_limit_bytes=mem_limit_bytes,
+            max_rows=max_rows,
+            timezone=timezone,
+        )
+
     def describe_objects(
         self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
     ) -> dict[tuple[str, str], dict[str, Any]]:

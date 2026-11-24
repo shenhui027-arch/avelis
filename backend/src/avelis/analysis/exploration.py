@@ -163,6 +163,9 @@ def resolver(session: Session, user: User, source: ExploreSource):
         elif source.profile.engine == "starrocks":
             if catalog != "default_catalog" or not version.table_model:
                 raise deny(label, "kind_not_allowed", "不是 default_catalog 下的原生内表")
+        elif source.profile.engine == "doris":
+            if catalog != "internal" or not version.table_model:
+                raise deny(label, "kind_not_allowed", "不是 internal 下的原生内表")
         elif source.profile.engine == "postgres":
             relkind = (version.properties or {}).get("relkind")
             if relkind == "p":

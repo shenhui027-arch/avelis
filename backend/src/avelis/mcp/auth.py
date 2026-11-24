@@ -22,7 +22,10 @@ from avelis.models import OAuthClient, OAuthGrant, User
 from avelis.oauth.repository import Repository
 from avelis.oauth.urls import request_settings, resource_metadata_url
 
-PROTOCOL_VERSION = "2026-07-28"
+DEFAULT_PROTOCOL_VERSION = "2025-03-26"
+SUPPORTED_HANDSHAKE_VERSIONS = ("2025-03-26", "2025-06-18", "2025-11-25")
+SUPPORTED_PROTOCOL_VERSIONS = (*SUPPORTED_HANDSHAKE_VERSIONS, "2026-07-28")
+PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[-1]
 MAX_BODY_BYTES = 1024 * 1024
 TOOL_SCOPES = {
     "search_metrics": "metrics:read",
@@ -39,6 +42,8 @@ ARGUMENT_NAMES = frozenset(
         "domain_id",
         "limit",
         "metric",
+        "metrics",
+        "order",
         "dimensions",
         "start_date",
         "end_date",
@@ -151,6 +156,17 @@ def audit_tool_call(session_maker, token: AccessToken, name: str, arguments) -> 
         session.commit()
 
 
+def _unsupported_protocol_response(description: str) -> JSONResponse:
+    return JSONResponse(
+        {
+            "error": "unsupported_protocol_version",
+            "error_description": description,
+            "supported_versions": list(SUPPORTED_PROTOCOL_VERSIONS),
+        },
+        status_code=400,
+    )
+
+
 class ToolScopeGate:
     """SDK 认证之后、dispatch 之前检查 body 工具名；复用 SDK 的 HTTP challenge。"""
 
@@ -166,17 +182,63 @@ class ToolScopeGate:
         if scope["type"] != "http" or path != "/mcp" or not isinstance(scope.get("user"), AuthenticatedUser):
             return await self.app(scope, receive, send)
         request = Request(scope, receive)
-        if request.headers.get("mcp-protocol-version") != PROTOCOL_VERSION:
-            return await JSONResponse({"error": "Only MCP 2026-07-28 is enabled"}, status_code=400)(
+        header_values = request.headers.getlist("mcp-protocol-version")
+        if len(header_values) > 1:
+            return await _unsupported_protocol_response("Duplicate MCP-Protocol-Version header")(scope, receive, send)
+        raw_version = header_values[0].strip() if header_values else None
+        if raw_version is not None and raw_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            return await _unsupported_protocol_response(f"Unsupported MCP protocol version: {raw_version}")(
                 scope, receive, send
             )
+        if raw_version is not None and raw_version != header_values[0]:
+            normalized_pv = raw_version.encode("ascii")
+            scope = {
+                **scope,
+                "headers": [
+                    (key, normalized_pv if key.lower() == b"mcp-protocol-version" else value)
+                    for key, value in scope["headers"]
+                ],
+            }
+            request = Request(scope, receive)
+
+        def make_versioned_send(negotiated: str | None):
+            async def versioned_send(msg):
+                if (
+                    negotiated is not None
+                    and msg["type"] == "http.response.start"
+                    and not any(key.lower() == b"mcp-protocol-version" for key, _ in msg["headers"])
+                ):
+                    msg = {
+                        **msg,
+                        "headers": [*msg["headers"], (b"mcp-protocol-version", negotiated.encode("ascii"))],
+                    }
+                await send(msg)
+
+            return versioned_send
+
         if request.method != "POST":
-            return await self.app(scope, receive, send)
+            negotiated_version = raw_version or DEFAULT_PROTOCOL_VERSION
+            return await self.app(scope, receive, make_versioned_send(negotiated_version))
         body = await request.body()
         try:
             message = json.loads(body)
         except (ValueError, RecursionError):
             message = None
+        if isinstance(message, dict) and message.get("method") == "initialize" and raw_version != PROTOCOL_VERSION:
+            params = message.get("params")
+            req_pv = params.get("protocolVersion") if isinstance(params, dict) else None
+            if req_pv in SUPPORTED_HANDSHAKE_VERSIONS:
+                negotiated_version = req_pv
+            elif req_pv == "2024-11-05":
+                negotiated_version = None
+            else:
+                negotiated_version = SUPPORTED_HANDSHAKE_VERSIONS[-1]
+        elif raw_version is not None:
+            negotiated_version = raw_version
+        else:
+            negotiated_version = DEFAULT_PROTOCOL_VERSION
+        versioned_send = make_versioned_send(negotiated_version)
+
         required = None
         audited = None
         if isinstance(message, dict) and message.get("method") == "tools/call":
@@ -198,20 +260,20 @@ class ToolScopeGate:
                 return {"type": "http.request", "body": body, "more_body": False}
             return await receive()
 
-        async def challenge_send(message):
-            if message["type"] == "http.response.start" and message["status"] == 403:
-                message["headers"] = [
+        async def challenge_send(msg):
+            if msg["type"] == "http.response.start" and msg["status"] == 403:
+                msg["headers"] = [
                     (key, value + f', scope="{required}"'.encode() if key == b"www-authenticate" else value)
-                    for key, value in message["headers"]
+                    for key, value in msg["headers"]
                 ]
-            await send(message)
+            await versioned_send(msg)
 
         if required:
             arguments = message["params"].get("arguments", {})
             if isinstance(arguments, dict) and arguments.keys() - self.tool_arguments[name]:
                 return await JSONResponse(
                     {"error": "invalid_request", "error_description": "Unknown tool argument"}, status_code=400
-                )(scope, receive, send)
+                )(scope, receive, versioned_send)
             # 保留 dispatch 前的审计（含参数校验失败），包装层仅补记绕过门禁的调用。
             context = audited_tool_call.set(audited)
             try:
@@ -222,4 +284,4 @@ class ToolScopeGate:
                 )(scope, replay, challenge_send)
             finally:
                 audited_tool_call.reset(context)
-        return await self.app(scope, replay, send)
+        return await self.app(scope, replay, versioned_send)

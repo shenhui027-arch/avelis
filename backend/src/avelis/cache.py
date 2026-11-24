@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
+import uuid
 from collections import OrderedDict
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import Any, Iterator
+from typing import Any
 
 import redis
 from redis.exceptions import RedisError
@@ -123,11 +126,59 @@ _LOCAL_ONCE_LOCK = threading.Lock()
 _LOCAL_ONCE_MAX_ENTRIES = 4096
 _LOCAL_ONCE_MARKERS: OrderedDict[str, float] = OrderedDict()
 
+_LOCAL_RATE_LOCK = threading.Lock()
+_LOCAL_RATE_MAX_ENTRIES = 4096
+_LOCAL_RATE_COUNTERS: OrderedDict[str, tuple[int, float]] = OrderedDict()
+
+
+def clear_local_rate_limits() -> None:
+    """清空进程内限流回退计数（供测试隔离使用）。"""
+    with _LOCAL_RATE_LOCK:
+        _LOCAL_RATE_COUNTERS.clear()
+
+
+def fixed_window_rate_limit(prefix: str, key: str, limit: int, *, window_seconds: int = 60) -> tuple[bool, int, int]:
+    """固定窗口频次限流：返回 (allowed, count, retry_after)。limit <= 0 时不限流。Redis 异常时降级到本地有界计数。"""
+    if limit <= 0:
+        return True, 0, 0
+    window = max(int(window_seconds), 1)
+    now = time.time()
+    bucket = int(now) // window
+    retry_after = max(window - int(now) % window, 1)
+    redis_key = f"avelis:rl:{prefix}:{key}:{bucket}"
+    try:
+        with client().pipeline(transaction=True) as pipe:
+            pipe.incr(redis_key)
+            pipe.expire(redis_key, window + 1, nx=True)
+            count, _ = pipe.execute()
+        count_i = int(count)
+        return count_i <= limit, count_i, retry_after
+    except RedisError:
+        logger.warning("Redis 不可用，固定窗口限流降级为进程内计数器（prefix=%s）", prefix)
+    mono_now = time.monotonic()
+    deadline = mono_now + retry_after
+    with _LOCAL_RATE_LOCK:
+        expired = [k for k, (_, exp) in _LOCAL_RATE_COUNTERS.items() if exp <= mono_now]
+        for k in expired:
+            _LOCAL_RATE_COUNTERS.pop(k, None)
+        entry = _LOCAL_RATE_COUNTERS.get(redis_key)
+        if entry is None or entry[1] <= mono_now:
+            count_i = 1
+            _LOCAL_RATE_COUNTERS[redis_key] = (count_i, deadline)
+        else:
+            count_i = entry[0] + 1
+            _LOCAL_RATE_COUNTERS[redis_key] = (count_i, entry[1])
+            _LOCAL_RATE_COUNTERS.move_to_end(redis_key)
+        while len(_LOCAL_RATE_COUNTERS) > _LOCAL_RATE_MAX_ENTRIES:
+            _LOCAL_RATE_COUNTERS.popitem(last=False)
+    return count_i <= limit, count_i, retry_after
+
 
 def clear_local_fallbacks() -> None:
-    """清空进程内防重放回退缓存（供测试隔离使用）。"""
+    """清空进程内防重放与限流回退缓存（供测试隔离使用）。"""
     with _LOCAL_ONCE_LOCK:
         _LOCAL_ONCE_MARKERS.clear()
+    clear_local_rate_limits()
 
 
 def _local_once_prune_locked(now: float) -> None:
@@ -267,3 +318,201 @@ def invalidate_tag(tag: str) -> int:
         c.delete(*keys)
     c.delete(f"avelis:tag:{tag}")
     return len(keys)
+
+
+_LITERAL_RE = re.compile(
+    r"\d{4}[-/年]\d{1,2}(?:[-/月]\d{1,2}日?)?|\d{1,2}月\d{1,2}日|\d{4}年|\d{4}[-]?Q[1-4]|"
+    r"\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千万亿]+|"
+    r"今年|去年|前年|明年|本月|上月|上个月|下月|下个月|本季度|上季度|下季度|本周|上周|下周|昨天|今天|前天|"
+    r"同比|环比|累计|从高到低|从低到高|降序|升序|最高|最低|最大|最小|前\d+|倒数"
+)
+_QUERY_FILLER_TOKENS = frozenset(
+    {
+        "请",
+        "帮",
+        "我",
+        "的",
+        "了",
+        "吗",
+        "呢",
+        "和",
+        "与",
+        "及",
+        "在",
+        "按",
+        "看",
+        "查",
+        "下",
+        "一",
+        "统计",
+        "查询",
+        "查看",
+        "分析",
+        "显示",
+        "多少",
+        "是多少",
+        "情况",
+        "如何",
+        "怎样",
+        "什么",
+        "一下",
+        "请帮",
+        "帮我",
+        "我想",
+        "请问",
+        "地区",
+        "区域",
+        "分组",
+        "排名",
+        "总额",
+        "总计",
+    }
+)
+
+
+def extract_query_literals(text: str) -> tuple[str, ...]:
+    """提取查询中的数值、日期、相对时间、同比/环比与排序方向字面量，防止语义缓存误命中。"""
+    return tuple(sorted(_LITERAL_RE.findall((text or "").strip())))
+
+
+def _has_entity_token_mismatch(q_norm: str, candidate_norm: str) -> bool:
+    """若两句之间存在不重叠的实体/维度词差异（如 北京 vs 上海、华东 vs 华南），拒绝语义缓存命中。"""
+    from avelis.retrieval_hybrid import tokenize
+
+    q_words = {
+        w
+        for w in tokenize(q_norm)
+        if len(w) >= 2 and w not in _QUERY_FILLER_TOKENS and not _LITERAL_RE.fullmatch(w)
+    }
+    c_words = {
+        w
+        for w in tokenize(candidate_norm)
+        if len(w) >= 2 and w not in _QUERY_FILLER_TOKENS and not _LITERAL_RE.fullmatch(w)
+    }
+    # 存在互相排斥的多字实词（两句各含有对方未出现的多字实词），典型为城市/大区/产品/指标替换
+    only_q = q_words - c_words
+    only_c = c_words - q_words
+    if only_q and only_c:
+        # 只要两句文本长度接近或仅局部实体替换（例如同时存在独有 2-gram），一律阻止误命中
+        return True
+    return False
+
+
+def _semcache_index_key(scope_sig: str) -> str:
+    return f"avelis:semcache:idx:{scope_sig}"
+
+
+def semantic_cache_lookup(
+    scope_sig: str,
+    question: str,
+    *,
+    query_vec: Sequence[float] | None,
+    threshold: float,
+    max_entries: int = 200,
+) -> dict[str, Any] | None:
+    """按权限/版本作用域查找语义相似查询；字面量不等必不命中，Redis 异常静默降级返回 None。"""
+    from avelis.retrieval_hybrid import SearchDocument, cosine_similarity, tfidf_scores, tokenize
+
+    q_norm = " ".join((question or "").strip().split())
+    if not q_norm:
+        return None
+    q_literals = extract_query_literals(q_norm)
+    q_tokens = set(tokenize(q_norm))
+    idx_key = _semcache_index_key(scope_sig)
+    try:
+        raw_index = client().get(idx_key)
+    except RedisError:
+        logger.warning("Redis 不可用，跳过语义缓存查询")
+        return None
+    if not raw_index:
+        return None
+    try:
+        entries = json.loads(raw_index)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(entries, list) or not entries:
+        return None
+
+    candidates = [
+        entry
+        for entry in entries[-max_entries:]
+        if isinstance(entry, dict)
+        and tuple(entry.get("literals") or ()) == q_literals
+        and not _has_entity_token_mismatch(q_norm, entry.get("q_norm", ""))
+    ]
+    if not candidates:
+        return None
+
+    docs = [SearchDocument(key=entry["id"], fields=[(1.0, entry.get("q_norm", ""))]) for entry in candidates]
+    tfidf_map = tfidf_scores(q_norm, docs)
+
+    best_entry: dict[str, Any] | None = None
+    best_score = 0.0
+    for entry in candidates:
+        c_tokens = set(entry.get("tokens") or [])
+        union = len(q_tokens | c_tokens)
+        jaccard = (len(q_tokens & c_tokens) / union) if union else 0.0
+        lex_sim = max(tfidf_map.get(entry["id"], 0.0), jaccard)
+        c_vec = entry.get("vec")
+        if query_vec and isinstance(c_vec, list) and len(c_vec) == len(query_vec):
+            cos_sim = max(0.0, cosine_similarity(query_vec, c_vec))
+            score = 0.7 * cos_sim + 0.3 * lex_sim
+        else:
+            score = lex_sim
+        if score >= threshold and score > best_score:
+            best_score = score
+            best_entry = entry
+
+    if best_entry is None:
+        return None
+
+    try:
+        payload = cache_get(best_entry["item_key"])
+    except (RedisError, ValueError, TypeError):
+        logger.warning("Redis 不可用，语义缓存读取条目失败")
+        return None
+    if payload is None:
+        return None
+    return {**payload, "similarity": best_score}
+
+
+def semantic_cache_store(
+    scope_sig: str,
+    question: str,
+    *,
+    query_vec: Sequence[float] | None,
+    payload: dict[str, Any],
+    ttl_seconds: int,
+    max_entries: int,
+    tags: list[str],
+) -> None:
+    """写入权限/版本隔离的语义缓存并挂接 metric_version/asset 标签以便失效。"""
+    from avelis.retrieval_hybrid import tokenize
+
+    q_norm = " ".join((question or "").strip().split())
+    if not q_norm or ttl_seconds <= 0 or max_entries <= 0:
+        return
+    entry_id = uuid.uuid4().hex
+    item_key = f"avelis:semcache:item:{entry_id}"
+    idx_key = _semcache_index_key(scope_sig)
+    entry = {
+        "id": entry_id,
+        "item_key": item_key,
+        "q_norm": q_norm,
+        "literals": list(extract_query_literals(q_norm)),
+        "tokens": sorted(set(tokenize(q_norm))),
+        "vec": list(query_vec) if query_vec else None,
+    }
+    try:
+        cache_put(item_key, payload, ttl_seconds, tags)
+        raw_index = client().get(idx_key)
+        entries = json.loads(raw_index) if raw_index else []
+        if not isinstance(entries, list):
+            entries = []
+        entries = [e for e in entries if isinstance(e, dict) and e.get("q_norm") != q_norm]
+        entries.append(entry)
+        if len(entries) > max_entries:
+            entries = entries[-max_entries:]
+        client().set(idx_key, json.dumps(entries, ensure_ascii=False), ex=ttl_seconds * 2)
+    except (RedisError, ValueError, TypeError):
+        logger.warning("Redis 不可用，跳过语义缓存写入")

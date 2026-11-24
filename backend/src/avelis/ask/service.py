@@ -64,6 +64,7 @@ from avelis.models import (
     ReviewTask,
     User,
 )
+from avelis.retrieval_hybrid import SearchDocument, hybrid_rank
 
 TRACEABLE_NOTE = "可追溯 ≠ 可复现：保存了 SQL、口径与元数据版本，但不保存数据快照，历史答案不保证能按当时数据重算。"
 DISCOVERY_NOTE = "元数据按轮询采集，最长延迟为一个采集间隔：未发现变更不代表没有变更。"
@@ -178,8 +179,9 @@ def metric_catalog_rows(
     limit: int | None = None,
     offset: int = 0,
     published_only: bool = False,
+    hybrid: bool = False,
 ) -> list[tuple[Metric, MetricVersion, Domain]]:
-    """权限、匹配、最新治理版本和分页都由 SQL 完成；草稿不会遮住已治理版本。"""
+    """权限、匹配、最新治理版本和分页都由 SQL 完成；hybrid=True 时用混合检索重排可见口径。"""
     access.require_role(session, user, "analyst", "steward", "reviewer")
     latest = (
         select(MetricVersion.id)
@@ -199,15 +201,69 @@ def metric_catalog_rows(
         .where(access.domain_visibility_clause(session, user, Metric.domain_id))
         .order_by(Metric.code, Metric.id)
     )
-    if keyword:
-        statement = statement.where(_metric_keyword_clause(session, keyword))
     if domain_id:
         statement = statement.where(Metric.domain_id == domain_id)
     if published_only:
         statement = statement.where(MetricVersion.status == "published")
+    if hybrid and keyword.strip():
+        rows = list(session.execute(statement))
+        if not rows:
+            return []
+        docs: list[SearchDocument] = []
+        by_id: dict[str, tuple[Metric, MetricVersion, Domain]] = {}
+        for metric, version, domain in rows:
+            by_id[metric.id] = (metric, version, domain)
+            context = metric_ai_context(metric)
+            fields: list[tuple[float, str]] = [
+                (3.0, metric.name),
+                *((3.0, a) for a in (metric.aliases or [])),
+                *((3.0, s) for s in context.get("synonyms", [])),
+                *((2.0, e) for e in context.get("examples", [])),
+                (1.0, metric.code),
+                (1.0, version.description or ""),
+            ]
+            semantic_text = " ".join(
+                p
+                for p in (
+                    metric.name,
+                    *(metric.aliases or []),
+                    *context.get("synonyms", []),
+                    version.description or "",
+                )
+                if p
+            )
+            docs.append(SearchDocument(key=metric.id, fields=fields, semantic_text=semantic_text))
+        ranked = [by_id[key] for key, score in hybrid_rank(keyword, docs) if score > 0.0]
+        sliced = ranked[offset:]
+        return sliced[:limit] if limit is not None else sliced
+    if keyword:
+        statement = statement.where(_metric_keyword_clause(session, keyword))
     if limit is not None:
         statement = statement.limit(limit)
     return list(session.execute(statement.offset(offset)))
+
+
+def search_metric_catalog(
+    session: Session,
+    user: User,
+    *,
+    keyword: str = "",
+    domain_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+    published_only: bool = False,
+) -> list[tuple[Metric, MetricVersion, Domain]]:
+    """供问数搜索使用的混合检索入口；保留域可见性与确定性平局序。"""
+    return metric_catalog_rows(
+        session,
+        user,
+        keyword=keyword,
+        domain_id=domain_id,
+        limit=limit,
+        offset=offset,
+        published_only=published_only,
+        hybrid=bool(keyword and keyword.strip()),
+    )
 
 
 def visible_catalog(session: Session, user: User, *, with_values: bool) -> Catalog:
