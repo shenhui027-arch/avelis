@@ -2,19 +2,19 @@
 
 English | [简体中文](roadmap.md) | [繁體中文](roadmap.zh-TW.md)
 
-This roadmap is for Avelis developers and contributors. It records the agreed five-phase development plan (`M1` through `M5`) built on the `v1.0.11` baseline, together with its strict execution order, engineering boundaries and acceptance criteria. Every item in `M1` through `M5` is currently **Planned**, with no target dates; for implemented capabilities and system internals, see [Architecture and governance](architecture.en.md) and the [Development guide](development.en.md).
+This roadmap is for Avelis developers and contributors. It records the five-phase development roadmap (`M1` through `M5`) built on the `v1.0.11` baseline, together with its strict execution order, engineering boundaries and acceptance criteria. **As of `v1.1.0` (`main` `ce1fee4`), `M1` through `M4` (including PR `#156` auth hardening for `#149`–`#155` and `0032_username_ci_unique`) are Completed, and `M5` is Next (Planned)** with no target dates; see [Architecture and governance](architecture.en.md), [Observability guide](observability.en.md) and the [Development guide](development.en.md) for system internals.
 
 ## Execution order and hard boundaries
 
 ### Strict execution order
 
-The five phases must be delivered strictly in order: `M1 → M2 → M3 → M4 → M5`. **`M5` starts only after `M1` through `M4` are all completed and verified**:
+The five phases follow the strict sequence `M1 → M2 → M3 → M4 → M5`. **`M5` starts only after `M1` through `M4` are completed and verified**:
 
-1. **M1 (Auth security baseline and commercial login redesign, Planned)**: Close authentication, session and authorization vulnerabilities first, and rebuild the sign-in, password-change and admin user-operations UI.
-2. **M2 (UI/UX, motion, accessibility and frontend performance, Planned)**: Build on the hardened auth shell to fix broken navigation and retry flows, complete CRUD loops, meet WCAG AA contrast and keyboard accessibility, and split routes and locales.
-3. **M3 (Agent intelligence, evaluation and MCP / Skills, Planned)**: Layer hybrid retrieval, domain-shared experiences, a verified query repository, multi-provider SSE streaming with a cost ledger, evaluation uplift and MCP / Skill security on top of the complete UI.
-4. **M4 (Data security compliance, observability and CI, Planned)**: Add transport security and read-only session controls across all eight connectors, dual-key rotation, PII masking, row-level security, audit verification UI, structured observability and database-backed CI.
-5. **M5 (10k-table scale and multi-replica HA, Planned, final phase)**: Implemented only after `M1` through `M4` pass verification; replaces the global hash-chain row lock, adds incremental 10k-table collection and search indexes, scales workers and cross-replica SSE, adds object storage and delivers cloud-native zero-downtime deployment.
+1. **M1 (Auth security baseline and commercial login redesign, Completed)**: Closed authentication, session and authorization vulnerabilities, and rebuilt the sign-in, password-change and admin user-operations UI (including PR `#156` fixes for `#149`–`#155` and `0032_username_ci_unique`).
+2. **M2 (UI/UX, motion, accessibility and frontend performance, Completed)**: Built on the hardened auth shell to fix broken navigation and retry flows, complete CRUD loops, meet WCAG AA contrast and keyboard accessibility, and split routes and locales.
+3. **M3 (Agent intelligence, evaluation and MCP / Skills, Completed)**: Layered hybrid retrieval, domain-shared experiences, Verified Query Repository (VQR), multi-provider SSE streaming with a cost ledger, analysis sandbox and MCP / Skill security on top of the complete UI.
+4. **M4 (Data security compliance, observability and CI, Completed)**: Added transport security and read-only session controls across all eight connectors, dual-key rotation, PII masking, row-level security, audit verification UI, structured observability and database-backed CI.
+5. **M5 (10k-table scale and multi-replica HA, Next / Planned)**: Entry gate `M1`–`M4` satisfied; replaces the global hash-chain row lock, adds incremental 10k-table collection and search indexes, scales workers and cross-replica SSE, adds object storage and delivers cloud-native zero-downtime deployment.
 
 ### Hard boundaries and compliance constraints
 
@@ -28,13 +28,13 @@ The five phases must be delivered strictly in order: `M1 → M2 → M3 → M4 �
 
 | Phase | Focus | Status | Dependencies | Core scope |
 |---|---|---|---|---|
-| M1 | Auth security baseline and commercial login redesign | Planned | `v1.0.11` baseline | Fix auth and IDOR vulnerabilities, migrate to Cookie auth, deliver standard OIDC / optional Forward Auth / local TOTP 2FA / PAT, redesign light/dark sign-in and password-change pages, and complete admin user ops |
-| M2 | UI/UX, motion, accessibility and frontend performance | Planned | M1 | Fix cross-page parameter loss, retry loops and scheduled-task / data-source CRUD, bring all semantic tokens to WCAG AA, fix overlay/keyboard A11y, streamline motion and cut main bundle size by ≥ 50% |
-| M3 | Agent intelligence, evaluation and MCP / Skills | Planned | M2 | Deliver hybrid retrieval, domain-reviewed experiences and VQR, decouple model providers for SSE streaming and cost quotas, lift `scripts/eval_analysis.py` pass rate to ≥ 70%, and harden the sandbox, MCP negotiation and Skill review |
-| M4 | Data security compliance, observability and CI | Planned | M3 | Add TLS / CA and read-only sessions across all 8 connectors, `MultiFernet` key rotation, PII masking, RLS, audit & hash-chain UI, JSON logs, `/metrics`, Postgres + Valkey CI and `sqlglot` convergence |
-| M5 | 10k-table scale and multi-replica HA | Planned (final phase) | M1–M4 completed and verified | Remove the global row lock for batch or sharded hash chains with streaming cursor purge, add incremental 10k-table collection with `pg_trgm` / GIN indexes, multi-slot workers, cross-replica SSE Pub/Sub, object storage and Helm zero-downtime ops |
+| M1 | Auth security baseline and commercial login redesign | Completed | `v1.0.11` baseline | Fix auth and IDOR vulnerabilities, migrate to Cookie auth, deliver standard OIDC / optional Forward Auth / local TOTP 2FA / PAT, redesign light/dark sign-in and password-change pages, and complete admin user ops (`#149`–`#155` hardened) |
+| M2 | UI/UX, motion, accessibility and frontend performance | Completed | M1 | Fix cross-page parameter loss, retry loops and scheduled-task / data-source CRUD, bring all semantic tokens to WCAG AA, fix overlay/keyboard A11y, streamline motion and cut main bundle size by ≥ 50% |
+| M3 | Agent intelligence, evaluation and MCP / Skills | Completed | M2 | Deliver hybrid retrieval, domain-reviewed experiences and VQR, decouple model providers for SSE streaming and cost quotas, harden the sandbox, MCP negotiation and Skill review (live LLM `scripts/eval_analysis.py` run on demand) |
+| M4 | Data security compliance, observability and CI | Completed | M3 | Add TLS / CA and read-only sessions across all 8 connectors, `MultiFernet` key rotation, PII masking, RLS, audit & hash-chain UI, JSON logs, `/metrics`, Postgres + Valkey CI and `sqlglot` convergence |
+| M5 | 10k-table scale and multi-replica HA | Next (Planned) | M1–M4 (satisfied) | Remove the global row lock for batch or sharded hash chains with streaming cursor purge, add incremental 10k-table collection with `pg_trgm` / GIN indexes, multi-slot workers, cross-replica SSE Pub/Sub, object storage and Helm zero-downtime ops |
 
-## M1: Auth security baseline and commercial login redesign (Planned)
+## M1: Auth security baseline and commercial login redesign (Completed)
 
 In the `v1.0.11` baseline, leaving `initial_admin_password` unset falls back to `admin / 123456` without forcing a password change, and some endpoints lack state or ownership checks. `M1` plans the following work:
 
@@ -56,7 +56,7 @@ In the `v1.0.11` baseline, leaving `initial_admin_password` unset falls back to 
 - Backend security tests cover and pass all vulnerability fixes, anti-brute-force controls, `RedisError` tolerance, Cookie/Bearer auth, OIDC / Forward Auth / TOTP / PAT and admin user-management endpoints.
 - An independent review agent scores Playwright desktop and mobile screenshots of the sign-in and password-change pages in both light and dark themes against an explicit visual and interaction rubric.
 
-## M2: UI/UX, motion, accessibility and frontend performance (Planned)
+## M2: UI/UX, motion, accessibility and frontend performance (Completed)
 
 `M2` closes broken UX loops, completes governance CRUD workflows, brings all semantic color tokens to WCAG AA, fixes keyboard and overlay accessibility, and reduces bundle size and layout thrashing.
 
@@ -78,7 +78,7 @@ In the `v1.0.11` baseline, leaving `initial_admin_password` unset falls back to 
 - Expanded `contrast.test.mjs` covers all light and dark semantic tokens and passes WCAG AA checks.
 - Frontend unit tests and Playwright E2E verify all navigation, retry, CRUD, i18n and keyboard A11y requirements; `vite build` main bundle size shrinks by ≥ 50%.
 
-## M3: Agent intelligence, evaluation and MCP / Skills (Planned)
+## M3: Agent intelligence, evaluation and MCP / Skills (Completed)
 
 `M3` upgrades Ask and analysis retrieval accuracy, multi-provider streaming, cost governance, evaluation scores, read-only execution and MCP / Skill safety.
 
@@ -98,7 +98,7 @@ In the `v1.0.11` baseline, leaving `initial_admin_password` unset falls back to 
 - **Read-only sandbox and multi-engine exploration**: Extend `query_sql` in `backend/src/avelis/analysis/explore.py` across all supported query engines (beyond the partial baseline) with window-function support; add a controlled read-only Python / DuckDB sandbox for computation and enable parallel execution of read-only tools in `backend/src/avelis/analysis/agent.py`.
 - **MCP negotiation and Skill security**: Replace the hard-locked single `Mcp-Protocol-Version` check in `backend/src/avelis/mcp/auth.py` with backward-compatible version negotiation; enhance `ask_metric` in `backend/src/avelis/mcp/tools.py` with multi-metric, `order` and `align_filters` support; in `backend/src/avelis/skills/`, block admins from approving their own uploaded skills, add upload rate limiting and run prompt-injection / sensitive-word pre-checks.
 
-## M4: Data security compliance, observability and CI (Planned)
+## M4: Data security compliance, observability and CI (Completed)
 
 `M4` adds enterprise transport security, PII masking, compliance auditing, structured observability and container-backed database CI.
 

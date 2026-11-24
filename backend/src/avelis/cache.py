@@ -376,7 +376,7 @@ def extract_query_literals(text: str) -> tuple[str, ...]:
 
 
 def _has_entity_token_mismatch(q_norm: str, candidate_norm: str) -> bool:
-    """若两句之间存在不重叠的实体/维度词差异（如 北京 vs 上海、华东 vs 华南），拒绝语义缓存命中。"""
+    """若两句之间存在不重叠的实体/维度词差异（如 区域甲 vs 区域乙、维度甲 vs 维度乙），拒绝语义缓存命中。"""
     from avelis.retrieval_hybrid import tokenize
 
     q_words = {

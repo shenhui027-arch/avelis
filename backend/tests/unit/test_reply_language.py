@@ -104,14 +104,16 @@ def test_manual_task_api_saves_request_locale_in_job(monkeypatch, locale):
     user, task, run = SimpleNamespace(id="user"), SimpleNamespace(id="task"), SimpleNamespace(id="run")
     job = SimpleNamespace(result={"analysis_run_id": run.id})
     session.get.side_effect = lambda cls, _: job if cls is analysis_api.Job else run
+    monkeypatch.setattr(analysis_api.usage, "enforce_llm_preflight", lambda *_, **__: None)
     monkeypatch.setattr(analysis_api, "_task", lambda *_: task)
     enqueue = Mock(return_value="job")
     monkeypatch.setattr(analysis_api.jobs, "_enqueue", enqueue)
     monkeypatch.setattr(analysis_api.jobs, "run_and_wait", lambda *_: "succeeded")
     monkeypatch.setattr(analysis_api, "_sync_wait_seconds", lambda: 1)
     monkeypatch.setattr(analysis_api.analysis, "run_view", lambda *_, **__: {"id": run.id})
+    req = SimpleNamespace(headers={}, client=None, scope={})
     with locale_context(locale):
-        assert analysis_api.run_task_now(task.id, user, session) == {"id": run.id}
+        assert analysis_api.run_task_now(task.id, req, user, session) == {"id": run.id}
     enqueue.assert_called_once_with(
         session, "analysis", {"task_id": task.id, "trigger": "manual", "request_locale": locale}, user.id
     )

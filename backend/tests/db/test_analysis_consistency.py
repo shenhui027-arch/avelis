@@ -180,6 +180,7 @@ def test_sync_run_interrupted_is_recovered_through_its_job(factory, no_model, mo
         with pytest.raises(Crash):
             api.create_run(
                 api.RunCreate(question="为什么 9 月成交额下降？"),
+                request=SimpleNamespace(headers={}, client=None, scope={}),
                 wait=True,
                 user=session.get(User, uid),
                 session=session,
@@ -310,7 +311,11 @@ def test_api_creates_run_and_job_in_one_transaction(factory, no_model, monkeypat
     session = session_factory()()
     try:
         view = api.create_run(
-            api.RunCreate(question="为什么 9 月成交额下降？"), wait=False, user=session.get(User, uid), session=session
+            api.RunCreate(question="为什么 9 月成交额下降？"),
+            request=SimpleNamespace(headers={}, client=None, scope={}),
+            wait=False,
+            user=session.get(User, uid),
+            session=session,
         )
     finally:
         session.close()
@@ -333,7 +338,12 @@ def test_manual_task_run_goes_through_a_job(factory, no_model, monkeypatch):
         task_id = task.id
     session = session_factory()()
     try:
-        view = api.run_task_now(task_id, user=session.get(User, uid), session=session)
+        view = api.run_task_now(
+            task_id,
+            request=SimpleNamespace(headers={}, client=None, scope={}),
+            user=session.get(User, uid),
+            session=session,
+        )
     finally:
         session.close()
     assert view["status"] == "succeeded"
@@ -526,7 +536,12 @@ def test_run_now_reports_real_reason_without_run(factory, no_model, monkeypatch)
     def call():
         session = session_factory()()
         try:
-            return api.run_task_now(task_id, user=session.get(User, uid), session=session)
+            return api.run_task_now(
+                task_id,
+                request=SimpleNamespace(headers={}, client=None, scope={}),
+                user=session.get(User, uid),
+                session=session,
+            )
         finally:
             session.close()
 

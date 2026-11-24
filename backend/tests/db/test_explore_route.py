@@ -36,6 +36,13 @@ def world(factory):
                 options={"database": "offdb"},
                 allow_exploration=False,
             ),
+            "unsup": Datasource(
+                name=f"未支持探索{tag}",
+                kind="hive",
+                host="h",
+                port=1,
+                options={},
+            ),
         }
         s.add_all(sources.values())
         s.flush()
@@ -59,6 +66,7 @@ def world(factory):
         asset("pg", "storedb", "trade", "orders")  # 与 StarRocks 同名的 库.表
         asset("sr", "default_catalog", "secret", "salary", domain=other)
         asset("off", "offdb", "closed", "t")
+        asset("unsup", "hive", "legacy", "t")
         ids = {k: v.id for k, v in sources.items()}
     with session_scope() as s:
         user = s.get(User, member)
@@ -88,8 +96,9 @@ def test_two_part_names_mean_the_default_catalog_of_each_source(world):
     assert route(user, f"SELECT COUNT(*) AS n FROM store{tag}.sales") == ids["pg"]
     assert route(user, f'SELECT COUNT(*) AS n FROM "storedb"."store{tag}"."sales"') == ids["pg"]  # 三段名精确匹配
     assert route(user, f"SELECT COUNT(*) AS n FROM default_catalog.trade{tag}.orders") == ids["sr"]
-    # 两段名 dim.product：StarRocks 的那张在外部 catalog（不是默认 catalog），只剩 MySQL 的那张，而 MySQL 没有探索档案
-    assert rejected(user, f"SELECT COUNT(*) AS n FROM dim{tag}.product").code == "engine_unsupported"
+    # 两段名 dim.product：StarRocks 的那张在外部 catalog（不是默认 catalog），只剩 MySQL 的那张且 MySQL 已支持探索
+    assert route(user, f"SELECT COUNT(*) AS n FROM dim{tag}.product") == ids["my"]
+    assert rejected(user, f"SELECT COUNT(*) AS n FROM legacy{tag}.t").code == "engine_unsupported"
 
 
 def test_same_name_in_two_sources_requires_a_full_name(world):

@@ -240,11 +240,11 @@ UNDERSTAND_PROMPT = (
 - chart_dataset：只从同对话 chart_targets 的 dataset 选择。只有一张时可不填；多张图时只有用户明确说了图题、
   数据集编号、顺序或可唯一辨认的内容才选对应编号，否则在 clarification 追问要改哪张，不猜；
 - metric_codes：所问的指标编码，只能取自候选口径；优先精确语义匹配"""
-    """（如“销量/件数”与“销售额/金额”、“均价”与“客单价”区分开）；
-  如果没有已发布口径匹配所问概念（如只有总额/客单价而问具体商品均价），可留空 []，"""
+    """（如“销量/件数”与“销售额/金额”、“均价”与“均值指标”区分开）；
+  如果没有已发布口径匹配所问概念（如只有总额/均值指标而问具体商品均价），可留空 []，"""
     """不要硬凑不兼容的口径；问题涉及多个指标时按问题里的先后写（最多 4 个）；
 - 候选口径的 ai_context.instructions 写明适用与不适用的情况；按它判断是否选用该口径，拿不准时据此向用户澄清；
-- filters：问题中明确限定的每一个维度条件（如渠道/品类/区域/城市/门店）都必须提取进 filters，"""
+- filters：问题中明确限定的每一个维度条件（如渠道/品类/区域/城市/网点）都必须提取进 filters，"""
     """不要漏掉更细切片（如“线上”“食品”），取值照问题里的写法；不要把问题没提到的范围写进来；
 - dimensions：取数时的分组或关系类问题要对比的维度名（取自该指标的维度）；
 - time_grain：只在问题要求按日、周、月、季或年列出时填写 day、week、month、quarter、year；"""
@@ -2029,9 +2029,7 @@ def act(state: AnalysisState, config) -> dict[str, Any]:
         if not _can_call_model(toolbox):
             break
         reserve_for_revise = state.get("revised") is False and budget.model_requests >= 4
-        closing = budget.remaining() < (
-            REPORT_RESERVE_SECONDS if state.get("revised") is False else REVISION_SECONDS_FLOOR
-        )
+        closing = budget.remaining() < (REPORT_RESERVE_SECONDS if not state.get("revised") else REVISION_SECONDS_FLOOR)
         last_request = budget.used_model_requests >= budget.model_requests - (2 if reserve_for_revise else 1)
         tool_reserve = (
             state.get("revised") is False

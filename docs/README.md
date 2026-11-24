@@ -11,6 +11,7 @@
 | [界面导览](product-tour.md) | 登录、工作台、问数与分析会话、导出、数据集、个人经验、血缘、目录、设置的截图与说明 |
 | [部署指南](deployment.md) | Docker Compose、外部 PostgreSQL / Redis、不用 Docker 部署、升级、备份、排障 |
 | [配置参考](configuration.md) | 配置文件与全部 `AVELIS_*` 环境变量、默认值与是否必填 |
+| [可观测性与排障](observability.md) | TraceID / RequestID 全链路关联、JSON 日志规范、Prometheus `/metrics` 与告警规则 |
 
 ## 开发
 
@@ -18,7 +19,7 @@
 |---|---|
 | [开发指南](development.md) | 后端与前端开发命令、本地演示环境、单元测试、一条命令复现验收 |
 | [架构与治理说明](architecture.md) | 组成、数据模型、关键机制、治理规则、运行与已知边界 |
-| [开发路线图](roadmap.md) | M1 → M5 五阶段开发计划（计划中）、执行顺序与边界约束 |
+| [开发路线图](roadmap.md) | M1 → M5 五阶段开发计划（M1–M4 已完成，M5 计划中）、执行顺序与边界约束 |
 | [引擎核验记录](engines/) | 各数据库引擎的实机核验：[StarRocks 3.5.14](engines/starrocks.md) |
 | [文档规范](documentation-guide.md) | README 与文档的结构、语言、术语、链接与图片写法 |
 | [贡献指南](../CONTRIBUTING.md) | 开发环境、PR 流程、测试要求 |
