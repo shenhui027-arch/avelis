@@ -101,9 +101,10 @@ def test_metric_time_migration_and_model_defaults(monkeypatch):
 def test_metric_time_migration_is_the_single_head_after_conversations():
     config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
-    # M4B（0031_m4b_pii_and_rls）接在 M3B（0030）之后，迁移链仍只有一个 head
-    assert scripts.get_heads() == ["0031_m4b_pii_and_rls"]
+    # 0032_username_ci_unique 接在 M4B（0031）之后，迁移链仍只有一个 head
+    assert scripts.get_heads() == ["0032_username_ci_unique"]
     assert all(len(rev.revision) <= 32 for rev in scripts.walk_revisions())
+    assert scripts.get_revision("0032_username_ci_unique").down_revision == "0031_m4b_pii_and_rls"
     assert scripts.get_revision("0031_m4b_pii_and_rls").down_revision == "0030_m3b_multi_model_ledger"
     assert scripts.get_revision("0030_m3b_multi_model_ledger").down_revision == "0029_vqr_domain_exp_feedback"
     assert scripts.get_revision("0029_vqr_domain_exp_feedback").down_revision == "0028_analysis_task_options"

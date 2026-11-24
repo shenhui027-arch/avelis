@@ -98,7 +98,7 @@ Redis 协议服务（Redis、Valkey 均可）。优先级：`url` → 分项（�
 | `workers` | `AVELIS_WORKERS` | `1` | 进程数（uvicorn workers） |
 | `public_url` | `AVELIS_PUBLIC_URL` | 空（按请求推导 MCP 对外地址） | 对外访问地址，如 `http://10.0.0.5:8080`；配置后用于启动日志、跨域白名单与 OAuth issuer，详见下节 |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | 空（镜像内 `/app/frontend/dist`） | 构建好的前端目录；设置后同一端口托管前端，SPA 路由回退到 `index.html`。相对路径按仓库根目录解析 |
-| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | uvicorn 信任的代理地址，用于处理 `X-Forwarded-For` 与 `X-Forwarded-Proto`（逗号分隔，`*` 为全部） |
+| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | ASGI 应用内 `ProxyHeadersMiddleware` 信任的代理地址，用于处理 `X-Forwarded-For` 与 `X-Forwarded-Proto`（逗号分隔，`*` 为全部）；Forward Auth 未设共享密钥时仍按改写前的直连对端 IP 校验此白名单 |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`、`http://localhost:5173` | 跨域白名单（配置文件里写数组，环境变量逗号分隔）；同一端口访问时不需要 |
 

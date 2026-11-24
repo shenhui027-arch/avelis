@@ -221,6 +221,7 @@ def create_totp_challenge(user_id: str, *, remember_me: bool = False, ttl_second
         {
             "sub": user_id,
             "iat": now,
+            "iat_us": epoch_us(now),
             "exp": expires,
             "jti": uuid.uuid4().hex,
             "remember_me": remember_me,

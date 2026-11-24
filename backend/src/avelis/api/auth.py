@@ -47,6 +47,7 @@ from avelis.security import (
     encrypt_secret,
     hash_password,
     hash_pat_token,
+    issued_before,
     normalize_username,
     session_cutoff_now,
     verify_password,
@@ -159,6 +160,41 @@ def _end_other_sessions(user: User) -> None:
     user.sessions_valid_after = session_cutoff_now()
 
 
+def _lookup_login_user(session: Session, raw_username: str) -> User | None:
+    """按用户名查找账号：无歧义时忽略大小写；若存量库存在仅大小写不同的重名账号，仅精确匹配。"""
+    stripped = raw_username.strip()
+    normalized = normalize_username(stripped)
+    candidates = list(session.scalars(select(User).where(func.lower(User.username) == normalized)))
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    return next((u for u in candidates if u.username == stripped), None)
+
+
+def _verify_current_password(session: Session, user: User, password: str, *, audit_action: str) -> None:
+    """校验当前用户本地密码，复用统一的失败限流、解锁与审计规则。"""
+    locked = cache.rate_limit_locked_seconds("pw-change-fail", user.id, _PW_CHANGE_MAX_FAILURES)
+    if locked > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(locked)},
+            detail={
+                "code": "password_change_locked",
+                "detail": translate(
+                    Msg("修改密码尝试次数过多，请 {minutes} 分钟后再试", minutes=max(math.ceil(locked / 60), 1))
+                ),
+                "retry_after": int(locked),
+            },
+        )
+    if not verify_password(password, user.password_hash):
+        cache.record_rate_limit_failure("pw-change-fail", user.id, _PW_CHANGE_WINDOW_SECONDS)
+        audit.record(session, user, audit_action, "user", user.id)
+        session.commit()
+        raise HTTPException(403, "当前密码不正确")
+    cache.clear_rate_limit("pw-change-fail", user.id)
+
+
 def _verify_user_totp(session: Session, user: User, code: str) -> None:
     locked = cache.rate_limit_locked_seconds("totp-fail", user.id, _TOTP_MAX_FAILURES)
     if locked > 0:
@@ -225,7 +261,7 @@ def login(
         )
     if not auth_config.get_auth_config(session)["local_login_enabled"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="本地账号密码登录已禁用")
-    user = session.scalar(select(User).where(func.lower(User.username) == username))
+    user = _lookup_login_user(session, form.username)
     target_hash = user.password_hash if (user is not None and user.auth_provider == "local") else dummy_password_hash()
     password_ok = verify_password(form.password, target_hash)
     if user is None or not user.is_active or user.auth_provider != "local" or not password_ok:
@@ -308,6 +344,12 @@ def verify_login_totp(
     user = session.get(User, claims["sub"])
     if user is None or not user.is_active or not user.totp_enabled:
         raise HTTPException(401, "用户不存在或未启用双因素认证")
+    if user.sessions_valid_after is not None and issued_before(claims, user.sessions_valid_after):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            headers={"WWW-Authenticate": "Bearer"},
+            detail="会话已失效，请重新登录",
+        )
     if cache.is_marked("totp-challenge-used", claims["jti"]):
         raise HTTPException(401, "双因素认证会话已使用")
     _verify_user_totp(session, user, body.code)
@@ -392,8 +434,6 @@ def refresh(
             detail="用户不存在或已停用",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    from avelis.security import issued_before
-
     if user.sessions_valid_after is not None and issued_before(claims, user.sessions_valid_after):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -459,25 +499,7 @@ def change_password(
     """修改自己的密码：其他会话全部失效，返回当前会话的新令牌。"""
     if user.auth_provider != "local":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="外部认证账号不支持修改本地密码")
-    locked = cache.rate_limit_locked_seconds("pw-change-fail", user.id, _PW_CHANGE_MAX_FAILURES)
-    if locked > 0:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers={"Retry-After": str(locked)},
-            detail={
-                "code": "password_change_locked",
-                "detail": translate(
-                    Msg("修改密码尝试次数过多，请 {minutes} 分钟后再试", minutes=max(math.ceil(locked / 60), 1))
-                ),
-                "retry_after": int(locked),
-            },
-        )
-    if not verify_password(body.current_password, user.password_hash):
-        cache.record_rate_limit_failure("pw-change-fail", user.id, _PW_CHANGE_WINDOW_SECONDS)
-        audit.record(session, user, "auth.password_change_failed", "user", user.id)
-        session.commit()
-        raise HTTPException(403, "当前密码不正确")
-    cache.clear_rate_limit("pw-change-fail", user.id)
+    _verify_current_password(session, user, body.current_password, audit_action="auth.password_change_failed")
     _check_password_policy(user, body.new_password)
     user.password_hash = hash_password(body.new_password)
     user.password_changed_at = utcnow()
@@ -688,6 +710,8 @@ def reset_password(
     """管理员重置密码：该用户的会话全部失效，下次登录必须修改密码。"""
     access.require_role(session, user, "admin")
     target = _user_or_404(session, user_id)
+    if target.auth_provider != "local":
+        raise HTTPException(409, "外部认证账号不支持重置本地密码")
     target.password_hash = hash_password(body.new_password)
     target.password_changed_at = utcnow()
     target.must_change_password = True
@@ -835,8 +859,8 @@ def totp_disable(
         _verify_user_totp(session, user, body.code)
         verified = True
     elif body.current_password and user.auth_provider == "local":
-        if verify_password(body.current_password, user.password_hash):
-            verified = True
+        _verify_current_password(session, user, body.current_password, audit_action="auth.totp_disable_password_failed")
+        verified = True
     if not verified:
         raise HTTPException(403, "请提供当前密码或有效双因素验证码")
     user.totp_secret_enc = None

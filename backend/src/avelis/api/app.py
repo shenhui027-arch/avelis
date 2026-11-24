@@ -14,6 +14,7 @@ from fastapi.routing import APIRoute
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from avelis.api import (
     analysis,
@@ -161,6 +162,21 @@ class _FrontendRoute(APIRoute):
         return super().matches(scope)
 
 
+class DirectPeerCaptureMiddleware:
+    """在 ProxyHeadersMiddleware 改写 scope['client'] 之前记录直连 socket 对端地址。"""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            client = scope.get("client")
+            peer_host = client[0] if client else None
+            if peer_host and "avelis_direct_peer" not in scope:
+                scope["avelis_direct_peer"] = peer_host
+        await self.app(scope, receive, send)
+
+
 def create_app(*, settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     mcp_app = None
@@ -214,6 +230,8 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(MetricsMiddleware)
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.forwarded_allow_ips)
+    app.add_middleware(DirectPeerCaptureMiddleware)
 
     @app.exception_handler(GovernanceError)
     async def governance_error(_: Request, exc: GovernanceError) -> JSONResponse:

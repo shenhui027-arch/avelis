@@ -377,3 +377,34 @@ def test_legacy_token_without_auth_time_uses_original_iat(api):
     assert refreshed["auth_time"] == claims["iat"]
     assert refreshed["iat"] > refreshed["auth_time"]
     assert api.client.post("/api/auth/refresh", headers=bearer(token)).status_code == 401
+
+
+@pytest.mark.parametrize("remember_me", [True, False])
+def test_cookie_refresh_preserves_remember_me_and_explicit_bearer_still_fails(api, remember_me):
+    resp = api.client.post(
+        "/api/auth/token",
+        data={
+            "username": api.user.username,
+            "password": "Initial-pass-2026",
+            "remember_me": "true" if remember_me else "false",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    expired_or_valid_tok = resp.json()["access_token"]
+
+    # 1. 纯 Cookie 续期（不带 Authorization）：应使用 Refresh Cookie 并保留 remember_me 持久化标志
+    api.clock.moment += timedelta(minutes=10)
+    renewed = api.client.post("/api/auth/refresh")
+    assert renewed.status_code == 200, renewed.text
+    set_cookies = renewed.headers.get_list("set-cookie")
+    assert len(set_cookies) >= 2
+    if remember_me:
+        assert all("Max-Age=" in c for c in set_cookies)
+    else:
+        assert all("Max-Age=" not in c for c in set_cookies)
+
+    # 2. 非浏览器客户端显式传入已过期 Bearer 时仍返回 401，不悄悄回退到 Cookie；但纯 Cookie 仍可继续续期
+    api.clock.moment += timedelta(minutes=121)
+    assert api.client.post("/api/auth/refresh", headers=bearer(expired_or_valid_tok)).status_code == 401
+    still_valid = api.client.post("/api/auth/refresh")
+    assert still_valid.status_code == 200, still_valid.text

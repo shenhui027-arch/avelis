@@ -618,7 +618,7 @@ def verify_forward_auth_trust(request: Request, cfg: dict[str, Any], settings: S
         return
     if settings.forwarded_allow_ips.strip() == "*":
         raise HTTPException(403, "未配置共享密钥时不允许通配符代理信任")
-    client_host = request.client.host if request.client else None
+    client_host = request.scope.get("avelis_direct_peer") or (request.client.host if request.client else None)
     if not is_trusted_proxy_ip(client_host, settings.forwarded_allow_ips):
         raise HTTPException(403, "请求来源不在受信任代理列表中")
 
