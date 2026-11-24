@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 
 import jwt
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pwdlib import PasswordHash
@@ -62,18 +62,55 @@ def _derive(secret: str, purpose: bytes) -> bytes:
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=purpose).derive(secret.encode())
 
 
-@lru_cache(maxsize=4)
-def _fernet(secret: str) -> MultiFernet:
+@lru_cache(maxsize=8)
+def _fernet_primary(secret: str) -> Fernet:
     key = base64.urlsafe_b64encode(_derive(secret, b"avelis/datasource-credential"))
-    return MultiFernet([Fernet(key)])
+    return Fernet(key)
+
+
+@lru_cache(maxsize=8)
+def _fernet(secret: str, secret_previous: str = "") -> MultiFernet:
+    fernets = [_fernet_primary(secret)]
+    if secret_previous and secret_previous != secret:
+        fernets.append(_fernet_primary(secret_previous))
+    return MultiFernet(fernets)
 
 
 def encrypt_secret(plain: str) -> str:
-    return _fernet(get_settings().secret).encrypt(plain.encode()).decode()
+    s = get_settings()
+    return _fernet(s.secret, s.secret_previous).encrypt(plain.encode()).decode()
 
 
 def decrypt_secret(token: str) -> str:
-    return _fernet(get_settings().secret).decrypt(token.encode()).decode()
+    s = get_settings()
+    return _fernet(s.secret, s.secret_previous).decrypt(token.encode()).decode()
+
+
+def needs_secret_rotation(token: str) -> bool:
+    """判断密文是否由旧密钥（AVELIS_SECRET_PREVIOUS）加密，需用当前主密钥重加密。"""
+    s = get_settings()
+    raw = token.encode()
+    try:
+        _fernet_primary(s.secret).decrypt(raw)
+        return False
+    except InvalidToken:
+        if not s.secret_previous or s.secret_previous == s.secret:
+            raise
+        _fernet_primary(s.secret_previous).decrypt(raw)
+        return True
+
+
+def rotate_secret_token(token: str) -> tuple[str, bool]:
+    """用 MultiFernet 解密后以当前主密钥重新加密；若已由主密钥加密则原样返回。"""
+    s = get_settings()
+    raw = token.encode()
+    primary = _fernet_primary(s.secret)
+    try:
+        primary.decrypt(raw)
+        return token, False
+    except InvalidToken:
+        plain = _fernet(s.secret, s.secret_previous).decrypt(raw)
+        return primary.encrypt(plain).decode(), True
 
 
 @lru_cache(maxsize=4)
@@ -125,15 +162,22 @@ def create_access_token(user_id: str, username: str, *, auth_time: int | None = 
     return token, expires, jti
 
 
+def _decode_jwt(token: str, audience: str) -> dict:
+    s = get_settings()
+    opts = {"require": ["sub", "exp", "jti", "aud"]}
+    try:
+        return jwt.decode(token, _jwt_key(s.secret), algorithms=[JWT_ALGORITHM], audience=audience, options=opts)
+    except jwt.InvalidSignatureError:
+        if not s.secret_previous or s.secret_previous == s.secret:
+            raise
+        return jwt.decode(
+            token, _jwt_key(s.secret_previous), algorithms=[JWT_ALGORITHM], audience=audience, options=opts
+        )
+
+
 def decode_access_token(token: str) -> dict:
     """校验签名、过期与受众；失败抛 jwt.InvalidTokenError。"""
-    return jwt.decode(
-        token,
-        _jwt_key(get_settings().secret),
-        algorithms=[JWT_ALGORITHM],
-        audience=JWT_AUDIENCE,
-        options={"require": ["sub", "exp", "jti", "aud"]},
-    )
+    return _decode_jwt(token, JWT_AUDIENCE)
 
 
 def create_refresh_token(
@@ -166,13 +210,7 @@ def create_refresh_token(
 
 
 def decode_refresh_token(token: str) -> dict:
-    return jwt.decode(
-        token,
-        _jwt_key(get_settings().secret),
-        algorithms=[JWT_ALGORITHM],
-        audience=JWT_REFRESH_AUDIENCE,
-        options={"require": ["sub", "exp", "jti", "aud"]},
-    )
+    return _decode_jwt(token, JWT_REFRESH_AUDIENCE)
 
 
 def create_totp_challenge(user_id: str, *, remember_me: bool = False, ttl_seconds: int = 300) -> str:
@@ -194,10 +232,4 @@ def create_totp_challenge(user_id: str, *, remember_me: bool = False, ttl_second
 
 
 def decode_totp_challenge(token: str) -> dict:
-    return jwt.decode(
-        token,
-        _jwt_key(get_settings().secret),
-        algorithms=[JWT_ALGORITHM],
-        audience=JWT_CHALLENGE_AUDIENCE,
-        options={"require": ["sub", "exp", "jti", "aud"]},
-    )
+    return _decode_jwt(token, JWT_CHALLENGE_AUDIENCE)

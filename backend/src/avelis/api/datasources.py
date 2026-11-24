@@ -18,6 +18,7 @@ from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
 from avelis.collect.service import CollectionFailed
 from avelis.config import get_settings
+from avelis.connectors.tls import parse_tls_options
 from avelis.engines import CredentialMissing, collect_connector, engine_of, engines, get_engine
 from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
@@ -91,6 +92,14 @@ def _validate_engine_options(engine, options: dict | None) -> None:
             422,
             Msg("{engine} 数据源配置取值不合法：{options}", engine=engine.label, options=gettext("；").join(invalid)),
         )
+    if not engine.is_test_adapter:
+        try:
+            parse_tls_options(opts, check_exists=False)
+        except ValueError as exc:
+            raise HTTPException(
+                422,
+                Msg("{engine} 数据源 TLS 配置无效：{error}", engine=engine.label, error=str(exc)),
+            ) from None
 
 
 def datasource_view(session: Session, ds: Datasource) -> dict:

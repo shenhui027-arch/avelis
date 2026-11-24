@@ -69,6 +69,8 @@ class Settings:
     database_url: str
     redis_url: str
     secret: str
+    secret_previous: str = ""
+    tls_ca_dir: str = ""
     access_token_minutes: int = 120  # 单个登录凭证有效期（闲置超时），单位分钟
     session_max_hours: int = 168  # 一次登录最长可续期时长，单位小时；到期后必须重新登录
     login_max_failures: int = 5
@@ -125,6 +127,11 @@ class Settings:
     mcp_cimd_allowed_urls: tuple[str, ...] = ()
     forwarded_allow_ips: str = "127.0.0.1"
     log_level: str = "info"
+    log_format: str = "text"
+    metrics_enabled: bool = False
+    metrics_token: str = ""
+    otel_enabled: bool = False
+    otel_endpoint: str = ""
     frontend_dir: Path | None = None
     auto_migrate: bool = True
     auto_init_admin: bool = True
@@ -282,6 +289,9 @@ def _frontend_directory(env: dict[str, str]) -> Path | None:
 def _build_settings(env: dict[str, str]) -> Settings:
     redis_url = _redis_url(env)
     secret = env.get("AVELIS_SECRET", "")
+    raw_prev = env.get("AVELIS_SECRET_PREVIOUS", "")
+    secret_previous = "" if not raw_prev or raw_prev == secret else raw_prev
+    tls_ca_dir = env.get("AVELIS_TLS_CA_DIR", "").strip()
     origins = env.get("AVELIS_CORS_ORIGINS")
     mcp_enabled = _boolean(env, "AVELIS_MCP_ENABLED", Settings.mcp_enabled)
     environment = _enum(env, "AVELIS_ENVIRONMENT", Settings.environment, ("production", "development", "test"))
@@ -299,6 +309,8 @@ def _build_settings(env: dict[str, str]) -> Settings:
         database_url=_database_url(env),
         redis_url=redis_url,
         secret=secret,
+        secret_previous=secret_previous,
+        tls_ca_dir=tls_ca_dir,
         access_token_minutes=_positive_int(env, "AVELIS_ACCESS_TOKEN_MINUTES", Settings.access_token_minutes),
         session_max_hours=_positive_int(env, "AVELIS_SESSION_MAX_HOURS", Settings.session_max_hours),
         business_timezone=env.get("AVELIS_BUSINESS_TIMEZONE", "Asia/Shanghai"),
@@ -388,6 +400,11 @@ def _build_settings(env: dict[str, str]) -> Settings:
         log_level=_enum(
             env, "AVELIS_LOG_LEVEL", Settings.log_level, ("critical", "error", "warning", "info", "debug", "trace")
         ),
+        log_format=_enum(env, "AVELIS_LOG_FORMAT", Settings.log_format, ("text", "json")),
+        metrics_enabled=_boolean(env, "AVELIS_METRICS_ENABLED", Settings.metrics_enabled),
+        metrics_token=env.get("AVELIS_METRICS_TOKEN", "").strip(),
+        otel_enabled=_boolean(env, "AVELIS_OTEL_ENABLED", Settings.otel_enabled),
+        otel_endpoint=env.get("AVELIS_OTEL_EXPORTER_OTLP_ENDPOINT", "").strip(),
         frontend_dir=_frontend_directory(env),
         auto_migrate=_boolean(env, "AVELIS_AUTO_MIGRATE", Settings.auto_migrate),
         auto_init_admin=_boolean(env, "AVELIS_AUTO_INIT_ADMIN", Settings.auto_init_admin),
@@ -548,6 +565,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
                 "AVELIS_MCP_ENABLED",
                 "AVELIS_WEBHOOK_ALLOW_PRIVATE_URLS",
                 "AVELIS_ASK_SEMANTIC_CACHE_ENABLED",
+                "AVELIS_METRICS_ENABLED",
+                "AVELIS_OTEL_ENABLED",
             ):
                 _boolean(values, key, default)
         except ValueError as exc:
@@ -571,6 +590,10 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         )
     except ValueError as exc:
         values.problem("AVELIS_LOG_LEVEL", str(exc))
+    try:
+        _enum(values, "AVELIS_LOG_FORMAT", Settings.log_format, ("text", "json"))
+    except ValueError as exc:
+        values.problem("AVELIS_LOG_FORMAT", str(exc))
     try:
         _enum(values, "AVELIS_ENVIRONMENT", Settings.environment, ("production", "development", "test"))
     except ValueError as exc:
@@ -621,6 +644,8 @@ def build_settings(env: dict[str, str] | None = None) -> Settings:
         values.problem("AVELIS_PUBLIC_URL", str(exc))
     if len(values.get("AVELIS_SECRET", "")) < 16:
         values.problem("AVELIS_SECRET", "必填，至少 16 个字符，当前为空或长度不足")
+    if (prev := values.get("AVELIS_SECRET_PREVIOUS", "")) and len(prev) < 16:
+        values.problem("AVELIS_SECRET_PREVIOUS", "配置后须至少 16 个字符")
     if values.get("AVELIS_DATABASE_URL") and not values["AVELIS_DATABASE_URL"].startswith("postgresql"):
         values.problem("AVELIS_DATABASE_URL", "元数据库只支持 PostgreSQL，连接串须以 postgresql 开头")
     if not values.get("AVELIS_DATABASE_URL") and values.get("AVELIS_DB_HOST"):

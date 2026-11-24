@@ -256,10 +256,12 @@ def setup(reset: bool, metrics: bool = False, ec: bool | None = False, mfg: bool
         _setup_ec(client, admin, password, existing, env, metrics)
     if mfg or (mfg is None and ec is None and mfg_dataset_loaded()):
         _setup_mfg(client, admin, password, existing, env, metrics)
+    admin("PUT", "/api/model-settings", json={"assignments": {}, "policy": {"send_results": True, "send_code": True}})
     assets = admin("GET", "/api/assets")
     print(
         f"演示环境已就绪：{len(existing)} 个用户、{len(admin('GET', '/api/domains'))} 个业务域、"
-        f"{len(admin('GET', '/api/datasources'))} 个数据源、{len(assets)} 个资产（密码未打印）"
+        f"{len(admin('GET', '/api/datasources'))} 个数据源、{len(assets)} 个资产（密码未打印；"
+        "演示模式已开启 send_results=true，生产环境默认关闭）"
     )
     client.close()
 

@@ -134,6 +134,26 @@ def _plan(session: Session, cutoff: datetime) -> dict[str, list[str]]:
         s=sets,
         **p,
     )
+    plan["analysis_dataset"] = _ids(
+        session,
+        """
+        SELECT d.id FROM analysis_dataset d
+        JOIN analysis_run r ON r.id = d.run_id
+        WHERE d.created_at < :cutoff AND r.finished_at < :cutoff""",
+        **p,
+    )
+    plan["answer"] = _ids(
+        session,
+        """
+        SELECT a.id FROM answer a WHERE a.asked_at < :cutoff
+          AND NOT EXISTS (SELECT 1 FROM verified_query vq WHERE vq.source_answer_id = a.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM analysis_dataset ad
+            WHERE ad.answer_id = a.id AND NOT (ad.id = ANY(:ad))
+          )""",
+        ad=plan["analysis_dataset"],
+        **p,
+    )
     return plan
 
 
@@ -150,6 +170,8 @@ ORDER = (
     "review_task",
     "change_set",
     "audit_event",
+    "analysis_dataset",
+    "answer",
     "metric_version_transition",
     "column_fingerprint",
     "identity_link",

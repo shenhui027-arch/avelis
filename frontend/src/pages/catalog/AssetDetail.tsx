@@ -10,11 +10,12 @@ import {
 import { formatTime } from "../../format";
 import { useRoles } from "../../layout/Shell";
 import { t } from "../../i18n";
+import { AssetSecurityTab } from "./AssetSecurityTab";
 import { AssetDossier } from "./dossier/AssetDossier";
 import { CopyName } from "./dossier/CopyName";
 import { FlowBand } from "./dossier/FlowBand";
 
-type Tab = "dossier" | "columns" | "definition" | "grain" | "link" | "versions";
+type Tab = "dossier" | "columns" | "security" | "definition" | "grain" | "link" | "versions";
 
 export function AssetDetail({ assetId }: { assetId: string }) {
   const asset = useAsset(assetId);
@@ -62,6 +63,7 @@ function AssetContent({ a }: { a: AssetDetailT }) {
         <Tabs value={tab} onChange={setTab} options={[
           { value: "dossier", label: t("档案") },
           { value: "columns", label: <>{t("字段")} <span className="av-count">{a.columns.length}</span></> },
+          { value: "security", label: t("安全策略") },
           ...(a.definition ? [{ value: "definition" as Tab, label: t("定义") }] : []),
           { value: "grain", label: t("粒度") },
           ...(external ? [{ value: "link" as Tab, label: t("同一张表") }] : []),
@@ -69,6 +71,7 @@ function AssetContent({ a }: { a: AssetDetailT }) {
         ]} />
         {tab === "dossier" ? <AssetDossier a={a} dossier={dossier} /> : null}
         {tab === "columns" ? <Columns a={a} /> : null}
+        {tab === "security" ? <AssetSecurityTab assetId={a.id} /> : null}
         {tab === "definition" ? <Definition a={a} /> : null}
         {tab === "grain" ? <Grains a={a} /> : null}
         {tab === "link" ? <Links a={a} /> : null}

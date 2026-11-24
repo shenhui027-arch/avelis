@@ -281,3 +281,43 @@ export const useMyLlmUsage = (enabled = true) => useQuery({
   queryKey: ["llm-usage", "me"], enabled,
   queryFn: ({ signal }) => unwrap(api.GET("/api/llm-usage/me", { signal })),
 });
+
+export type AssetColumnPolicy = {
+  id: string;
+  asset_id: string;
+  column_name: string;
+  classification: "pii" | "sensitive" | "confidential";
+  masking_strategy: "none" | "mask" | "hash" | "redact";
+  exempt_roles: string[];
+  note: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+};
+
+export type AssetRlsPolicy = {
+  id: string;
+  asset_id: string;
+  name: string;
+  scope_type: "all" | "role" | "domain" | "user";
+  scope_value: string | null;
+  predicate_sql: string;
+  enabled: boolean;
+  updated_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AssetSecurityPolicies = {
+  asset_id: string;
+  columns: string[];
+  column_policies: AssetColumnPolicy[];
+  rls_policies: AssetRlsPolicy[];
+};
+
+export const useAssetSecurityPolicies = (assetId?: string) => useQuery({
+  queryKey: ["asset-security-policies", assetId],
+  enabled: !!assetId,
+  queryFn: ({ signal }) => unwrap(
+    api.GET("/api/assets/{asset_id}/security-policies", { params: { path: { asset_id: assetId! } }, signal }),
+  ) as Promise<AssetSecurityPolicies>,
+});

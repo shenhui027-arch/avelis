@@ -1089,8 +1089,38 @@ def govern(state: AgentState, config) -> dict[str, Any]:
     return {"steps": [gov_step]}
 
 
-def _explain_payload(answer, intent: dict) -> dict:
+def _result_for_llm(answer) -> dict:
+    """对存在列级 PII 策略的字段强制执行 for_llm=True 脱敏，即使用户本人具有豁免角色。"""
     result = answer.result or {}
+    specs = (getattr(answer, "evidence", None) or {}).get("pii_column_specs")
+    if not specs or not result.get("columns") or not result.get("rows"):
+        return result
+    from avelis.governance import data_policy
+
+    columns = list(result["columns"])
+    policy_map: dict[int, tuple[str, str, tuple[str, ...]]] = {}
+    for idx, col in enumerate(columns):
+        spec = specs.get(col)
+        if spec and not spec.get("masked"):
+            policy_map[idx] = (
+                spec.get("classification", "pii"),
+                spec.get("strategy", "mask"),
+                tuple(spec.get("exempt_roles") or ()),
+            )
+    if not policy_map:
+        return result
+    masked_rows, _ = data_policy.apply_pii_masking(
+        columns,
+        result["rows"],
+        policy_map,
+        user_roles=set(),
+        for_llm=True,
+    )
+    return {**result, "rows": masked_rows}
+
+
+def _explain_payload(answer, intent: dict, *, result_override: dict | None = None) -> dict:
+    result = result_override if result_override is not None else (answer.result or {})
     columns, rows = result.get("columns") or [], result.get("rows") or []
     roles, units = result.get("column_roles") or {}, result.get("units") or {}
 
@@ -1213,9 +1243,9 @@ def explain_answer(
             return reply if reply is not None else AIMessage("")
 
         if answer.status == "answered" and model is not None:
-            result = answer.result or {}
+            result = _result_for_llm(answer)
             intent = intent or getattr(answer, "intent", None) or {}
-            payload = _explain_payload(answer, intent)
+            payload = _explain_payload(answer, intent, result_override=result)
             options = charts.recommend(
                 result.get("columns") or [],
                 result.get("rows") or [],

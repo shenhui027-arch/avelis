@@ -272,6 +272,8 @@ def test_bootstrap_init_admin_reports_validation_failure_with_exit(monkeypatch):
 
 
 def test_uvicorn_options_preserve_defaults(settings):
+    from avelis.observability import build_uvicorn_log_config
+
     assert server.uvicorn_options(settings) == {
         "host": "127.0.0.1",
         "port": 8000,
@@ -279,10 +281,14 @@ def test_uvicorn_options_preserve_defaults(settings):
         "proxy_headers": True,
         "forwarded_allow_ips": "127.0.0.1",
         "log_level": "info",
+        "access_log": False,
+        "log_config": build_uvicorn_log_config(settings),
     }
 
 
 def test_uvicorn_options_pass_configured_proxy_trust_and_workers(settings):
+    from avelis.observability import build_uvicorn_log_config
+
     settings = dataclasses.replace(
         settings, host="0.0.0.0", port=8080, workers=3, forwarded_allow_ips="10.0.0.1,10.0.0.2", log_level="warning"
     )
@@ -294,6 +300,8 @@ def test_uvicorn_options_pass_configured_proxy_trust_and_workers(settings):
         "proxy_headers": True,
         "forwarded_allow_ips": "10.0.0.1,10.0.0.2",
         "log_level": "warning",
+        "access_log": False,
+        "log_config": build_uvicorn_log_config(settings),
     }
 
 
@@ -332,24 +340,25 @@ def test_server_initializes_before_serving(monkeypatch, startup):
     )
     monkeypatch.setattr(server, "get_settings", lambda: settings)
     events = []
-    basic_config = Mock(side_effect=lambda **kwargs: events.append("logging"))
-    monkeypatch.setattr(server.logging, "basicConfig", basic_config)
+    configure_log = Mock(side_effect=lambda *args, **kwargs: events.append("logging"))
+    monkeypatch.setattr(server, "configure_logging", configure_log)
     migrate.side_effect = lambda: events.append("migrate")
     init_admin.side_effect = lambda: events.append("init-admin")
     run.side_effect = lambda *args, **kwargs: events.append("serve")
     server.main()
     assert events == ["logging", "migrate", "init-admin", "serve"]
-    basic_config.assert_called_once_with(level="INFO", format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_log.assert_called_once_with("info", "text", service="avelis-api", env="production")
 
 
-@pytest.mark.parametrize("log_level, expected", [("warning", "WARNING"), ("trace", logging.DEBUG)])
+@pytest.mark.parametrize("log_level, expected", [("warning", logging.WARNING), ("trace", logging.DEBUG)])
 def test_server_configures_supported_log_levels(monkeypatch, startup, log_level, expected):
     settings = dataclasses.replace(startup[0], log_level=log_level)
     monkeypatch.setattr(server, "get_settings", lambda: settings)
     basic_config = Mock()
-    monkeypatch.setattr(server.logging, "basicConfig", basic_config)
+    monkeypatch.setattr(logging, "basicConfig", basic_config)
     server.main()
-    basic_config.assert_called_once_with(level=expected, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    assert basic_config.call_args.kwargs["level"] == expected
+    assert basic_config.call_args.kwargs["force"] is True
     assert startup[3].call_args.kwargs["log_level"] == log_level
 
 

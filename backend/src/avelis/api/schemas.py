@@ -734,6 +734,7 @@ class HistoryStatusOut(Out):
     purge_interval_hours: int
     export_max_rows: int
     chain_head: Json | None = None
+    chained_rows: int | None = None
     last_purge: Json | None = None
     anchors: list[Json]
 
@@ -823,6 +824,10 @@ class AuditOut(Out):
     object_type: str
     object_id: str | None = None
     detail: Json
+    client_ip: str | None = None
+    user_agent: str | None = None
+    request_id: str | None = None
+    trace_id: str | None = None
     outcome: Literal["success", "failure"] = "success"
     event_type: str | None = None
     error: Json | None = None

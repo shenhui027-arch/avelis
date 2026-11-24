@@ -328,6 +328,7 @@ function routeTitle(pathname: string, search: string): string {
   if (pathname.startsWith("/settings/webhooks")) return t("通知订阅");
   if (pathname.startsWith("/settings/mcp")) return t("MCP 接入");
   if (pathname.startsWith("/settings/auth")) return t("认证与品牌");
+  if (pathname.startsWith("/settings/audit")) return t("审计与验真");
   if (pathname.startsWith("/account/security")) return t("账号安全");
   return "Avelis";
 }
@@ -379,7 +380,7 @@ export function Shell() {
   );
 }
 
-export type SettingsTabKey = "datasources" | "models" | "users" | "calendar" | "webhooks" | "mcp" | "auth";
+export type SettingsTabKey = "datasources" | "models" | "users" | "calendar" | "webhooks" | "mcp" | "auth" | "audit";
 
 export function SettingsTabs({ current }: { current: SettingsTabKey }) {
   const me = useMe();
@@ -395,6 +396,7 @@ export function SettingsTabs({ current }: { current: SettingsTabKey }) {
     ["webhooks", t("通知订阅"), isAdmin],
     ["mcp", t("MCP 接入"), true],
     ["auth", t("认证与品牌"), isAdmin],
+    ["audit", t("审计与验真"), isAdmin],
   ] as const).filter(([key, , allowed]) => allowed || (!me.data && key === current));
   // 设置分区是路由导航：用链接与 aria-current，而不是按钮组
   return (

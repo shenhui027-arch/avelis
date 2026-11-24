@@ -52,6 +52,51 @@ jobs:
           AVELIS_ENV_FILE: /nonexistent
         run: uv run --frozen python -m pytest tests/unit -q -p no:cacheprovider
 
+  backend-integration:
+    name: 后端数据库集成测试
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: avelis
+          POSTGRES_PASSWORD: ci-test-password
+          POSTGRES_DB: avelis_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U avelis -d avelis_ci_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      valkey:
+        image: valkey/valkey:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="valkey-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - name: 安装中文字体（PDF 导出用）
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-wqy-microhei
+      - name: 安装依赖
+        working-directory: backend
+        run: uv sync --frozen
+      - name: PostgreSQL 18 + Valkey 8 集成测试
+        working-directory: backend
+        env:
+          AVELIS_ENV_FILE: /nonexistent
+          AVELIS_SECRET: ci-integration-secret-0123456789abcdef
+          AVELIS_DATABASE_URL: postgresql+psycopg://avelis:ci-test-password@127.0.0.1:5432/avelis_ci_test
+          AVELIS_REDIS_URL: redis://127.0.0.1:6379/0
+        run: uv run --frozen python -m pytest -m db tests/db tests/metadb -q -p no:cacheprovider
+
   frontend:
     name: 前端类型检查与构建
     runs-on: ubuntu-latest
@@ -80,3 +125,114 @@ jobs:
       - name: 前端测试（src 下的 *.test.mjs）
         working-directory: frontend
         run: pnpm test
+
+  e2e:
+    name: Playwright 端到端测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11.8.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - name: 安装后端依赖
+        working-directory: backend
+        run: uv sync --frozen
+      - name: 安装前端依赖并构建
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: 安装 Playwright Chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+      - name: 运行端到端测试
+        working-directory: frontend
+        run: pnpm e2e
+
+  docker-smoke:
+    name: Docker 镜像冒烟测试
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: avelis
+          POSTGRES_PASSWORD: ci-test-password
+          POSTGRES_DB: avelis_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U avelis -d avelis_ci_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+      valkey:
+        image: valkey/valkey:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="valkey-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建运行镜像
+        run: docker build -t avelis:ci-smoke .
+      - name: 启动容器并检查健康探针
+        run: |
+          docker run -d --name avelis-smoke --network host \
+            -e AVELIS_ENV_FILE=/nonexistent \
+            -e AVELIS_SECRET=ci-docker-smoke-secret-0123456789 \
+            -e AVELIS_DATABASE_URL=postgresql+psycopg://avelis:ci-test-password@127.0.0.1:5432/avelis_ci_test \
+            -e AVELIS_REDIS_URL=redis://127.0.0.1:6379/0 \
+            -e AVELIS_AUTO_MIGRATE=true \
+            -e AVELIS_AUTO_INIT_ADMIN=true \
+            -e AVELIS_INITIAL_ADMIN_PASSWORD=CiSmokePassword123! \
+            -e AVELIS_ENVIRONMENT=test \
+            -e AVELIS_COOKIE_SECURE=false \
+            avelis:ci-smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health && curl -fsS http://127.0.0.1:8000/api/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs avelis-smoke
+          exit 1
+      - name: 清理容器
+        if: always()
+        run: docker rm -f avelis-smoke || true
+
+  security-audit:
+    name: 依赖安全审计
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.16"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11.8.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Python 依赖漏洞扫描
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          uv export --frozen --no-hashes --no-emit-project > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --desc on
+      - name: 前端依赖漏洞扫描
+        working-directory: frontend
+        continue-on-error: true
+        run: pnpm audit --audit-level=high

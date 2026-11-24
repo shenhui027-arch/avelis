@@ -585,6 +585,54 @@
     }
    }
   },
+  "/api/users/{user_id}/anonymize": {
+   "post": {
+    "tags": [
+     "认证与用户"
+    ],
+    "summary": "Admin Anonymize User",
+    "description": "管理员匿名化注销用户：吊销一切凭据并抹除个人信息，历史哈希链保持完整。",
+    "operationId": "admin_anonymize_user_api_users__user_id__anonymize_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/me/totp": {
    "get": {
     "tags": [
@@ -3059,6 +3107,344 @@
         }
        }
       }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/security-policies": {
+   "get": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "List Security Policies",
+    "operationId": "list_security_policies_api_assets__asset_id__security_policies_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response List Security Policies Api Assets  Asset Id  Security Policies Get"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/column-policies/{column}": {
+   "put": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "Upsert Column Policy",
+    "operationId": "upsert_column_policy_api_assets__asset_id__column_policies__column__put",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "column",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Column"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ColumnPolicyUpsert"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Upsert Column Policy Api Assets  Asset Id  Column Policies  Column  Put"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "Delete Column Policy",
+    "operationId": "delete_column_policy_api_assets__asset_id__column_policies__column__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "column",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Column"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/rls-policies": {
+   "post": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "Create Rls Policy",
+    "operationId": "create_rls_policy_api_assets__asset_id__rls_policies_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RlsPolicyCreate"
+       }
+      }
+     }
+    },
+    "responses": {
+     "201": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Create Rls Policy Api Assets  Asset Id  Rls Policies Post"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/assets/{asset_id}/rls-policies/{policy_id}": {
+   "patch": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "Update Rls Policy",
+    "operationId": "update_rls_policy_api_assets__asset_id__rls_policies__policy_id__patch",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "policy_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Policy Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RlsPolicyPatch"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": true,
+         "title": "Response Update Rls Policy Api Assets  Asset Id  Rls Policies  Policy Id  Patch"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   },
+   "delete": {
+    "tags": [
+     "数据安全策略"
+    ],
+    "summary": "Delete Rls Policy",
+    "operationId": "delete_rls_policy_api_assets__asset_id__rls_policies__policy_id__delete",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Asset Id"
+      }
+     },
+     {
+      "name": "policy_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Policy Id"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
      },
      "422": {
       "description": "Validation Error",
@@ -5685,13 +6071,124 @@
       }
      },
      {
+      "name": "actor_name",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Actor Name"
+      }
+     },
+     {
+      "name": "request_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Request Id"
+      }
+     },
+     {
+      "name": "trace_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Trace Id"
+      }
+     },
+     {
+      "name": "client_ip",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Client Ip"
+      }
+     },
+     {
+      "name": "since",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Since"
+      }
+     },
+     {
+      "name": "until",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Until"
+      }
+     },
+     {
       "name": "limit",
       "in": "query",
       "required": false,
       "schema": {
        "type": "integer",
+       "maximum": 1000,
+       "minimum": 1,
        "default": 200,
        "title": "Limit"
+      }
+     },
+     {
+      "name": "offset",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 0,
+       "default": 0,
+       "title": "Offset"
       }
      }
     ],
@@ -13945,6 +14442,50 @@
       "type": "object",
       "title": "Detail"
      },
+     "client_ip": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Client Ip"
+     },
+     "user_agent": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User Agent"
+     },
+     "request_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Request Id"
+     },
+     "trace_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Trace Id"
+     },
      "outcome": {
       "type": "string",
       "enum": [
@@ -16148,6 +16689,52 @@
     ],
     "title": "ColumnOut"
    },
+   "ColumnPolicyUpsert": {
+    "properties": {
+     "classification": {
+      "type": "string",
+      "enum": [
+       "pii",
+       "sensitive",
+       "confidential"
+      ],
+      "title": "Classification",
+      "default": "pii"
+     },
+     "masking_strategy": {
+      "type": "string",
+      "enum": [
+       "none",
+       "mask",
+       "hash",
+       "redact"
+      ],
+      "title": "Masking Strategy",
+      "default": "mask"
+     },
+     "exempt_roles": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Exempt Roles"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     }
+    },
+    "type": "object",
+    "title": "ColumnPolicyUpsert"
+   },
    "ColumnRole": {
     "properties": {
      "role": {
@@ -17963,7 +18550,17 @@
      "lineage_import.completed",
      "lineage_import.failed",
      "attribution.unavailable",
-     "auth.login_failure_threshold"
+     "auth.login_failure_threshold",
+     "auth.login_failed",
+     "auth.login_locked",
+     "user.totp_enabled",
+     "user.totp_disabled",
+     "user.pat_created",
+     "user.pat_revoked",
+     "user.anonymized",
+     "data_policy.changed",
+     "analysis.exported",
+     "history.verify_failed"
     ],
     "title": "EventType"
    },
@@ -18612,6 +19209,16 @@
      "lineage_import.failed",
      "attribution.unavailable",
      "auth.login_failure_threshold",
+     "auth.login_failed",
+     "auth.login_locked",
+     "user.totp_enabled",
+     "user.totp_disabled",
+     "user.pat_created",
+     "user.pat_revoked",
+     "user.anonymized",
+     "data_policy.changed",
+     "analysis.exported",
+     "history.verify_failed",
      "webhook.test"
     ],
     "title": "GovernanceEventType"
@@ -18947,6 +19554,17 @@
        }
       ],
       "title": "Chain Head"
+     },
+     "chained_rows": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Chained Rows"
      },
      "last_purge": {
       "anyOf": [
@@ -22636,6 +23254,128 @@
      "note"
     ],
     "title": "Resolve"
+   },
+   "RlsPolicyCreate": {
+    "properties": {
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Name"
+     },
+     "scope_type": {
+      "type": "string",
+      "enum": [
+       "all",
+       "role",
+       "domain",
+       "user"
+      ],
+      "title": "Scope Type",
+      "default": "all"
+     },
+     "scope_value": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scope Value"
+     },
+     "predicate_sql": {
+      "type": "string",
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Predicate Sql"
+     },
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "default": true
+     }
+    },
+    "type": "object",
+    "required": [
+     "name",
+     "predicate_sql"
+    ],
+    "title": "RlsPolicyCreate"
+   },
+   "RlsPolicyPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "scope_type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "all",
+         "role",
+         "domain",
+         "user"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scope Type"
+     },
+     "scope_value": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 128
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Scope Value"
+     },
+     "predicate_sql": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 2000,
+        "minLength": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Predicate Sql"
+     },
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     }
+    },
+    "type": "object",
+    "title": "RlsPolicyPatch"
    },
    "RoutingConfig": {
     "properties": {

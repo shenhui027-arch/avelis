@@ -64,6 +64,7 @@ def toolbox(monkeypatch):
                 DomainMember(user_id="reader", domain_id="visible", role="viewer"),
                 Datasource(id="ds", name="离线数据源", kind="postgres", host="offline", port=1),
                 CollectionRun(id="run", datasource_id="ds", trigger="manual", status="succeeded"),
+                AppSetting(key="model_policy", value={"send_results": True, "send_code": True}),
             ]
         )
         for asset_id, domain in (("asset", "visible"), ("upstream", "visible"), ("hidden_asset", "hidden")):
@@ -323,7 +324,8 @@ def test_sql_is_not_an_argument_and_filters_remain_literals(toolbox):
 
 
 def test_data_policy_compiles_without_connection_cache_freshness_or_rows(toolbox, monkeypatch):
-    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False, "send_code": True}))
+    toolbox.session.merge(AppSetting(key="model_policy", value={"send_results": False, "send_code": True}))
+    toolbox.session.flush()
 
     def forbidden(*args, **kwargs):
         pytest.fail("禁外发编译不应访问业务数据库或答案缓存")
@@ -341,7 +343,8 @@ def test_data_policy_compiles_without_connection_cache_freshness_or_rows(toolbox
 
 @pytest.mark.parametrize("derived", [False, True])
 def test_compare_and_derived_compile_all_subqueries_with_policy_disabled(toolbox, monkeypatch, derived):
-    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.merge(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.flush()
     code = "metric_a"
     if derived:
         toolbox.session.add(
@@ -603,7 +606,8 @@ def test_ask_metric_multi_metric_validation_and_policy_definitions(toolbox, monk
     with pytest.raises(NotFound):
         toolbox.tool.ask_metric(metrics=["metric_a", "metric_b"], start_date=START, end_date=END)
 
-    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.merge(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.flush()
     monkeypatch.setattr(service, "query_connector", lambda *args: pytest.fail("compile-only must not connect"))
     compiled = toolbox.tool.ask_metric(
         metrics=["metric_a", "metric_d"],
@@ -776,7 +780,8 @@ def test_ask_metric_multi_metric_alignment_conflict_becomes_unresolved(toolbox, 
 
 
 def test_ask_metric_alignment_skipped_when_send_results_disabled(toolbox, monkeypatch):
-    toolbox.session.add(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.merge(AppSetting(key="model_policy", value={"send_results": False}))
+    toolbox.session.flush()
     monkeypatch.setattr(service, "query_connector", lambda *args: pytest.fail("compile-only must not connect"))
     res = toolbox.tool.ask_metric(
         "metric_a",

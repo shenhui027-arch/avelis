@@ -13,6 +13,7 @@ from sqlalchemy import and_, or_, select, true
 from sqlalchemy.orm import Session
 
 from avelis.config import get_settings
+from avelis.db import table_exists
 from avelis.governance.errors import Forbidden
 from avelis.i18n import Msg
 from avelis.models import Asset, Domain, DomainMember, User, UserRole
@@ -21,7 +22,11 @@ ROLES = ("admin", "steward", "reviewer", "analyst")
 
 
 def roles_of(session: Session, user: User) -> set[str]:
-    return set(session.scalars(select(UserRole.role).where(UserRole.user_id == user.id)))
+    if session is None or user is None or not hasattr(session, "scalars"):
+        return set()
+    if isinstance(session, Session) and not table_exists(session, "user_role"):
+        return set()
+    return {r for r in session.scalars(select(UserRole.role).where(UserRole.user_id == user.id)) if isinstance(r, str)}
 
 
 def is_admin(session: Session, user: User) -> bool:

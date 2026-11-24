@@ -1736,6 +1736,21 @@ class AnalysisToolbox:
 
     def _view(self, ref: str, ds: AnalysisDataset, *, offset: int = 0, limit: int = MODEL_ROWS) -> dict:
         rows = ds.rows[offset : offset + limit]
+        specs = (ds.meta or {}).get("pii_column_specs")
+        if specs and rows and ds.columns:
+            from avelis.governance import data_policy
+
+            policy_map: dict[int, tuple[str, str, tuple[str, ...]]] = {}
+            for idx, col in enumerate(ds.columns):
+                spec = specs.get(col)
+                if spec and not spec.get("masked"):
+                    policy_map[idx] = (
+                        spec.get("classification", "pii"),
+                        spec.get("strategy", "mask"),
+                        tuple(spec.get("exempt_roles") or ()),
+                    )
+            if policy_map:
+                rows, _ = data_policy.apply_pii_masking(ds.columns, rows, policy_map, user_roles=set(), for_llm=True)
         out = {
             "dataset": ref,
             "title": ds.title,
@@ -3328,6 +3343,21 @@ class AnalysisToolbox:
                 "measure_labels": measure_labels,
                 "column_labels": column_labels,
                 "window": {"start": str(args.start_date), "end": str(args.end_date)},
+                **(
+                    {"pii_column_specs": answer.evidence["pii_column_specs"]}
+                    if (getattr(answer, "evidence", None) or {}).get("pii_column_specs")
+                    else {}
+                ),
+                **(
+                    {"pii_masking": answer.evidence["pii_masking"]}
+                    if (getattr(answer, "evidence", None) or {}).get("pii_masking")
+                    else {}
+                ),
+                **(
+                    {"rls_applied": answer.evidence["rls_applied"]}
+                    if (getattr(answer, "evidence", None) or {}).get("rls_applied")
+                    else {}
+                ),
             },
         )
         with self._lock():
@@ -3443,12 +3473,28 @@ class AnalysisToolbox:
             if timeout <= 0:
                 raise exploration.ExploreRejected("binding", "deadline", "接近统一截止时间，不再执行探索查询")
             sent = True
-            result = connector.execute_explore(
-                validated.sql,
-                timeout_seconds=timeout,
-                max_rows=max_rows,
-                mem_limit_bytes=self.EXPLORE_MEM_LIMIT,
-                timezone=get_settings().business_timezone,
+            query_started = time.perf_counter()
+            try:
+                result = connector.execute_explore(
+                    validated.sql,
+                    timeout_seconds=timeout,
+                    max_rows=max_rows,
+                    mem_limit_bytes=self.EXPLORE_MEM_LIMIT,
+                    timezone=get_settings().business_timezone,
+                )
+            except QueryError as exc:
+                from avelis.observability import METRICS
+
+                METRICS.observe_datasource_query(
+                    getattr(source.datasource, "kind", "unknown"),
+                    exc.code or "error",
+                    time.perf_counter() - query_started,
+                )
+                raise
+            from avelis.observability import METRICS
+
+            METRICS.observe_datasource_query(
+                getattr(source.datasource, "kind", "unknown"), "ok", time.perf_counter() - query_started
             )
             self._authorize()  # 交付前再核对：撤权后不再交付结果
             exploration.recheck_access(self.session, self.user, validated)
@@ -3513,11 +3559,50 @@ class AnalysisToolbox:
             limits=limits,
             identity=exploration.execution_identity(self.session, source.datasource),
         )
+        from avelis.governance import access, data_policy
+
+        pii_lookup = {
+            f"{t.qualified}.{col_lower}".casefold(): (cls, strategy, exempt)
+            for t in validated.tables
+            for col_lower, cls, strategy, exempt in t.pii_columns
+        }
+        col_policy_specs: dict[int, tuple[str, str, tuple[str, ...]]] = {}
+        if pii_lookup:
+            for idx, col_out in enumerate(validated.columns):
+                matched = [pii_lookup[dep.casefold()] for dep in col_out.deps if dep.casefold() in pii_lookup]
+                if not matched:
+                    continue
+                chosen_cls, chosen_strat, _ = max(matched, key=lambda m: data_policy.STRATEGY_RANK.get(m[1], 0))
+                common_exempt = tuple(sorted(set.intersection(*(set(m[2]) for m in matched))))
+                col_policy_specs[idx] = (chosen_cls, chosen_strat, common_exempt)
+
+        user_roles = access.roles_of(self.session, self.user)
+        dataset_rows, pii_applied = data_policy.apply_pii_masking(
+            list(result.columns),
+            result.rows,
+            col_policy_specs,
+            user_roles=user_roles,
+            for_llm=False,
+        )
+        pii_column_specs = {
+            validated.columns[idx].name: {
+                "classification": spec[0],
+                "strategy": spec[1],
+                "exempt_roles": list(spec[2]),
+                "masked": not bool(user_roles & set(spec[2])),
+            }
+            for idx, spec in col_policy_specs.items()
+        }
+        rls_entries = [
+            {"asset_id": t.asset_id, "qualified": t.qualified, "predicates": list(t.rls_predicates)}
+            for t in validated.tables
+            if t.rls_predicates
+        ]
         ds = self._dataset(
             "explore",
             title,
             list(result.columns),
-            result.rows,
+            dataset_rows,
             truncated=result.truncated,
             meta={
                 "sql": validated.sql,
@@ -3538,6 +3623,9 @@ class AnalysisToolbox:
                 "time_column": getattr(validated, "time_column", None),
                 "column_evidence": exploration.evidence(validated.columns),
                 "preview": preview,
+                **({"pii_column_specs": pii_column_specs} if pii_column_specs else {}),
+                **({"pii_masking": pii_applied} if pii_applied else {}),
+                **({"rls_applied": rls_entries} if rls_entries else {}),
             },
         )
         view = self._view(f"D{ds.seq}", ds)

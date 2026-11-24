@@ -260,8 +260,12 @@ def test_create_accepts_optional_clean_context_and_audits_it(api):
         assert response.status_code == 201, response.text
         assert response.json()["ai_context"] == (EMPTY if context is None else {**EMPTY, "synonyms": ["合成词甲"]})
     event = api.session.scalar(select(AuditEvent).where(AuditEvent.action == "metric.ai_context"))
+
+    def _strip_ctx(d: dict) -> dict:
+        return {k: v for k, v in d.items() if k not in {"trace_id", "request_id", "client_ip", "user_agent"}}
+
     assert event.actor_id == "maintainer"
-    assert event.detail == {"before": EMPTY, "after": {**EMPTY, "synonyms": ["合成词甲"]}}
+    assert _strip_ctx(event.detail) == {"before": EMPTY, "after": {**EMPTY, "synonyms": ["合成词甲"]}}
 
 
 def test_audit_records_every_edit_without_changing_versions(api):
@@ -271,7 +275,11 @@ def test_audit_records_every_edit_without_changing_versions(api):
     events = list(
         api.session.scalars(select(AuditEvent).where(AuditEvent.action == "metric.ai_context").order_by(AuditEvent.at))
     )
-    assert [e.detail for e in events] == [
+
+    def _strip_ctx(d: dict) -> dict:
+        return {k: v for k, v in d.items() if k not in {"trace_id", "request_id", "client_ip", "user_agent"}}
+
+    assert [_strip_ctx(e.detail) for e in events] == [
         {"before": EMPTY, "after": CONTEXT},
         {"before": CONTEXT, "after": CONTEXT},
         {"before": CONTEXT, "after": EMPTY},

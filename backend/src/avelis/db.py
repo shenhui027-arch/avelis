@@ -13,8 +13,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
+from typing import Any
 
 from sqlalchemy import DateTime, MetaData, String, Text, create_engine, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -133,3 +135,15 @@ def session_scope() -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+def table_exists(session: Any, table_name: str) -> bool:
+    """检查当前会话中目标表是否存在（PostgreSQL 生产走零开销快速路径，SQLite 测试按活跃连接探测）。"""
+    if not isinstance(session, Session):
+        return False
+    bind = session.get_bind()
+    if bind is None:
+        return False
+    if bind.dialect.name != "sqlite":
+        return True
+    return bool(sa_inspect(session.connection()).has_table(table_name))

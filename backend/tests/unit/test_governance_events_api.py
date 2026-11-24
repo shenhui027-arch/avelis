@@ -104,7 +104,7 @@ def test_event_types_list_matches_the_finite_contract(api):
     response = api.client.get("/api/events/types")
     assert response.status_code == 200, response.text
     types = [item["type"] for item in response.json()]
-    assert len(types) == 14
+    assert len(types) == 24
     assert types == [item.value for item in EventType if item != EventType.WEBHOOK_TEST]
 
 

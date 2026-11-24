@@ -136,7 +136,7 @@ def verify_history(user: User = Depends(current_user), session: Session = Depend
     audit.record(
         session,
         user,
-        "history.verify",
+        "history.verify" if report["ok"] else "history.verify.failed",
         "history",
         None,
         ok=report["ok"],

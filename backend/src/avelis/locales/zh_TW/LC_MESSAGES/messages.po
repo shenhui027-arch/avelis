@@ -2699,3 +2699,231 @@ msgstr "需要雙因素驗證碼"
 
 msgid "首次登录或密码重置后必须修改密码"
 msgstr "首次登入或重設密碼後必須變更密碼"
+
+msgid "TLS 模式"
+msgstr "TLS 模式"
+
+msgid "CA 证书路径"
+msgstr "CA 憑證路徑"
+
+msgid "prefer 优先 TLS；require 强制加密不校验证书；verify-ca / verify-full 校验 CA 与主机名"
+msgstr "prefer 優先 TLS；require 強制加密不驗證憑證；verify-ca / verify-full 驗證 CA 與主機名稱"
+
+msgid "可选 .pem / .crt / .cer 证书路径；启用 AVELIS_TLS_CA_DIR 时须位于允许目录内"
+msgstr "可選 .pem / .crt / .cer 憑證路徑；啟用 AVELIS_TLS_CA_DIR 時須位於允許目錄內"
+
+msgid "{engine} 数据源 TLS 配置无效：{error}"
+msgstr "{engine} 資料來源 TLS 設定無效：{error}"
+
+msgid "metrics 参数格式无效"
+msgstr "metrics 參數格式無效"
+
+msgid "model_id 不能为空"
+msgstr "model_id 不能為空"
+
+msgid "scope_id 不能为空"
+msgstr "scope_id 不能為空"
+
+msgid "scope_type 必须是 global、user 或 domain"
+msgstr "scope_type 必須是 global、user 或 domain"
+
+msgid "业务域待审经验不存在"
+msgstr "業務域待審經驗不存在"
+
+msgid "会话已失效"
+msgstr "工作階段已失效"
+
+msgid "会话正在等待追问回答，请先回答后再压缩"
+msgstr "工作階段正在等待追問回答，請先回答後再壓縮"
+
+msgid "共享到业务域的经验至少需要引用一个资产或口径"
+msgstr "共享到業務域的經驗至少需要引用一個資產或口徑"
+
+msgid "单价不能为负数"
+msgstr "單價不能為負數"
+
+msgid "只有任务发起人或管理员可以删除"
+msgstr "只有任務發起人或管理員可以刪除"
+
+msgid "只有已批准的验证查询可以归档"
+msgstr "只有已核准的驗證查詢可以封存"
+
+msgid "只有待复核状态的验证查询可以批准"
+msgstr "只有待覆核狀態的驗證查詢可以核准"
+
+msgid "只有待复核状态的验证查询可以驳回"
+msgstr "只有待覆核狀態的驗證查詢可以駁回"
+
+msgid "只有有效且待审核的业务域经验可以批准"
+msgstr "只有有效且待審核的業務域經驗可以核准"
+
+msgid "只有有效且待审核的业务域经验可以驳回"
+msgstr "只有有效且待審核的業務域經驗可以駁回"
+
+msgid "只有有效经验可以共享到业务域"
+msgstr "只有有效經驗可以共享到業務域"
+
+msgid "只有草稿或已驳回状态的验证查询可以提交复核"
+msgstr "只有草稿或已駁回狀態的驗證查詢可以送出覆核"
+
+msgid "只有草稿或已驳回状态的验证查询可以编辑"
+msgstr "只有草稿或已駁回狀態的驗證查詢可以編輯"
+
+msgid "只能共享到自己所属的业务域"
+msgstr "只能共享到自己所屬的業務域"
+
+msgid "备选模型格式无效"
+msgstr "備選模型格式無效"
+
+msgid "已达到模型用量或费用配额上限，请联系管理员调整"
+msgstr "已達到模型用量或費用配額上限，請聯絡管理員調整"
+
+msgid "引用分析运行不存在"
+msgstr "引用分析執行不存在"
+
+msgid "引用数据源不存在"
+msgstr "引用資料來源不存在"
+
+msgid "引用问答结果不存在"
+msgstr "引用問答結果不存在"
+
+msgid "必须提供 start_date 与 end_date"
+msgstr "必須提供 start_date 與 end_date"
+
+msgid "指标列表包含空项"
+msgstr "指標清單包含空項目"
+
+msgid "指标编码不能为空"
+msgstr "指標編碼不能為空"
+
+msgid "排序方向只能为 asc 或 desc"
+msgstr "排序方向只能為 asc 或 desc"
+
+msgid "排序需要分组维度（dimensions）或时间粒度（time_grain）"
+msgstr "排序需要分組維度（dimensions）或時間粒度（time_grain）"
+
+msgid "操作过于频繁，请 {seconds} 秒后再试"
+msgstr "操作過於頻繁，請 {seconds} 秒後再試"
+
+msgid "文件 {path} 包含可疑隐藏控制字符（Bidi/Tag）"
+msgstr "檔案 {path} 包含可疑隱藏控制字元（Bidi/Tag）"
+
+msgid "文件 {path} 包含敏感词，未通过安全预检"
+msgstr "檔案 {path} 包含敏感詞，未通過安全預檢"
+
+msgid "文件 {path} 包含疑似密钥或内部敏感配置"
+msgstr "檔案 {path} 包含疑似金鑰或內部敏感設定"
+
+msgid "文件 {path} 检测到疑似提示词注入（{kind}）"
+msgstr "檔案 {path} 偵測到疑似提示詞注入（{kind}）"
+
+msgid "无效的经验范围"
+msgstr "無效的經驗範圍"
+
+msgid "无效的验证查询状态"
+msgstr "無效的驗證查詢狀態"
+
+msgid "无权修改该验证查询"
+msgstr "無權修改該驗證查詢"
+
+msgid "无权引用他人分析运行"
+msgstr "無權引用他人分析執行"
+
+msgid "无权引用他人问答结果"
+msgstr "無權引用他人問答結果"
+
+msgid "无权提交该验证查询"
+msgstr "無權送出該驗證查詢"
+
+msgid "每个用途最多配置 {max} 个备选模型"
+msgstr "每個用途最多設定 {max} 個備選模型"
+
+msgid "禁止自审：技能上传人或所有者不能审核自己提交的版本"
+msgstr "禁止自審：技能上傳人或擁有者不能審核自己送出的版本"
+
+msgid "禁止自审：经验所有者或提交人不能审批同一经验"
+msgstr "禁止自審：經驗擁有者或送出人不能核准同一經驗"
+
+msgid "禁止自审：经验所有者或提交人不能驳回同一经验"
+msgstr "禁止自審：經驗擁有者或送出人不能駁回同一經驗"
+
+msgid "筛选条件格式无效"
+msgstr "篩選條件格式無效"
+
+msgid "经验不存在"
+msgstr "經驗不存在"
+
+msgid "经验引用的口径不属于目标业务域"
+msgstr "經驗引用的口徑不屬於目標業務域"
+
+msgid "经验引用的资产不属于目标业务域"
+msgstr "經驗引用的資產不屬於目標業務域"
+
+msgid "该业务域已存在相同的已共享经验"
+msgstr "該業務域已存在相同的已共享經驗"
+
+msgid "该数据源已有采集或血缘记录，不能删除"
+msgstr "該資料來源已有採集或血緣紀錄，不能刪除"
+
+msgid "该经验当前已提交或已通过业务域审核"
+msgstr "該經驗目前已送出或已通過業務域審核"
+
+msgid "请指定至少一个指标"
+msgstr "請指定至少一個指標"
+
+msgid "请求过于频繁，请 {seconds} 秒后再试"
+msgstr "請求過於頻繁，請 {seconds} 秒後再試"
+
+msgid "追问中间状态不支持反馈"
+msgstr "追問中間狀態不支援意見回饋"
+
+msgid "配额规则不存在"
+msgstr "配額規則不存在"
+
+msgid "问数意图无效"
+msgstr "問數意圖無效"
+
+msgid "需要该业务域的维护或管理权限"
+msgstr "需要該業務域的維護或管理權限"
+
+msgid "驳回必须填写原因"
+msgstr "駁回必須填寫原因"
+
+msgid "验证查询 SQL 不能为空"
+msgstr "驗證查詢 SQL 不能為空"
+
+msgid "验证查询 SQL 仅支持只读 SELECT / UNION 查询"
+msgstr "驗證查詢 SQL 僅支援唯讀 SELECT / UNION 查詢"
+
+msgid "验证查询 SQL 必须为单条 SELECT 语句"
+msgstr "驗證查詢 SQL 必須為單條 SELECT 陳述式"
+
+msgid "验证查询 SQL 禁止包含 TRUNCATE 语句"
+msgstr "驗證查詢 SQL 禁止包含 TRUNCATE 陳述式"
+
+msgid "验证查询 SQL 禁止包含写入或 DDL 语句"
+msgstr "驗證查詢 SQL 禁止包含寫入或 DDL 陳述式"
+
+msgid "验证查询不存在"
+msgstr "驗證查詢不存在"
+
+msgid "验证查询不存在或无权访问"
+msgstr "驗證查詢不存在或無權存取"
+
+msgid "字段 {column} 不存在或尚未采集"
+msgstr "欄位 {column} 不存在或尚未採集"
+
+msgid "列级脱敏策略不存在"
+msgstr "欄位遮罩原則不存在"
+
+msgid "指定作用域时必须填写 scope_value"
+msgstr "指定範圍時必須填寫 scope_value"
+
+msgid "行级权限策略不存在"
+msgstr "資料列層級權限原則不存在"
+
+msgid "未登录或登录已过期"
+msgstr "未登入或登入已過期"
+
+msgid "需要管理员权限"
+msgstr "需要管理員權限"

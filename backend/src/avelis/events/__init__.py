@@ -15,7 +15,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis.db import new_id, session_scope, utcnow
+from avelis.db import new_id, session_scope, table_exists, utcnow
 from avelis.models import AuditEvent, CollectionRun, EventOutbox, ImportBatch, Job, User, WebhookSubscription
 
 log = logging.getLogger(__name__)
@@ -36,6 +36,16 @@ class GovernanceEventType(StrEnum):
     LINEAGE_IMPORT_FAILED = "lineage_import.failed"
     ATTRIBUTION_UNAVAILABLE = "attribution.unavailable"
     AUTH_LOGIN_FAILURE_THRESHOLD = "auth.login_failure_threshold"
+    AUTH_LOGIN_FAILED = "auth.login_failed"
+    AUTH_LOGIN_LOCKED = "auth.login_locked"
+    USER_TOTP_ENABLED = "user.totp_enabled"
+    USER_TOTP_DISABLED = "user.totp_disabled"
+    USER_PAT_CREATED = "user.pat_created"
+    USER_PAT_REVOKED = "user.pat_revoked"
+    USER_ANONYMIZED = "user.anonymized"
+    DATA_POLICY_CHANGED = "data_policy.changed"
+    ANALYSIS_EXPORTED = "analysis.exported"
+    HISTORY_VERIFY_FAILED = "history.verify_failed"
     WEBHOOK_TEST = "webhook.test"
 
 
@@ -55,9 +65,30 @@ ACTION_EVENT_TYPES: dict[str, EventType] = {
     "collect": EventType.COLLECT_COMPLETED,
     "import.completed": EventType.LINEAGE_IMPORT_COMPLETED,
     "import.failed": EventType.LINEAGE_IMPORT_FAILED,
+    "auth.login_failed": EventType.AUTH_LOGIN_FAILED,
+    "auth.login_locked": EventType.AUTH_LOGIN_LOCKED,
+    "auth.totp_enabled": EventType.USER_TOTP_ENABLED,
+    "auth.totp_disabled": EventType.USER_TOTP_DISABLED,
+    "pat.create": EventType.USER_PAT_CREATED,
+    "pat.revoke": EventType.USER_PAT_REVOKED,
+    "user.anonymized": EventType.USER_ANONYMIZED,
+    "asset_column_policy.upsert": EventType.DATA_POLICY_CHANGED,
+    "asset_column_policy.delete": EventType.DATA_POLICY_CHANGED,
+    "asset_rls_policy.create": EventType.DATA_POLICY_CHANGED,
+    "asset_rls_policy.update": EventType.DATA_POLICY_CHANGED,
+    "asset_rls_policy.delete": EventType.DATA_POLICY_CHANGED,
+    "analysis.export": EventType.ANALYSIS_EXPORTED,
+    "history.verify.failed": EventType.HISTORY_VERIFY_FAILED,
 }
 FAILURE_TYPES = frozenset(
-    (EventType.COLLECT_FAILED, EventType.LINEAGE_IMPORT_FAILED, EventType.AUTH_LOGIN_FAILURE_THRESHOLD)
+    (
+        EventType.COLLECT_FAILED,
+        EventType.LINEAGE_IMPORT_FAILED,
+        EventType.AUTH_LOGIN_FAILURE_THRESHOLD,
+        EventType.AUTH_LOGIN_FAILED,
+        EventType.AUTH_LOGIN_LOCKED,
+        EventType.HISTORY_VERIFY_FAILED,
+    )
 )
 
 
@@ -261,6 +292,8 @@ def enqueue_event(session: Session, subscription: WebhookSubscription, event: Go
 def _audit_outbox(session: Session, _flush_context, _instances) -> None:
     audits = [row for row in session.new if isinstance(row, AuditEvent) and (row.detail or {}).get("_governance")]
     if not audits:
+        return
+    if not table_exists(session, "webhook_subscription"):
         return
     subscriptions = [
         subscription

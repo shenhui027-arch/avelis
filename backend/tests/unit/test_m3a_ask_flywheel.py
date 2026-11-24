@@ -531,8 +531,6 @@ def test_semantic_cache_blocks_city_and_relative_time_swaps(monkeypatch):
         max_entries=200,
         tags=[],
     )
-    assert (
-        cache.semantic_cache_lookup(scope, "昨天销售额最高的是北京市吗", query_vec=vec, threshold=0.85) is not None
-    )
+    assert cache.semantic_cache_lookup(scope, "昨天销售额最高的是北京市吗", query_vec=vec, threshold=0.85) is not None
     assert cache.semantic_cache_lookup(scope, "昨天销售额最高的是上海市吗", query_vec=vec, threshold=0.85) is None
     assert cache.semantic_cache_lookup(scope, "今天销售额最高的是北京市吗", query_vec=vec, threshold=0.85) is None

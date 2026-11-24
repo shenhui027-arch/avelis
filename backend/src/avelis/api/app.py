@@ -20,6 +20,7 @@ from avelis.api import (
     ask,
     auth,
     catalog,
+    data_policy,
     datasources,
     dossier,
     events,
@@ -34,15 +35,17 @@ from avelis.api import (
 from avelis.api import (
     settings as system_settings,
 )
-from avelis.api.deps import ACCESS_COOKIE, get_session, try_authenticated_user
+from avelis.api.deps import ACCESS_COOKIE, try_authenticated_user
+from avelis.api.metrics import register_metrics_route, request_session
 from avelis.api.schemas import WorkerHealthOut
 from avelis.cache import WORKER_HEARTBEAT, LockBusy
 from avelis.cache import client as cache_client
 from avelis.config import Settings, get_settings
-from avelis.db import get_engine, session_factory
+from avelis.db import get_engine
 from avelis.engines import CapabilityMissing, CredentialMissing, UnsupportedEngine
 from avelis.governance.errors import GovernanceError
 from avelis.i18n import LocaleMiddleware, gettext, translate
+from avelis.observability import MetricsMiddleware, RequestContextMiddleware, init_tracing
 
 _STRICT_CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -63,6 +66,9 @@ def _strip_root_path(scope) -> str:
     if root and (path == root or path.startswith(root + "/")):  # 与 Starlette 一致：只剥除完整路径段
         path = path[len(root) :]
     return path
+
+
+API_VERSION = "1.0.11"
 
 
 class SecurityHeadersMiddleware:
@@ -119,23 +125,9 @@ class _OAuthConsentPasswordGuardMiddleware:
                 has_bearer = auth_header.lower().startswith("bearer ") and bool(auth_header[7:].strip())
                 has_cookie = bool(request.cookies.get(ACCESS_COOKIE))
                 if has_bearer or has_cookie:
-                    blocked = False
-                    override = self.fastapi_app.dependency_overrides.get(get_session)
-                    if override is not None:
-                        gen = override()
-                        session = next(gen)
-                        try:
-                            user = try_authenticated_user(request, session)
-                            blocked = bool(user is not None and user.must_change_password)
-                        finally:
-                            try:
-                                next(gen)
-                            except StopIteration:
-                                pass
-                    else:
-                        with session_factory()() as session:
-                            user = try_authenticated_user(request, session)
-                            blocked = bool(user is not None and user.must_change_password)
+                    with request_session(self.fastapi_app) as session:
+                        user = try_authenticated_user(request, session)
+                        blocked = bool(user is not None and user.must_change_password)
                     if blocked:
                         resp = JSONResponse(
                             status_code=403,
@@ -158,7 +150,9 @@ class _FrontendRoute(APIRoute):
             return Match.NONE, {}
         # 协议地址不能被 SPA 的 index.html 回退吞掉，关闭模块时仍须返回 404。
         if (
-            path == "/mcp"
+            path == "/metrics"
+            or path.startswith("/metrics/")
+            or path == "/mcp"
             or path.startswith("/mcp/")
             or path.startswith("/.well-known/")
             or (path.startswith("/oauth/") and path != "/oauth/consent")
@@ -188,7 +182,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             raise ValueError(f"前端目录必须存在且包含目录内的 index.html：{frontend_dir}")
     app = FastAPI(
         title="Avelis API",
-        version="1.0.11",
+        version=API_VERSION,
         openapi_url="/api/openapi.json" if settings.docs_enabled else None,
         docs_url="/api/docs" if settings.docs_enabled else None,
         redoc_url=None,
@@ -200,7 +194,17 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         allow_origins=list(settings.cors_origins),
         allow_credentials=bool(settings.cors_origins) and "*" not in settings.cors_origins,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "Accept-Language", "Last-Event-ID", "Cache-Control"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept-Language",
+            "Last-Event-ID",
+            "Cache-Control",
+            "X-Request-ID",
+            "X-Trace-ID",
+            "traceparent",
+        ],
+        expose_headers=["X-Request-ID", "X-Trace-ID", "traceparent"],
     )
     app.add_middleware(LocaleMiddleware)
     app.add_middleware(
@@ -208,6 +212,8 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         docs_enabled=settings.docs_enabled,
         public_url=settings.public_url,
     )
+    app.add_middleware(MetricsMiddleware)
+    app.add_middleware(RequestContextMiddleware)
 
     @app.exception_handler(GovernanceError)
     async def governance_error(_: Request, exc: GovernanceError) -> JSONResponse:
@@ -265,11 +271,15 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "error", "failed": failed})
         return JSONResponse(content={"status": "ok"})
 
+    if settings.metrics_enabled:
+        register_metrics_route(app, settings)
+
     for module in (
         auth,
         datasources,
         events,
         catalog,
+        data_policy,
         dossier,
         governance,
         history,
@@ -320,6 +330,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
     if mcp_app is not None:
         # 只交给 SDK 处理协议路径，避免根 mount 接走主应用的 JSON 404/405。
         app.add_route("/mcp", mcp_app, methods=["GET", "POST", "DELETE"])
+    init_tracing(app, settings)
     return app
 
 

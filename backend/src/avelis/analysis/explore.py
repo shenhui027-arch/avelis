@@ -223,6 +223,9 @@ class BoundTable:
     upstream: tuple[
         tuple[str, str | None], ...
     ] = ()  # 视图：上游闭包（资产编号，绑定的版本编号），执行前、交付前一起复查
+    rls_predicates: tuple[str, ...] = ()
+    rls_user: tuple[str, str] = ("", "")
+    pii_columns: tuple[tuple[str, str, str, tuple[str, ...]], ...] = ()
 
     @property
     def qualified(self) -> str:
@@ -474,9 +477,7 @@ def _check_syntax(
             anon = str(node.this)
             if anon in ("lagInFrame", "leadInFrame"):
                 if not (isinstance(node.parent, exp.Window) and node is node.parent.this):
-                    raise ExploreRejected(
-                        "syntax", "window_requires_over", f"窗口函数 {anon} 必须配合 OVER (...) 使用"
-                    )
+                    raise ExploreRejected("syntax", "window_requires_over", f"窗口函数 {anon} 必须配合 OVER (...) 使用")
                 if not 1 <= len(node.expressions) <= 3:
                     raise ExploreRejected("syntax", "wrong_arity", f"{anon} 参数个数不对")
                 continue
@@ -1165,6 +1166,33 @@ def _adapt_target_dialect(tree: exp.Expression, dialect: str) -> None:
                 iv.replace(exp.Anonymous(this=f"toInterval{unit.title()}", expressions=[exp.Literal.number(n)]))
 
 
+def _inject_rls(final: exp.Expression) -> None:
+    """将绑定表上的 RLS 谓词确定性地注入 SQL AST（外连接保留在 ON，否则进所属 SELECT WHERE）。"""
+    from avelis.governance import data_policy
+
+    for table in list(final.find_all(exp.Table)):
+        target: BoundTable | None = table.meta.get("avelis_bound")
+        if target is None or not target.rls_predicates:
+            continue
+        alias = table.alias_or_name
+        user_id, username = target.rls_user
+        preds = [
+            data_policy.bind_rls_predicate(p, table_alias=alias, user_id=user_id, username=username, quoted=True)
+            for p in target.rls_predicates
+        ]
+        parent = table.parent
+        if isinstance(parent, exp.Join) and (parent.side or "").upper() in ("LEFT", "RIGHT", "FULL"):
+            existing_on = parent.args.get("on")
+            combined = exp.and_(existing_on, *preds) if existing_on is not None else exp.and_(*preds)
+            parent.set("on", combined)
+        else:
+            node = table.parent
+            while node is not None and not isinstance(node, exp.Select):
+                node = node.parent
+            if isinstance(node, exp.Select):
+                node.where(*preds, append=True, copy=False)
+
+
 def _regenerate(
     tree: exp.Expression, bound: dict[int, BoundTable], profile: ExploreProfile, max_rows: int
 ) -> tuple[str, int]:
@@ -1180,6 +1208,7 @@ def _regenerate(
                 table.set("catalog", None)
             if target.use_only:
                 table.set("only", True)
+    _inject_rls(final)
     for node in final.walk():
         node.comments = None
     _adapt_target_dialect(final, profile.dialect)

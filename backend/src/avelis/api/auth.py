@@ -734,6 +734,26 @@ def revoke_user_sessions(
     return {"ok": True}
 
 
+@router.post("/users/{user_id}/anonymize", response_model=UserOut)
+def admin_anonymize_user(
+    user_id: str,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """管理员匿名化注销用户：吊销一切凭据并抹除个人信息，历史哈希链保持完整。"""
+    from avelis.governance.anonymize import anonymize_user
+
+    access.require_role(session, user, "admin")
+    try:
+        anonymize_user(session, user_id, actor=user)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    target = _user_or_404(session, user_id)
+    return user_view(session, target)
+
+
 # --- TOTP 双因素认证 ---------------------------------------------------------------
 
 

@@ -27,6 +27,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent
+from avelis.connectors.tls import clickhouse_ssl_kwargs, parse_tls_options
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 CODE = re.compile(r"Code:\s*(\d+)")
@@ -71,10 +72,15 @@ class ClickHouseConnector:
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
         self._conn_args = dict(host=host, port=port, username=user, password=password)
+        self._ssl_kwargs = clickhouse_ssl_kwargs(parse_tls_options(self.options))
 
     def _client(self, timeout: int = 60):
         return clickhouse_connect.get_client(
-            **self._conn_args, connect_timeout=5, send_receive_timeout=timeout, autogenerate_session_id=False
+            **self._conn_args,
+            **self._ssl_kwargs,
+            connect_timeout=5,
+            send_receive_timeout=timeout,
+            autogenerate_session_id=False,
         )
 
     # --- 采集 ---------------------------------------------------------------------

@@ -1429,3 +1429,49 @@ class SkillEnablement(Base):
     user_id: Mapped[str] = mapped_column(IdType, ForeignKey("app_user.id"), primary_key=True)
     skill_id: Mapped[str] = mapped_column(IdType, ForeignKey("skill.id"), primary_key=True, index=True)
     created_at: Mapped[datetime] = created()
+
+
+# --- M4B 列级脱敏与行级权限（RLS） ------------------------------------------------
+
+
+class AssetColumnPolicy(Base):
+    """资产列级敏感分类与脱敏策略。"""
+
+    __tablename__ = "asset_column_policy"
+    __table_args__ = (UniqueConstraint("asset_id", "column_name", name="uq_asset_column_policy_asset_col"),)
+
+    id: Mapped[str] = pk()
+    asset_id: Mapped[str] = mapped_column(
+        IdType, ForeignKey("asset.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    column_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    classification: Mapped[str] = mapped_column(String(32), default="pii", server_default="pii", nullable=False)
+    masking_strategy: Mapped[str] = mapped_column(String(16), default="mask", server_default="mask", nullable=False)
+    exempt_roles: Mapped[list[str]] = mapped_column(JsonType, default=list, server_default="[]", nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, onupdate=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+
+class AssetRlsPolicy(Base):
+    """资产行级权限（RLS）谓词策略：编译与探索校验阶段注入 AST WHERE/JOIN ON 条件。"""
+
+    __tablename__ = "asset_rls_policy"
+    __table_args__ = (Index("ix_asset_rls_asset_enabled", "asset_id", "enabled"),)
+
+    id: Mapped[str] = pk()
+    asset_id: Mapped[str] = mapped_column(IdType, ForeignKey("asset.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(16), default="all", server_default="all", nullable=False)
+    scope_value: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    predicate_sql: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=sa_true(), nullable=False)
+    updated_by: Mapped[str | None] = fk("app_user.id", nullable=True, index=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, onupdate=utcnow, server_default=sa_text("CURRENT_TIMESTAMP"), nullable=False
+    )

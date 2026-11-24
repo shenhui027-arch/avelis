@@ -27,6 +27,7 @@ from avelis.connectors.base import (
     current_timezone_offset,
 )
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent, Token, lex, objects_in
+from avelis.connectors.tls import parse_tls_options, pymysql_ssl_kwargs
 from avelis.i18n import gettext
 
 IDENT = re.compile(r"^[A-Za-z0-9_\-]+$")
@@ -241,6 +242,7 @@ class StarRocksConnector:
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self._conn_args = dict(host=host, port=port, user=user, password=password)
         self.options = options or {}
+        self._ssl_kwargs = pymysql_ssl_kwargs(parse_tls_options(self.options))
 
     @property
     def ddl_audit_source(self) -> str | None:
@@ -256,6 +258,7 @@ class StarRocksConnector:
     def _connect(self, read_timeout: int = 60) -> pymysql.Connection:
         return pymysql.connect(
             **self._conn_args,
+            **self._ssl_kwargs,
             autocommit=True,
             charset="utf8mb4",
             connect_timeout=5,
@@ -703,6 +706,7 @@ class StarRocksConnector:
         try:
             cur = conn.cursor(pymysql.cursors.Cursor)
             warnings = _set_timezone(cur, timezone)
+            cur.execute("SET SESSION transaction_read_only = 1")
             cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
             cur.execute(f"SET query_mem_limit = {int(mem_limit_bytes)}")
             cur.execute(sql)
@@ -741,6 +745,7 @@ class StarRocksConnector:
             warnings = _set_timezone(cur, timezone)
             cur.execute("SELECT CONNECTION_ID()")
             connection_id = int(cur.fetchone()[0])
+            cur.execute("SET SESSION transaction_read_only = 1")
             cur.execute(f"SET query_timeout = {int(timeout_seconds)}")
             cur.execute(f"SET query_mem_limit = {int(mem_limit_bytes)}")
             cur.execute(f"SET pipeline_dop = {int(pipeline_dop)}")

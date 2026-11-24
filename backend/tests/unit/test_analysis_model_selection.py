@@ -39,6 +39,11 @@ def selection(monkeypatch):
         last_check={"models": {name: {"ok": True, "tool_calling": True} for name in ("chosen", "other")}},
     )
     session.store[(ModelProvider, provider.id)] = provider
+    from avelis.models import AppSetting
+
+    session.store[(AppSetting, "model_policy")] = AppSetting(
+        key="model_policy", value={"send_results": True, "send_code": True}
+    )
     model = Phased([])
     built = []
 

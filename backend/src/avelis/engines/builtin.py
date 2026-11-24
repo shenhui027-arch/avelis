@@ -20,6 +20,7 @@ from avelis.connectors.oracle import OracleConnector
 from avelis.connectors.postgres import PostgresConnector
 from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
+from avelis.connectors.tls import TLS_MODES
 from avelis.engines.base import (
     DDL_AUDIT,
     EXTERNAL_TABLES,
@@ -32,6 +33,24 @@ from avelis.engines.base import (
     OptionField,
 )
 from avelis.lineage.sql import SqlDialect, fold_identifiers, strip_alias_prefixes
+
+TLS_OPTIONS: tuple[OptionField, ...] = (
+    OptionField(
+        "tls_mode",
+        "TLS 模式",
+        type="choice",
+        choices=TLS_MODES,
+        default="prefer",
+        hint="prefer 优先 TLS；require 强制加密不校验证书；verify-ca / verify-full 校验 CA 与主机名",
+    ),
+    OptionField(
+        "tls_ca_cert",
+        "CA 证书路径",
+        type="text",
+        required=False,
+        hint="可选 .pem / .crt / .cer 证书路径；启用 AVELIS_TLS_CA_DIR 时须位于允许目录内",
+    ),
+)
 
 STARROCKS = Engine(
     kind="starrocks",
@@ -55,6 +74,7 @@ STARROCKS = Engine(
             hint="库.表，默认表名 starrocks_audit_db__.starrocks_audit_tbl__；"
             "需要安装 AuditLoader 插件并授权采集账号 SELECT；留空表示未绑定审计表",
         ),
+        *TLS_OPTIONS,
     ),
     note="2026-11-01 已实机验证 StarRocks 3.5.14 + AuditLoader 4.2.2；"
     "DDL 归因需绑定审计表并授予 SELECT，未绑定时不支持归因；"
@@ -82,6 +102,7 @@ MYSQL = Engine(
             hint="可选绑定库.表，如 mysql.general_log；通用日志需 general_log=ON 且 log_output 含 TABLE，"
             "采集账号需 SELECT；兼容审计表需 event_time（TIMESTAMP）、user_host、command_type、argument",
         ),
+        *TLS_OPTIONS,
     ),
     note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW）；server_uuid 确认实例身份；"
     "不报告数据新鲜度；2026-11-01 已实机验证 MySQL 8.4.10；DDL 归因需绑定审计表，未绑定时不支持归因；"
@@ -101,6 +122,7 @@ POSTGRES = Engine(
     options=(
         OptionField("database", "库", type="text", required=True),
         OptionField("schemas", "采集的模式", required=True),
+        *TLS_OPTIONS,
     ),
     note="采集账号只读系统目录；物理身份用 pg_class.oid；不报告数据新鲜度；"
     "DDL 归因需在库中部署事件触发器（avelis_audit.ddl_event），采集账号可读该表",
@@ -116,7 +138,7 @@ CLICKHOUSE = Engine(
     collector=ClickHouseConnector,
     querier=ClickHouseConnector,
     default_port=8123,
-    options=(OptionField("databases", "采集的库", required=True),),
+    options=(OptionField("databases", "采集的库", required=True), *TLS_OPTIONS),
     note="HTTP 接口；排序键不保证唯一，不作为粒度依据；查询账号需 readonly=2；"
     "DDL 归因读 system.query_log（采集账号需其 SELECT）",
 )
@@ -135,6 +157,7 @@ SQLSERVER = Engine(
     options=(
         OptionField("database", "库", type="text", required=True),
         OptionField("schemas", "采集的模式", required=True),
+        *TLS_OPTIONS,
     ),
     note="采集账号需模式上的 VIEW DEFINITION；查询账号需 SELECT 与 VIEW DEFINITION；"
     "object_id 作物理身份；不报告数据新鲜度；"
@@ -168,6 +191,7 @@ ORACLE = Engine(
     options=(
         OptionField("service", "服务名", type="text", required=True, hint="如 FREEPDB1"),
         OptionField("schemas", "采集的模式", required=True, hint="模式名按大写保存"),
+        *TLS_OPTIONS,
     ),
     note="采集账号需 SELECT_CATALOG_ROLE；OBJECT_ID 作物理身份；标识符按大写保存；不报告数据新鲜度；"
     "2026-11-01 已实机验证 Oracle 23ai Free 的 DDL 归因，使用自建统一审计策略"
@@ -187,7 +211,7 @@ DORIS = Engine(
     collector=DorisConnector,
     querier=DorisConnector,
     default_port=9030,
-    options=(OptionField("databases", "采集的库", required=True),),
+    options=(OptionField("databases", "采集的库", required=True), *TLS_OPTIONS),
     note="采集账号只需 SHOW_VIEW_PRIV；查询账号需 SELECT_PRIV 与 SHOW_VIEW_PRIV；TABLE_ID 作物理身份（视图也有）；"
     "外部 Catalog 尚未联调；DDL 归因读 __internal_schema.audit_log（采集账号需其 SELECT_PRIV）",
 )
@@ -211,6 +235,7 @@ HIVE = Engine(
             default="NONE",
             hint="NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持",
         ),
+        *TLS_OPTIONS,
     ),
     credential_free=("auth", ("NONE", "NOSASL")),
     note="经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；"

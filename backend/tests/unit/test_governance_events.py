@@ -449,6 +449,16 @@ def test_failure_event_requires_error_and_all_event_names_are_append_only(databa
         "lineage_import.failed",
         "attribution.unavailable",
         "auth.login_failure_threshold",
+        "auth.login_failed",
+        "auth.login_locked",
+        "user.totp_enabled",
+        "user.totp_disabled",
+        "user.pat_created",
+        "user.pat_revoked",
+        "user.anonymized",
+        "data_policy.changed",
+        "analysis.exported",
+        "history.verify_failed",
         "webhook.test",
     ]
     with database() as session:

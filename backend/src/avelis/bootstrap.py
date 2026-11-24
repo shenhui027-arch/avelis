@@ -14,6 +14,8 @@
   uv run python -m avelis.bootstrap verify-history 核验历史哈希链（断链时退出码 1，打印位置与原因）
   uv run python -m avelis.bootstrap purge-history [--dry-run] [--days N]
                                                    按保留期清理超期历史（默认 AVELIS_HISTORY_RETENTION_DAYS）
+  uv run python -m avelis.bootstrap rotate-secret [--dry-run]
+                                                   使用 MultiFernet 将旧密钥密文重加密为当前 AVELIS_SECRET
 
 其余对象（用户、业务域、数据源、指标）都通过界面或 API 维护，不需要手改数据库。
 """
@@ -34,8 +36,14 @@ from avelis.config import get_settings
 from avelis.db import get_engine, session_scope, utcnow
 from avelis.devtools import alembic_config
 from avelis.governance.access import ROLES
-from avelis.models import User, UserRole
-from avelis.security import hash_password, normalize_username, session_cutoff_now, verify_password
+from avelis.models import AppSetting, DatasourceCredential, ModelProvider, User, UserRole, WebhookSubscription
+from avelis.security import (
+    hash_password,
+    normalize_username,
+    rotate_secret_token,
+    session_cutoff_now,
+    verify_password,
+)
 
 # 演示准备与验收脚本经 API 操作时使用的管理员；不占用给人登录的 admin
 AUTOMATION_ADMIN = "ops_admin"
@@ -308,6 +316,87 @@ def model_from_env() -> str:
         return p.id
 
 
+def rotate_secrets(session=None, *, dry_run: bool = False) -> dict[str, object]:
+    """用 MultiFernet 将旧主密钥（AVELIS_SECRET_PREVIOUS）加密的密文重加密为当前 AVELIS_SECRET。"""
+
+    def _run(db) -> dict[str, object]:
+        counts: dict[str, int] = {
+            "datasource_credential": 0,
+            "model_provider": 0,
+            "webhook_subscription": 0,
+            "user_totp": 0,
+            "auth_config": 0,
+        }
+
+        for cred in db.scalars(select(DatasourceCredential)).all():
+            if cred.secret_enc:
+                new_val, changed = rotate_secret_token(cred.secret_enc)
+                if changed:
+                    counts["datasource_credential"] += 1
+                    if not dry_run:
+                        cred.secret_enc = new_val
+
+        for prov in db.scalars(select(ModelProvider)).all():
+            if prov.api_key_enc:
+                new_val, changed = rotate_secret_token(prov.api_key_enc)
+                if changed:
+                    counts["model_provider"] += 1
+                    if not dry_run:
+                        prov.api_key_enc = new_val
+
+        for sub in db.scalars(select(WebhookSubscription)).all():
+            if sub.secret_enc:
+                new_val, changed = rotate_secret_token(sub.secret_enc)
+                if changed:
+                    counts["webhook_subscription"] += 1
+                    if not dry_run:
+                        sub.secret_enc = new_val
+
+        for user in db.scalars(select(User)).all():
+            for attr in ("totp_secret_enc", "totp_pending_secret_enc"):
+                val = getattr(user, attr, None)
+                if val:
+                    new_val, changed = rotate_secret_token(val)
+                    if changed:
+                        counts["user_totp"] += 1
+                        if not dry_run:
+                            setattr(user, attr, new_val)
+
+        cfg = db.get(AppSetting, "auth_config")
+        if cfg is not None and isinstance(cfg.value, dict):
+            updated = dict(cfg.value)
+            cfg_changed = False
+            fw = updated.get("forward_auth_secret_enc")
+            if isinstance(fw, str) and fw:
+                new_fw, changed = rotate_secret_token(fw)
+                if changed:
+                    counts["auth_config"] += 1
+                    updated["forward_auth_secret_enc"] = new_fw
+                    cfg_changed = True
+            oidc = updated.get("oidc")
+            if isinstance(oidc, dict):
+                oidc_copy = dict(oidc)
+                oidc_sec = oidc_copy.get("client_secret_enc")
+                if isinstance(oidc_sec, str) and oidc_sec:
+                    new_oidc, changed = rotate_secret_token(oidc_sec)
+                    if changed:
+                        counts["auth_config"] += 1
+                        oidc_copy["client_secret_enc"] = new_oidc
+                        updated["oidc"] = oidc_copy
+                        cfg_changed = True
+            if cfg_changed and not dry_run:
+                cfg.value = updated
+
+        if not dry_run:
+            db.flush()
+        return {"dry_run": dry_run, "counts": counts, "total_rotated": sum(counts.values())}
+
+    if session is not None:
+        return _run(session)
+    with session_scope() as db:
+        return _run(db)
+
+
 def main(argv: list[str]) -> None:
     from avelis.config import ConfigError, report_config_error
 
@@ -387,6 +476,25 @@ def main(argv: list[str]) -> None:
                 print(json.dumps(exc.report, ensure_ascii=False, indent=1))
                 raise SystemExit("历史哈希链核验未通过，未执行清理") from exc
             print(json.dumps(result, ensure_ascii=False, indent=1, default=str))
+        elif cmd == "rotate-secret":
+            import json
+
+            result = rotate_secrets(dry_run="--dry-run" in argv)
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        elif cmd == "anonymize-user":
+            import json
+
+            from avelis.governance.anonymize import anonymize_user
+
+            target = argv[1] if len(argv) > 1 else ""
+            if not target:
+                raise SystemExit("用法：uv run python -m avelis.bootstrap anonymize-user <username_or_id>")
+            with session_scope() as session:
+                try:
+                    result = anonymize_user(session, target, actor=None)
+                except (LookupError, ValueError) as exc:
+                    raise SystemExit(str(exc)) from None
+            print(json.dumps(result, ensure_ascii=False, indent=1))
         elif cmd == "admin":
             if get_settings().env.get("AVELIS_ADMIN_PASSWORD"):
                 # 先检查：连到的元数据库不在本机就直接拒绝，不写入任何账号。随后每个写入步骤用的是各自的连接，

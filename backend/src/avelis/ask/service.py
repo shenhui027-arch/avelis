@@ -35,7 +35,7 @@ from avelis.connectors.base import QueryError
 from avelis.db import utcnow
 from avelis.engines import dialect_of, engine_of, query_connector
 from avelis.engines.base import LIVE_CHECK, QUERY
-from avelis.governance import access
+from avelis.governance import access, data_policy
 from avelis.governance.errors import GovernanceError, Invalid
 from avelis.governance.metric_sql import column_ref
 from avelis.governance.metrics import (
@@ -64,6 +64,7 @@ from avelis.models import (
     ReviewTask,
     User,
 )
+from avelis.observability import METRICS
 from avelis.retrieval_hybrid import SearchDocument, hybrid_rank
 
 TRACEABLE_NOTE = "可追溯 ≠ 可复现：保存了 SQL、口径与元数据版本，但不保存数据快照，历史答案不保证能按当时数据重算。"
@@ -330,6 +331,7 @@ def finish_answer(session: Session, user: User, answer: Answer, started: float) 
         cache_hit=answer.cache_hit,
         thread_id=answer.thread_id,
     )
+    METRICS.observe_ask(answer.status, (answer.duration_ms or 0) / 1000.0)
     return answer
 
 
@@ -461,6 +463,52 @@ def _fulfil(
         )
         return
 
+    # 视图上游 RLS 防绕过：若视图本身未配 RLS 而其上游表启用了针对当前用户的 RLS，拒绝通过视图查询
+    for alias_asset in aliases.values():
+        if alias_asset.kind != "view":
+            continue
+        if data_policy.active_rls_predicates_for_user(session, user, alias_asset.id):
+            continue
+        view_up = upstream_closure(session, [alias_asset.id])
+        view_up.pop(alias_asset.id, None)
+        if any(data_policy.active_rls_predicates_for_user(session, user, up.id) for up in view_up.values()):
+            answer.status = "blocked"
+            answer.error_code = "rls_upstream_view"
+            answer.message = (
+                f"视图 {alias_asset.catalog_name}.{alias_asset.db_name}.{alias_asset.name} "
+                "的上游表启用了行级权限，暂不支持通过视图查询"
+            )
+            return
+
+    pre_agg_aliases = {s["alias"] for s in steps if s.get("pre_aggregate")}
+    rls_predicates: list[exp.Expression] = []
+    pre_agg_rls: dict[str, list[exp.Expression]] = {}
+    rls_by_asset: dict[str, list[str]] = {}
+    rls_applied: list[dict[str, Any]] = []
+    for alias_name, alias_asset in sorted(aliases.items()):
+        preds = data_policy.active_rls_predicates_for_user(session, user, alias_asset.id)
+        if not preds:
+            continue
+        rls_by_asset[alias_asset.id] = preds
+        rls_applied.append(
+            {
+                "asset_id": alias_asset.id,
+                "qualified": f"{alias_asset.catalog_name}.{alias_asset.db_name}.{alias_asset.name}",
+                "predicates": preds,
+            }
+        )
+        target_alias = "x" if alias_name in pre_agg_aliases else alias_name
+        bound_preds = [
+            data_policy.bind_rls_predicate(p, table_alias=target_alias, user_id=user.id, username=user.username)
+            for p in preds
+        ]
+        if alias_name in pre_agg_aliases:
+            pre_agg_rls[alias_name] = bound_preds
+        else:
+            rls_predicates.extend(bound_preds)
+    if rls_applied:
+        answer.evidence["rls_applied"] = rls_applied
+
     base = aliases["b"]
     ds = session.get(Datasource, base.datasource_id)
     dialect = dialect_of(ds)
@@ -479,6 +527,8 @@ def _fulfil(
         time_type=time_type,
         dialect=dialect,
         reserved_names=(metric.name, "value"),
+        rls_predicates=rls_predicates,
+        pre_agg_rls=pre_agg_rls or None,
         **({"bucket_grain": data_grain} if time_aggregation != "sum" else {}),
     )
     answer.sql = compiled.sql
@@ -567,6 +617,11 @@ def _fulfil(
         }
     )
 
+    col_policies = data_policy.column_policies_for_assets(session, [a.id for a in closure.values()])
+    user_roles = access.roles_of(session, user)
+    rls_sig = data_policy.rls_signature(rls_by_asset, user=user)
+    pii_sig = data_policy.pii_signature(col_policies, user_roles)
+
     key = cache.answer_cache_key(
         {
             "sql": compiled.sql,
@@ -574,6 +629,8 @@ def _fulfil(
             "deps": version.dependency_fingerprint,
             "assets": sorted((a.id, a.current_version_id) for a in closure.values()),
             "scope": sorted(allowed),
+            "rls": rls_sig,
+            "pii": pii_sig,
             "freshness": freshness.get("tables"),
             "locale": current_locale(),
             **(
@@ -594,6 +651,10 @@ def _fulfil(
             "original_answer_id": cached.get("answer_id"),
             "original_executed_at": cached.get("executed_at"),
         }
+        if cached.get("pii_masking"):
+            answer.evidence["pii_masking"] = cached["pii_masking"]
+        if cached.get("pii_column_specs"):
+            answer.evidence["pii_column_specs"] = cached["pii_column_specs"]
         if cached.get("query_warnings"):
             answer.evidence["query_warnings"] = cached["query_warnings"]
         answer.message = _explain(metric, version, intent, answer.result)
@@ -606,6 +667,7 @@ def _fulfil(
         answer.error_code = "version_changed"
         answer.message = "生成计划后指标版本或其依赖发生变化，已停止执行，请重试"
         return
+    query_started = time.perf_counter()
     try:
         result = connector.execute_select(
             compiled.sql,
@@ -614,7 +676,11 @@ def _fulfil(
             max_rows=settings.query_max_rows,
             timezone=version.timezone,
         )
+        METRICS.observe_datasource_query(getattr(ds, "kind", "unknown"), "ok", time.perf_counter() - query_started)
     except QueryError as exc:
+        METRICS.observe_datasource_query(
+            getattr(ds, "kind", "unknown"), exc.code or "error", time.perf_counter() - query_started
+        )
         answer.status = "error"
         answer.error_code = f"db_{exc.code}"
         label = {"timeout": "查询超时", "permission": "数据库拒绝访问", "invalid_object": "对象或列无法解析"}.get(
@@ -638,10 +704,48 @@ def _fulfil(
         truncated = truncated or len(result.rows) >= settings.query_max_rows
     if getattr(result, "warnings", None):
         answer.evidence["query_warnings"] = result.warnings
+
+    dims_map = {d["name"]: d for d in version.dimensions or []}
+    col_policy_specs: dict[int, tuple[str, str, tuple[str, ...]]] = {}
+    for idx, col_label in enumerate(columns):
+        dim_spec = dims_map.get(col_label)
+        if not dim_spec:
+            continue
+        ref = dim_spec.get("column", "")
+        d_alias, d_col = ref.split(".", 1) if "." in ref else ("b", ref)
+        dim_asset = aliases.get(d_alias)
+        if dim_asset is None:
+            continue
+        pol = col_policies.get((dim_asset.id, d_col.casefold()))
+        if pol and pol.masking_strategy != "none":
+            col_policy_specs[idx] = (pol.classification, pol.masking_strategy, tuple(pol.exempt_roles or []))
+
+    raw_rows = [[_jsonable(v) for v in row] for row in rows]
+    masked_rows, pii_applied = data_policy.apply_pii_masking(
+        columns,
+        raw_rows,
+        col_policy_specs,
+        user_roles=user_roles,
+        for_llm=False,
+    )
+    if pii_applied:
+        answer.evidence["pii_masking"] = pii_applied
+    pii_column_specs = {
+        columns[idx]: {
+            "classification": spec[0],
+            "strategy": spec[1],
+            "exempt_roles": list(spec[2]),
+            "masked": not bool(user_roles & set(spec[2])),
+        }
+        for idx, spec in col_policy_specs.items()
+    }
+    if pii_column_specs:
+        answer.evidence["pii_column_specs"] = pii_column_specs
+
     answer.result = {
         "columns": columns,
-        "rows": [[_jsonable(v) for v in row] for row in rows],
-        "row_count": len(rows),
+        "rows": masked_rows,
+        "row_count": len(masked_rows),
         "truncated": truncated,
         "column_docs": _dimension_docs(session, user, version, aliases, intent.group_by),
     }
@@ -655,6 +759,8 @@ def _fulfil(
             "answer_id": answer.id,
             "executed_at": answer.executed_at.isoformat(),
             "query_warnings": answer.evidence.get("query_warnings", []),
+            "pii_masking": pii_applied,
+            "pii_column_specs": pii_column_specs,
         },
         settings.answer_cache_seconds,
         [f"metric_version:{version.id}"],
@@ -1080,6 +1186,19 @@ def _fulfil_plan(
             for s in sub.evidence.get("sources", []):
                 sources.setdefault(s.get("qualified"), s)
             lineage += sub.evidence.get("lineage", [])
+            if sub.evidence.get("rls_applied"):
+                existing_rls = answer.evidence.setdefault("rls_applied", [])
+                for entry in sub.evidence["rls_applied"]:
+                    if entry not in existing_rls:
+                        existing_rls.append(entry)
+            if sub.evidence.get("pii_masking"):
+                existing_pii = answer.evidence.setdefault("pii_masking", [])
+                for entry in sub.evidence["pii_masking"]:
+                    if entry not in existing_pii:
+                        existing_pii.append(entry)
+            if sub.evidence.get("pii_column_specs"):
+                specs = answer.evidence.setdefault("pii_column_specs", {})
+                specs.update(sub.evidence["pii_column_specs"])
             if not answer.freshness:
                 answer.freshness = sub.freshness
             if label == "current" and "limits" in sub.evidence:
@@ -1535,7 +1654,21 @@ def _dimension_values(
         closure = upstream_closure(session, [asset.id])
         if not all(access.can_read_asset(session, user, a, allowed) for a in closure.values()):
             continue
-        key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}:{timezone}"
+        col_pol = data_policy.column_policies_for_assets(session, [asset.id]).get((asset.id, column.casefold()))
+        if (
+            col_pol
+            and col_pol.masking_strategy != "none"
+            and not (access.roles_of(session, user) & set(col_pol.exempt_roles or []))
+        ):
+            continue
+        rls_preds = data_policy.active_rls_predicates_for_user(session, user, asset.id)
+        if getattr(asset, "kind", None) == "view" and not rls_preds:
+            view_up = dict(closure)
+            view_up.pop(asset.id, None)
+            if any(data_policy.active_rls_predicates_for_user(session, user, up.id) for up in view_up.values()):
+                continue
+        rls_sig = data_policy.rls_signature({asset.id: rls_preds}, user=user) if rls_preds else "none"
+        key = f"avelis:dimvals:{asset.id}:{asset.current_version_id}:{column}:{timezone}:{rls_sig}"
         cached = None
         if exact_values is None:
             try:
@@ -1551,7 +1684,13 @@ def _dimension_values(
             continue
         qualified = f"{asset.catalog_name}.{asset.db_name}.{asset.name}"
         dialect = dialect_of(ds)
-        sql = distinct_values_sql(qualified, column, limit=DIMENSION_VALUES_LIMIT, dialect=dialect)
+        bound_rls = [
+            data_policy.bind_rls_predicate(p, table_alias="t", user_id=user.id, username=user.username)
+            for p in rls_preds
+        ]
+        sql = distinct_values_sql(
+            qualified, column, limit=DIMENSION_VALUES_LIMIT, dialect=dialect, rls_predicates=bound_rls
+        )
         if exact_values is not None:
             literals = [
                 exp.National(this=v) if dialect.national_strings else exp.Literal.string(v)

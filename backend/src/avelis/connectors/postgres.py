@@ -22,6 +22,7 @@ from psycopg import sql
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent
+from avelis.connectors.tls import parse_tls_options, psycopg_ssl_kwargs
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 KINDS = {"r": "table", "p": "table", "v": "view", "m": "materialized_view", "f": "external_table"}
@@ -51,11 +52,16 @@ class PostgresConnector:
             raise ValueError("PostgreSQL 数据源需要配置要采集的库（options.database）")
         self.database = database
         self._conn_args = dict(host=host, port=port, user=user, password=password, dbname=database)
+        self._ssl_kwargs = psycopg_ssl_kwargs(parse_tls_options(self.options))
 
     def _connect(self) -> psycopg.Connection:
         # 空 search_path：系统函数输出的对象名全部带模式
         return psycopg.connect(
-            **self._conn_args, connect_timeout=5, autocommit=True, options="-c search_path= -c lock_timeout=5000"
+            **self._conn_args,
+            **self._ssl_kwargs,
+            connect_timeout=5,
+            autocommit=True,
+            options="-c search_path= -c lock_timeout=5000",
         )
 
     # --- 采集 ---------------------------------------------------------------------

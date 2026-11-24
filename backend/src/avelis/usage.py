@@ -18,6 +18,7 @@ from avelis.governance import access
 from avelis.governance.errors import Invalid, NotFound
 from avelis.i18n import Msg, gettext, translate
 from avelis.models import LlmPricing, LlmQuota, LlmUsageLedger, Metric, MetricVersion, User
+from avelis.observability import METRICS
 
 _COST_QUANT = Decimal("0.000001")
 _MILLION = Decimal("1000000")
@@ -316,13 +317,21 @@ def record_usage(
     error_code: str | None = None,
 ) -> LlmUsageLedger | None:
     """将一次模型调用写入 llm_usage_ledger。MemorySession 或未建表的 SQLite 局部测试夹具跳过。"""
-    if not _table_exists(session, "llm_usage_ledger"):
-        return None
-    assert session is not None
     usage = usage or {}
     in_tok = max(0, int(usage.get("input_tokens") or 0))
     out_tok = max(0, int(usage.get("output_tokens") or 0))
     cache_tok = max(0, int(usage.get("cache_hit_tokens") or 0))
+    METRICS.observe_llm(
+        purpose or "unknown",
+        status or "ok",
+        duration_seconds=(latency_ms / 1000.0) if latency_ms is not None else None,
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+        cache_hit_tokens=cache_tok,
+    )
+    if not _table_exists(session, "llm_usage_ledger"):
+        return None
+    assert session is not None
     reason_tok = max(0, int(usage.get("reasoning_tokens") or 0))
     total_tok = in_tok + out_tok
     in_p, out_p, cache_p, currency, _ = lookup_pricing(session, provider_code, model_id)

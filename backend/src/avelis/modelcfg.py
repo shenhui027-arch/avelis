@@ -89,9 +89,9 @@ DEFAULT_CONTEXT_WINDOWS = {
 }
 
 POLICY_KEY = "model_policy"
-# 默认允许把查询结果与脱敏代码片段发给模型（用户决定，2026-10-29，ADR 0007）：有保密需求时接入本地模型，
-# 而不是由产品限制。管理员仍可在模型配置页关闭；关闭后结果解释用模板，分析模式不可用。
-DEFAULT_POLICY = {"send_results": True, "send_code": True}
+# 安全优先默认不把查询结果外发给外部模型（M4B）：有本地模型或业务授权时，管理员可在“模型配置”页开启；
+# 关闭后问数结果解释用模板，分析模式不可用。
+DEFAULT_POLICY = {"send_results": False, "send_code": True}
 
 MAX_BACKUPS = 5
 ROUTING_KEY = "model_routing"

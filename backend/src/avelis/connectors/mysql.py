@@ -15,6 +15,7 @@ from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, Qu
 from avelis.connectors.ddl import DdlEvent
 from avelis.connectors.mysql_audit import audit_source, ddl_events
 from avelis.connectors.starrocks import _checked, _in_list, _set_timezone
+from avelis.connectors.tls import parse_tls_options, pymysql_ssl_kwargs
 from avelis.i18n import gettext
 
 
@@ -28,10 +29,12 @@ class MySQLMetaConnector:
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self._conn_args = dict(host=host, port=port, user=user, password=password)
         self.options = options or {}
+        self._ssl_kwargs = pymysql_ssl_kwargs(parse_tls_options(self.options))
 
     def _connect(self, read_timeout: int = 60) -> pymysql.Connection:
         return pymysql.connect(
             **self._conn_args,
+            **self._ssl_kwargs,
             autocommit=True,
             charset="utf8mb4",
             connect_timeout=5,

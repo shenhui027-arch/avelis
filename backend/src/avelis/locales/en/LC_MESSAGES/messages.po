@@ -2694,3 +2694,231 @@ msgstr "Two-factor authentication code required"
 
 msgid "首次登录或密码重置后必须修改密码"
 msgstr "Password change is required on first login or after a password reset"
+
+msgid "TLS 模式"
+msgstr "TLS mode"
+
+msgid "CA 证书路径"
+msgstr "CA certificate path"
+
+msgid "prefer 优先 TLS；require 强制加密不校验证书；verify-ca / verify-full 校验 CA 与主机名"
+msgstr "prefer tries TLS; require enforces encryption without cert checks; verify-ca / verify-full verifies CA and hostname"
+
+msgid "可选 .pem / .crt / .cer 证书路径；启用 AVELIS_TLS_CA_DIR 时须位于允许目录内"
+msgstr "Optional .pem / .crt / .cer path; must reside inside AVELIS_TLS_CA_DIR when configured"
+
+msgid "{engine} 数据源 TLS 配置无效：{error}"
+msgstr "Invalid TLS configuration for {engine} data source: {error}"
+
+msgid "metrics 参数格式无效"
+msgstr "Invalid metrics parameter format"
+
+msgid "model_id 不能为空"
+msgstr "model_id cannot be empty"
+
+msgid "scope_id 不能为空"
+msgstr "scope_id cannot be empty"
+
+msgid "scope_type 必须是 global、user 或 domain"
+msgstr "scope_type must be global, user, or domain"
+
+msgid "业务域待审经验不存在"
+msgstr "Pending domain experience does not exist"
+
+msgid "会话已失效"
+msgstr "Session has expired"
+
+msgid "会话正在等待追问回答，请先回答后再压缩"
+msgstr "The session is awaiting a clarification response; answer it before compacting"
+
+msgid "共享到业务域的经验至少需要引用一个资产或口径"
+msgstr "Experience shared to a domain must reference at least one asset or definition"
+
+msgid "单价不能为负数"
+msgstr "Unit price cannot be negative"
+
+msgid "只有任务发起人或管理员可以删除"
+msgstr "Only the job creator or an administrator can delete it"
+
+msgid "只有已批准的验证查询可以归档"
+msgstr "Only approved verified queries can be archived"
+
+msgid "只有待复核状态的验证查询可以批准"
+msgstr "Only verified queries pending review can be approved"
+
+msgid "只有待复核状态的验证查询可以驳回"
+msgstr "Only verified queries pending review can be rejected"
+
+msgid "只有有效且待审核的业务域经验可以批准"
+msgstr "Only active domain experiences pending review can be approved"
+
+msgid "只有有效且待审核的业务域经验可以驳回"
+msgstr "Only active domain experiences pending review can be rejected"
+
+msgid "只有有效经验可以共享到业务域"
+msgstr "Only active experiences can be shared to a domain"
+
+msgid "只有草稿或已驳回状态的验证查询可以提交复核"
+msgstr "Only draft or rejected verified queries can be submitted for review"
+
+msgid "只有草稿或已驳回状态的验证查询可以编辑"
+msgstr "Only draft or rejected verified queries can be edited"
+
+msgid "只能共享到自己所属的业务域"
+msgstr "Can only share to a domain you belong to"
+
+msgid "备选模型格式无效"
+msgstr "Invalid fallback model format"
+
+msgid "已达到模型用量或费用配额上限，请联系管理员调整"
+msgstr "Model usage or cost quota limit reached; contact an administrator to adjust it"
+
+msgid "引用分析运行不存在"
+msgstr "Referenced analysis run does not exist"
+
+msgid "引用数据源不存在"
+msgstr "Referenced data source does not exist"
+
+msgid "引用问答结果不存在"
+msgstr "Referenced answer does not exist"
+
+msgid "必须提供 start_date 与 end_date"
+msgstr "Both start_date and end_date must be provided"
+
+msgid "指标列表包含空项"
+msgstr "Metrics list contains an empty item"
+
+msgid "指标编码不能为空"
+msgstr "Metric code cannot be empty"
+
+msgid "排序方向只能为 asc 或 desc"
+msgstr "Sort direction must be asc or desc"
+
+msgid "排序需要分组维度（dimensions）或时间粒度（time_grain）"
+msgstr "Sorting requires grouping dimensions or time_grain"
+
+msgid "操作过于频繁，请 {seconds} 秒后再试"
+msgstr "Too many actions; please try again in {seconds} seconds"
+
+msgid "文件 {path} 包含可疑隐藏控制字符（Bidi/Tag）"
+msgstr "File {path} contains suspicious hidden control characters (Bidi/Tag)"
+
+msgid "文件 {path} 包含敏感词，未通过安全预检"
+msgstr "File {path} contains sensitive terms and failed security precheck"
+
+msgid "文件 {path} 包含疑似密钥或内部敏感配置"
+msgstr "File {path} contains suspected secrets or sensitive internal configuration"
+
+msgid "文件 {path} 检测到疑似提示词注入（{kind}）"
+msgstr "Suspected prompt injection detected in file {path} ({kind})"
+
+msgid "无效的经验范围"
+msgstr "Invalid experience scope"
+
+msgid "无效的验证查询状态"
+msgstr "Invalid verified query status"
+
+msgid "无权修改该验证查询"
+msgstr "Not authorized to modify this verified query"
+
+msgid "无权引用他人分析运行"
+msgstr "Not authorized to reference another user's analysis run"
+
+msgid "无权引用他人问答结果"
+msgstr "Not authorized to reference another user's answer"
+
+msgid "无权提交该验证查询"
+msgstr "Not authorized to submit this verified query"
+
+msgid "每个用途最多配置 {max} 个备选模型"
+msgstr "At most {max} fallback models can be configured per purpose"
+
+msgid "禁止自审：技能上传人或所有者不能审核自己提交的版本"
+msgstr "Self-review is prohibited: the uploader or owner cannot review their own submitted skill version"
+
+msgid "禁止自审：经验所有者或提交人不能审批同一经验"
+msgstr "Self-review is prohibited: the owner or submitter cannot approve the same experience"
+
+msgid "禁止自审：经验所有者或提交人不能驳回同一经验"
+msgstr "Self-review is prohibited: the owner or submitter cannot reject the same experience"
+
+msgid "筛选条件格式无效"
+msgstr "Invalid filter format"
+
+msgid "经验不存在"
+msgstr "Experience does not exist"
+
+msgid "经验引用的口径不属于目标业务域"
+msgstr "The definition referenced by the experience does not belong to the target domain"
+
+msgid "经验引用的资产不属于目标业务域"
+msgstr "The asset referenced by the experience does not belong to the target domain"
+
+msgid "该业务域已存在相同的已共享经验"
+msgstr "An identical shared experience already exists in this domain"
+
+msgid "该数据源已有采集或血缘记录，不能删除"
+msgstr "This data source has collection or lineage records and cannot be deleted"
+
+msgid "该经验当前已提交或已通过业务域审核"
+msgstr "This experience has already been submitted or approved in the domain"
+
+msgid "请指定至少一个指标"
+msgstr "Please specify at least one metric"
+
+msgid "请求过于频繁，请 {seconds} 秒后再试"
+msgstr "Too many requests; please try again in {seconds} seconds"
+
+msgid "追问中间状态不支持反馈"
+msgstr "Feedback is not supported while awaiting clarification"
+
+msgid "配额规则不存在"
+msgstr "Quota rule does not exist"
+
+msgid "问数意图无效"
+msgstr "Invalid ask intent"
+
+msgid "需要该业务域的维护或管理权限"
+msgstr "Maintainer or administrator permission for this domain is required"
+
+msgid "驳回必须填写原因"
+msgstr "A rejection reason is required"
+
+msgid "验证查询 SQL 不能为空"
+msgstr "Verified query SQL cannot be empty"
+
+msgid "验证查询 SQL 仅支持只读 SELECT / UNION 查询"
+msgstr "Verified query SQL only supports read-only SELECT / UNION queries"
+
+msgid "验证查询 SQL 必须为单条 SELECT 语句"
+msgstr "Verified query SQL must be a single SELECT statement"
+
+msgid "验证查询 SQL 禁止包含 TRUNCATE 语句"
+msgstr "Verified query SQL must not contain TRUNCATE statements"
+
+msgid "验证查询 SQL 禁止包含写入或 DDL 语句"
+msgstr "Verified query SQL must not contain write or DDL statements"
+
+msgid "验证查询不存在"
+msgstr "Verified query does not exist"
+
+msgid "验证查询不存在或无权访问"
+msgstr "Verified query does not exist or access is denied"
+
+msgid "字段 {column} 不存在或尚未采集"
+msgstr "Column {column} does not exist or has not been collected yet"
+
+msgid "列级脱敏策略不存在"
+msgstr "Column masking policy does not exist"
+
+msgid "指定作用域时必须填写 scope_value"
+msgstr "scope_value is required when a scope is specified"
+
+msgid "行级权限策略不存在"
+msgstr "Row-level security policy does not exist"
+
+msgid "未登录或登录已过期"
+msgstr "Not signed in or session expired"
+
+msgid "需要管理员权限"
+msgstr "Administrator permission required"

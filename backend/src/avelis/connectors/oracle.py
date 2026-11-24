@@ -30,6 +30,7 @@ import oracledb
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot, checked_timezone
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent
+from avelis.connectors.tls import oracledb_ssl_kwargs, parse_tls_options
 from avelis.i18n import Msg
 
 IDENT = re.compile(r"^[A-Za-z0-9_$#]+$")
@@ -97,9 +98,10 @@ class OracleConnector:
             raise ValueError("Oracle 数据源需要配置服务名（options.service）")
         self.service = service
         self._conn_args = dict(user=user, password=password, host=host, port=port, service_name=service)
+        self._ssl_kwargs = oracledb_ssl_kwargs(parse_tls_options(self.options))
 
     def _connect(self, call_timeout_ms: int = 60_000) -> oracledb.Connection:
-        conn = oracledb.connect(**self._conn_args, tcp_connect_timeout=5)
+        conn = oracledb.connect(**self._conn_args, **self._ssl_kwargs, tcp_connect_timeout=5)
         conn.call_timeout = call_timeout_ms
         conn.outputtypehandler = _decimal_numbers
         with conn.cursor() as cur:

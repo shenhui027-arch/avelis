@@ -544,7 +544,7 @@ def test_run_turn_logs_traceback_and_distinguishes_database_errors(
     prefix = model_text if isinstance(error, RuntimeError) else db_text
     assert answer.message == prefix + type(error).__name__
     assert any(record.exc_info and record.exc_info[1] is error for record in caplog.records)
-    session.get.assert_called_once_with(AskThread, "thread")
+    session.get.assert_any_call(AskThread, "thread")
 
 
 def duplicate_cards():

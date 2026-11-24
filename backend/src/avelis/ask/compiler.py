@@ -68,6 +68,8 @@ def compile_metric_query(
     dialect: SqlDialect | str,
     reserved_names: tuple[str, ...] = (),
     bucket_grain: str | None = None,
+    rls_predicates: list[exp.Expression] | tuple[exp.Expression, ...] = (),
+    pre_agg_rls: dict[str, list[exp.Expression]] | None = None,
 ) -> CompiledQuery:
     """dialect：执行该查询的数据源的解析方言（SQLGlot 方言名 + 表名是否写 Catalog 段）。
     reserved_names：结果中还会出现的列名（如指标显示名），时间段列避开它们。
@@ -134,7 +136,11 @@ def compile_metric_query(
                 inner = inner.select(exp.column(c))
             inner = inner.select(exp.alias_(exp.Count(this=exp.Star()), "row_count"))
             keys = [exp.column(c) for c in path.right_columns]
-            inner = inner.from_(table(_qualified(right), "x")).group_by(*keys)
+            inner = inner.from_(table(_qualified(right), "x"))
+            sub_rls = (pre_agg_rls or {}).get(step["alias"])
+            if sub_rls:
+                inner = inner.where(exp.and_(*sub_rls))
+            inner = inner.group_by(*keys)
             source = exp.Subquery(this=inner, alias=exp.TableAlias(this=exp.to_identifier(step["alias"])))
         else:
             source = table(_qualified(right), step["alias"])
@@ -186,6 +192,8 @@ def compile_metric_query(
             conditions.append(exp.EQ(this=target, expression=literal(f.values[0])))
         else:
             conditions.append(exp.In(this=target, expressions=[literal(v) for v in f.values]))
+    if rls_predicates:
+        conditions.extend(rls_predicates)
     select = select.where(exp.and_(*conditions))
     if group_cols:
         select = select.group_by(*group_cols)
@@ -266,15 +274,23 @@ def _national(node: exp.Expression) -> exp.Expression:
     return node
 
 
-def distinct_values_sql(qualified: str, column: str, *, limit: int, dialect: SqlDialect | str) -> str:
+def distinct_values_sql(
+    qualified: str,
+    column: str,
+    *,
+    limit: int,
+    dialect: SqlDialect | str,
+    rls_predicates: list[exp.Expression] | tuple[exp.Expression, ...] = (),
+) -> str:
     """维度可选值：SELECT DISTINCT 列 FROM 表 WHERE 列 IS NOT NULL LIMIT n。"""
     d = _dialect(dialect)
     col = exp.column(column, table="t")
+    conds: list[exp.Expression] = [exp.Not(this=exp.Is(this=col.copy(), expression=exp.Null())), *rls_predicates]
     return (
         exp.select(col)
         .distinct()
         .from_(table_expr(qualified, "t", with_catalog=d.catalog_in_sql))
-        .where(exp.Not(this=exp.Is(this=col.copy(), expression=exp.Null())))
+        .where(*conds)
         .limit(limit)
         .sql(dialect=d.name, identify=True)
     )

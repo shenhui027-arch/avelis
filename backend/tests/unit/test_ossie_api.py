@@ -112,7 +112,8 @@ def test_export_download_format_filename_and_summary_audit(api, format):
     assert api.calls == [("export", "actor", "domain_a", ["metric_a", "metric_b"])]
     event = api.session.scalar(select(AuditEvent).where(AuditEvent.action == "interchange.ossie_export"))
     assert event.actor_id == "actor"
-    assert event.detail == {
+    payload = {k: v for k, v in event.detail.items() if k not in {"trace_id", "request_id", "client_ip", "user_agent"}}
+    assert payload == {
         "domain_id": "domain_a",
         "metric_ids": ["metric_a", "metric_b"],
         "format": format,

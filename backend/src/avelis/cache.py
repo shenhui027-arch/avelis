@@ -380,9 +380,7 @@ def _has_entity_token_mismatch(q_norm: str, candidate_norm: str) -> bool:
     from avelis.retrieval_hybrid import tokenize
 
     q_words = {
-        w
-        for w in tokenize(q_norm)
-        if len(w) >= 2 and w not in _QUERY_FILLER_TOKENS and not _LITERAL_RE.fullmatch(w)
+        w for w in tokenize(q_norm) if len(w) >= 2 and w not in _QUERY_FILLER_TOKENS and not _LITERAL_RE.fullmatch(w)
     }
     c_words = {
         w

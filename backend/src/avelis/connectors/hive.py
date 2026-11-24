@@ -32,6 +32,7 @@ from impala.error import Error as ImpylaError
 from sqlglot import exp
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, Snapshot
+from avelis.connectors.tls import impyla_ssl_kwargs, parse_tls_options
 
 CATALOG = "hive"
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -233,9 +234,10 @@ class HiveConnector:
             # PLAIN 机制要求带口令；NONE 模式下服务端不校验，随便给一个
             password=password or ("-" if auth == "NONE" else None),
         )
+        self._ssl_kwargs = impyla_ssl_kwargs(parse_tls_options(self.options))
 
     def _connect(self, timeout: int = 60):
-        return connect(**self._conn_args, timeout=timeout)
+        return connect(**self._conn_args, **self._ssl_kwargs, timeout=timeout)
 
     # --- 采集 ---------------------------------------------------------------------
 

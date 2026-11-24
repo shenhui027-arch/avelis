@@ -58,6 +58,8 @@ def test_demo_source_host_and_existing_sources_are_reused(monkeypatch, tmp_path,
                 return None
             if method == "PUT" and path.startswith("/api/domains/"):
                 return None
+            if method == "PUT" and path == "/api/model-settings":
+                return None
             raise AssertionError((method, path, kwargs))
 
     client = Mock()

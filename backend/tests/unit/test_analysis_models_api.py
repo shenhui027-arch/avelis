@@ -81,6 +81,7 @@ def api(monkeypatch):
     with Session(engine, expire_on_commit=False) as session:
         user = User(id="actor", username="actor", display_name="分析用户", password_hash="unused")
         session.add_all([user, UserRole(user_id=user.id, role="analyst")])
+        session.add(AppSetting(key="model_policy", value={"send_results": True, "send_code": True}))
         provider = ModelProvider(
             id="ds",
             code="ds",

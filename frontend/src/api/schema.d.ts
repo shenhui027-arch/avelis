@@ -264,6 +264,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{user_id}/anonymize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Admin Anonymize User
+         * @description 管理员匿名化注销用户：吊销一切凭据并抹除个人信息，历史哈希链保持完整。
+         */
+        post: operations["admin_anonymize_user_api_users__user_id__anonymize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me/totp": {
         parameters: {
             query?: never;
@@ -991,6 +1011,76 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/security-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Security Policies */
+        get: operations["list_security_policies_api_assets__asset_id__security_policies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/column-policies/{column}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upsert Column Policy */
+        put: operations["upsert_column_policy_api_assets__asset_id__column_policies__column__put"];
+        post?: never;
+        /** Delete Column Policy */
+        delete: operations["delete_column_policy_api_assets__asset_id__column_policies__column__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/rls-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Rls Policy */
+        post: operations["create_rls_policy_api_assets__asset_id__rls_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/assets/{asset_id}/rls-policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Rls Policy */
+        delete: operations["delete_rls_policy_api_assets__asset_id__rls_policies__policy_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Rls Policy */
+        patch: operations["update_rls_policy_api_assets__asset_id__rls_policies__policy_id__patch"];
         trace?: never;
     };
     "/api/assets/{asset_id}/dossier": {
@@ -4072,6 +4162,14 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+            /** Client Ip */
+            client_ip?: string | null;
+            /** User Agent */
+            user_agent?: string | null;
+            /** Request Id */
+            request_id?: string | null;
+            /** Trace Id */
+            trace_id?: string | null;
             /**
              * Outcome
              * @default success
@@ -4778,6 +4876,25 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** ColumnPolicyUpsert */
+        ColumnPolicyUpsert: {
+            /**
+             * Classification
+             * @default pii
+             * @enum {string}
+             */
+            classification?: "pii" | "sensitive" | "confidential";
+            /**
+             * Masking Strategy
+             * @default mask
+             * @enum {string}
+             */
+            masking_strategy?: "none" | "mask" | "hash" | "redact";
+            /** Exempt Roles */
+            exempt_roles?: string[];
+            /** Note */
+            note?: string | null;
+        };
         /** ColumnRole */
         ColumnRole: {
             /**
@@ -5423,7 +5540,7 @@ export interface components {
          * EventType
          * @enum {string}
          */
-        EventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold";
+        EventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold" | "auth.login_failed" | "auth.login_locked" | "user.totp_enabled" | "user.totp_disabled" | "user.pat_created" | "user.pat_revoked" | "user.anonymized" | "data_policy.changed" | "analysis.exported" | "history.verify_failed";
         /** EventTypeOut */
         EventTypeOut: {
             type: components["schemas"]["EventType"];
@@ -5654,7 +5771,7 @@ export interface components {
          * GovernanceEventType
          * @enum {string}
          */
-        GovernanceEventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold" | "webhook.test";
+        GovernanceEventType: "metric_version.submitted" | "metric_version.published" | "metric_version.rejected" | "metric_version.affected" | "metric_version.invalidated" | "join_path.approved" | "join_path.affected" | "collect.completed" | "collect.failed" | "collect.schema_changed" | "lineage_import.completed" | "lineage_import.failed" | "attribution.unavailable" | "auth.login_failure_threshold" | "auth.login_failed" | "auth.login_locked" | "user.totp_enabled" | "user.totp_disabled" | "user.pat_created" | "user.pat_revoked" | "user.anonymized" | "data_policy.changed" | "analysis.exported" | "history.verify_failed" | "webhook.test";
         /** GrainDeclare */
         GrainDeclare: {
             /** Columns */
@@ -5770,6 +5887,8 @@ export interface components {
             chain_head?: {
                 [key: string]: unknown;
             } | null;
+            /** Chained Rows */
+            chained_rows?: number | null;
             /** Last Purge */
             last_purge?: {
                 [key: string]: unknown;
@@ -7080,6 +7199,39 @@ export interface components {
             note: string;
             /** Linked Metric Version Id */
             linked_metric_version_id?: string | null;
+        };
+        /** RlsPolicyCreate */
+        RlsPolicyCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Scope Type
+             * @default all
+             * @enum {string}
+             */
+            scope_type?: "all" | "role" | "domain" | "user";
+            /** Scope Value */
+            scope_value?: string | null;
+            /** Predicate Sql */
+            predicate_sql: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled?: boolean;
+        };
+        /** RlsPolicyPatch */
+        RlsPolicyPatch: {
+            /** Name */
+            name?: string | null;
+            /** Scope Type */
+            scope_type?: ("all" | "role" | "domain" | "user") | null;
+            /** Scope Value */
+            scope_value?: string | null;
+            /** Predicate Sql */
+            predicate_sql?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
         };
         /** RoutingConfig */
         RoutingConfig: {
@@ -8723,6 +8875,37 @@ export interface operations {
             };
         };
     };
+    admin_anonymize_user_api_users__user_id__anonymize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     totp_status_api_me_totp_get: {
         parameters: {
             query?: never;
@@ -10177,6 +10360,212 @@ export interface operations {
             };
         };
     };
+    list_security_policies_api_assets__asset_id__security_policies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_column_policy_api_assets__asset_id__column_policies__column__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                column: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ColumnPolicyUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_column_policy_api_assets__asset_id__column_policies__column__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                column: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rls_policy_api_assets__asset_id__rls_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RlsPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_rls_policy_api_assets__asset_id__rls_policies__policy_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_rls_policy_api_assets__asset_id__rls_policies__policy_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RlsPolicyPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     asset_dossier_api_assets__asset_id__dossier_get: {
         parameters: {
             query?: never;
@@ -11552,7 +11941,14 @@ export interface operations {
                 object_type?: string | null;
                 object_id?: string | null;
                 action?: string | null;
+                actor_name?: string | null;
+                request_id?: string | null;
+                trace_id?: string | null;
+                client_ip?: string | null;
+                since?: string | null;
+                until?: string | null;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;

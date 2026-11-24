@@ -78,6 +78,8 @@ workers = 1                       # AVELIS_WORKERS
 forwarded_allow_ips = "127.0.0.1" # AVELIS_FORWARDED_ALLOW_IPS
 # 日志级别：critical / error / warning / info / debug
 log_level = "info"                # AVELIS_LOG_LEVEL
+# 日志格式：text（研发易读文本，自动带 trace/req 标签）| json（生产单行结构化 JSON）
+log_format = "text"               # AVELIS_LOG_FORMAT
 # 以下三项只在不用 Docker 部署时需要修改：Docker 镜像固定监听 0.0.0.0:8000 并托管内置前端，
 # 对外端口在 Compose 里设置（deploy/docker/.env 的 AVELIS_HTTP_PORT，默认 8080）。
 # host = "0.0.0.0"                # AVELIS_HOST
@@ -196,3 +198,15 @@ dir = "/var/lib/avelis/skills"    # 技能包存储目录，app 和 worker 共�
 max_zip_bytes = 10485760          # 上传 zip 大小上限，字节。AVELIS_SKILLS_MAX_ZIP_BYTES
 max_unpacked_bytes = 52428800     # zip 解压总大小上限，字节。AVELIS_SKILLS_MAX_UNPACKED_BYTES
 max_files = 500                   # zip 条目数上限（含目录）。AVELIS_SKILLS_MAX_FILES
+
+# ============================================================
+# 可观测性与指标采集（Prometheus / OpenTelemetry）
+# ============================================================
+[observability]
+# 是否开启 GET /metrics（Prometheus 文本格式；默认关闭返回 404）
+metrics_enabled = false           # AVELIS_METRICS_ENABLED
+# Prometheus 抓取 Bearer Token（留空则要求已登录管理员会话；建议生产配置独立采集令牌或启用 metrics_token_file）
+metrics_token = ""                # AVELIS_METRICS_TOKEN
+# 可选 OpenTelemetry 分布式追踪开关（需额外安装 opentelemetry 可选依赖；默认关闭无额外开销）
+otel_enabled = false              # AVELIS_OTEL_ENABLED
+otel_endpoint = ""                # AVELIS_OTEL_EXPORTER_OTLP_ENDPOINT

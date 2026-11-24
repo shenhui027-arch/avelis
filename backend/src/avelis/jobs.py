@@ -19,6 +19,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from datetime import timedelta, timezone
 from typing import Any
 
@@ -30,12 +31,18 @@ from avelis.collect.service import CollectionFailed, run_collection
 from avelis.config import get_settings
 from avelis.db import advisory_lock, session_scope, utcnow
 from avelis.models import CollectionRun, Datasource, ImportBatch, Job
+from avelis.observability import METRICS, configure_logging, get_log_context, reset_request_context, set_request_context
 
 log = logging.getLogger("avelis.worker")
 
 
 def _enqueue(session: Session, kind: str, payload: dict[str, Any], actor_id: str | None) -> str:
-    job = Job(kind=kind, payload=payload, status="queued", created_by=actor_id)
+    ctx = get_log_context()
+    enriched = dict(payload)
+    trace_meta = {k: ctx[k] for k in ("trace_id", "request_id") if k in ctx}
+    if trace_meta and "_trace" not in enriched:
+        enriched["_trace"] = trace_meta
+    job = Job(kind=kind, payload=enriched, status="queued", created_by=actor_id)
     session.add(job)
     session.flush()
     return job.id
@@ -82,39 +89,68 @@ def run_job(job_id: str) -> None:
             return
         job = session.get(Job, job_id)
         kind, payload, actor, attempt = job.kind, dict(job.payload), job.created_by, job.attempts
-    if kind in ANALYSIS_KINDS:
-        _run_analysis_job(job_id, attempt, kind, payload)
-        return
-    result: dict[str, Any] = {}
-    error = None
-    try:
-        if kind == "collect":
-            result = {
-                "run_id": collect_now(
-                    payload["datasource_id"],
-                    trigger=payload.get("trigger", "manual"),
-                    actor_id=actor,
-                    job_id=job_id,
-                    attempt=attempt,
-                )
-            }
-        elif kind == "import":
-            from avelis.importer.batch import run_import
 
-            result = run_import(payload["batch_id"], job_id=job_id, attempt=attempt)
-        else:
-            raise ValueError(f"未知任务类型 {kind}")
-    except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
-        log.exception("任务 %s 失败", job_id)
-        error = f"{type(exc).__name__}: {exc}"
-    with session_scope() as session:
-        job = session.get(Job, job_id)
-        result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
-        session.execute(
-            update(Job)
-            .where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
-            .values(status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow())
+    trace_meta = payload.get("_trace") if isinstance(payload.get("_trace"), dict) else {}
+    trace_id = trace_meta.get("trace_id") or uuid.uuid4().hex
+    req_id = trace_meta.get("request_id")
+    tokens = set_request_context(
+        trace_id=trace_id,
+        span_id=uuid.uuid4().hex[:16],
+        request_id=req_id,
+        user_id=actor,
+        job_id=job_id,
+    )
+    started = time.perf_counter()
+    log.info(
+        "任务开始：kind=%s job_id=%s attempt=%s", kind, job_id, attempt, extra={"event": "job.started", "kind": kind}
+    )
+    try:
+        if kind in ANALYSIS_KINDS:
+            _run_analysis_job(job_id, attempt, kind, payload)
+            return
+        result: dict[str, Any] = {}
+        error = None
+        try:
+            if kind == "collect":
+                result = {
+                    "run_id": collect_now(
+                        payload["datasource_id"],
+                        trigger=payload.get("trigger", "manual"),
+                        actor_id=actor,
+                        job_id=job_id,
+                        attempt=attempt,
+                    )
+                }
+            elif kind == "import":
+                from avelis.importer.batch import run_import
+
+                result = run_import(payload["batch_id"], job_id=job_id, attempt=attempt)
+            else:
+                raise ValueError(f"未知任务类型 {kind}")
+        except Exception as exc:  # noqa: BLE001 - 任务失败如实记录
+            log.exception("任务 %s 失败", job_id)
+            error = f"{type(exc).__name__}: {exc}"
+        with session_scope() as session:
+            job = session.get(Job, job_id)
+            result = {**(job.result or {}), **result} if job is not None else result  # 保留执行中写入的关联
+            session.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == "running", Job.attempts == attempt)
+                .values(status="failed" if error else "succeeded", error=error, result=result, finished_at=utcnow())
+            )
+        elapsed = time.perf_counter() - started
+        outcome = "failed" if error else "succeeded"
+        METRICS.observe_job(kind, outcome, elapsed)
+        log.info(
+            "任务结束：kind=%s job_id=%s status=%s duration_ms=%.2f",
+            kind,
+            job_id,
+            outcome,
+            elapsed * 1000,
+            extra={"event": "job.finished", "kind": kind, "status": outcome, "duration_ms": round(elapsed * 1000, 2)},
         )
+    finally:
+        reset_request_context(tokens)
 
 
 def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, Any]) -> None:
@@ -122,10 +158,39 @@ def _run_analysis_job(job_id: str, attempt: int, kind: str, payload: dict[str, A
     并按恢复器同样的规则处理关联的运行，不留下 running 的运行。"""
     from avelis.analysis import service as analysis_service
 
+    started = time.perf_counter()
     try:
         analysis_service.run_job(job_id, attempt, kind, payload)
+        elapsed = time.perf_counter() - started
+        METRICS.observe_job(kind, "succeeded", elapsed)
+        log.info(
+            "分析任务结束：kind=%s job_id=%s status=succeeded duration_ms=%.2f",
+            kind,
+            job_id,
+            elapsed * 1000,
+            extra={
+                "event": "job.finished",
+                "kind": kind,
+                "status": "succeeded",
+                "duration_ms": round(elapsed * 1000, 2),
+            },
+        )
     except Exception as exc:  # noqa: BLE001 - 如实记录
+        elapsed = time.perf_counter() - started
         log.exception("分析任务 %s 失败", job_id)
+        METRICS.observe_job(kind, "failed", elapsed)
+        log.error(
+            "分析任务结束：kind=%s job_id=%s status=failed duration_ms=%.2f",
+            kind,
+            job_id,
+            elapsed * 1000,
+            extra={
+                "event": "job.finished",
+                "kind": kind,
+                "status": "failed",
+                "duration_ms": round(elapsed * 1000, 2),
+            },
+        )
         error = f"{type(exc).__name__}: {str(exc)[:500]}"
         with session_scope() as session:
             job = session.scalar(
@@ -383,11 +448,16 @@ def main() -> None:
     from avelis.config import ConfigError, report_config_error
 
     try:
-        get_settings()
+        settings = get_settings()
     except ConfigError as exc:
         report_config_error(exc)
         raise SystemExit(2) from None
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    configure_logging(
+        getattr(settings, "log_level", "info"),
+        getattr(settings, "log_format", "text"),
+        service="avelis-worker",
+        env=getattr(settings, "environment", "production"),
+    )
     stop = False
     heartbeat_stop = threading.Event()
     heartbeat_ready = threading.Event()

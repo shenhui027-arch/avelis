@@ -15,6 +15,7 @@ from avelis import cache
 from avelis.db import session_factory, utcnow
 from avelis.i18n import gettext
 from avelis.models import PersonalAccessToken, User
+from avelis.observability.context import bind_request_context
 from avelis.security import decode_access_token, hash_pat_token, issued_before
 
 ACCESS_COOKIE = "avelis_access"
@@ -135,6 +136,7 @@ def current_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"code": "must_change_password", "detail": gettext("首次登录或密码重置后必须修改密码")},
             )
+    bind_request_context(user_id=user.id)
     return user
 
 
@@ -161,4 +163,5 @@ def try_authenticated_user(request: Request, session: Session) -> User | None:
         return None
     if user.sessions_valid_after is not None and issued_before(claims, user.sessions_valid_after):
         return None
+    bind_request_context(user_id=user.id)
     return user

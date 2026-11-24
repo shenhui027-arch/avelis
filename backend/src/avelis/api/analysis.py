@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from avelis import cache, charts, jobs, modelcfg, usage
+from avelis import audit, cache, charts, jobs, modelcfg, usage
 from avelis.analysis import export, live
 from avelis.analysis import service as analysis
 from avelis.analysis.dataset_access import require_dataset_access
@@ -275,8 +275,10 @@ def stream_run(
                 select(PersonalAccessToken).where(PersonalAccessToken.token_hash == hash_pat_token(raw_token))
             )
             now = utcnow()
-            if pat is None or pat.revoked_at is not None or (
-                pat.expires_at is not None and pat.expires_at.replace(tzinfo=None) <= now.replace(tzinfo=None)
+            if (
+                pat is None
+                or pat.revoked_at is not None
+                or (pat.expires_at is not None and pat.expires_at.replace(tzinfo=None) <= now.replace(tzinfo=None))
             ):
                 raise HTTPException(status_code=401, detail="个人访问令牌无效或已吊销")
             return u
@@ -728,6 +730,18 @@ def dataset_csv(
 ) -> Response:
     d = _dataset(session, analysis.visible_run(session, user, run_id), seq)
     require_dataset_access(session, user, d)
+    audit.record(
+        session,
+        user,
+        "analysis.export",
+        "analysis_run",
+        run_id,
+        format="csv",
+        dataset=f"D{d.seq}",
+        row_count=len(d.rows),
+    )
+    if hasattr(session, "commit"):
+        session.commit()
     return Response(
         export.to_csv(d.columns, d.rows),
         media_type="text/csv; charset=utf-8",
@@ -807,6 +821,20 @@ def export_run(
         selected = list(dict.fromkeys(ref.strip() for ref in datasets.split(",")))
         if any(not re.fullmatch(r"D[1-9][0-9]*", ref) or ref not in saved for ref in selected):
             raise HTTPException(422, "datasets 只能包含本次运行已有的 D 编号，以逗号分隔")
+    if format not in ("md", "pdf", "html", "csv"):
+        raise HTTPException(422, "format 只能是 pdf、html、md 或 csv")
+    audit.record(
+        session,
+        user,
+        "analysis.export",
+        "analysis_run",
+        run_id,
+        format=format,
+        audience=resolved_audience,
+        datasets=selected,
+    )
+    if hasattr(session, "commit"):
+        session.commit()
     if format in ("md", "pdf", "html"):
         for dataset in view["datasets"]:
             if dataset.get("restricted"):
@@ -834,13 +862,11 @@ def export_run(
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}.html"'},
         )
-    if format == "csv":  # 引用来源表：每个数字的数据集、取值路径、格式与原值
-        return Response(
-            export.sources_csv(view),
-            media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'},
-        )
-    raise HTTPException(422, "format 只能是 pdf、html、md 或 csv")
+    return Response(
+        export.sources_csv(view),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="analysis-{run_id}-sources.csv"'},
+    )
 
 
 # --- 任务 ---------------------------------------------------------------------------

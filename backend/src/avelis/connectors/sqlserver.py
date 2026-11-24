@@ -32,6 +32,7 @@ from sqlglot import exp
 
 from avelis.connectors.base import ObservedAsset, ObservedColumn, QueryError, QueryResult, Snapshot
 from avelis.connectors.ddl import AuditUnavailable, DdlEvent
+from avelis.connectors.tls import parse_tls_options, pymssql_ssl_kwargs
 from avelis.i18n import gettext
 
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -95,9 +96,19 @@ class SqlServerConnector:
             raise ValueError("SQL Server 数据源需要配置要采集的库（options.database）")
         self.database = database
         self._conn_args = dict(server=host, port=str(port), user=user, password=password, database=database)
+        self._ssl_kwargs = pymssql_ssl_kwargs(parse_tls_options(self.options))
 
-    def _connect(self, timeout: int = 60) -> pymssql.Connection:
-        return pymssql.connect(**self._conn_args, login_timeout=5, timeout=timeout, charset="UTF-8", autocommit=True)
+    def _connect(self, timeout: int = 60, *, read_only: bool = False) -> pymssql.Connection:
+        ro_kwargs = {"read_only": True} if read_only else {}
+        return pymssql.connect(
+            **self._conn_args,
+            **self._ssl_kwargs,
+            **ro_kwargs,
+            login_timeout=5,
+            timeout=timeout,
+            charset="UTF-8",
+            autocommit=True,
+        )
 
     # --- 采集 ---------------------------------------------------------------------
 
@@ -353,7 +364,7 @@ class SqlServerConnector:
         """只读账号在事务内执行后回滚；SQL Server 没有单查询内存上限，靠超时与行数上限约束。"""
         # SQL Server 无会话时区；datetimeoffset 的边界偏移由编译器写入 SQL。
         try:
-            conn = self._connect(timeout=int(timeout_seconds))
+            conn = self._connect(timeout=int(timeout_seconds), read_only=True)
         except pymssql.Error as exc:
             raise _query_error(exc) from exc
         try:

@@ -17,6 +17,7 @@ import uvicorn
 
 from avelis.bootstrap import InitialAdminError, init_admin, migrate
 from avelis.config import Settings, get_settings
+from avelis.observability import build_uvicorn_log_config, configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ def uvicorn_options(settings: Settings) -> dict:
         "proxy_headers": True,
         "forwarded_allow_ips": settings.forwarded_allow_ips,
         "log_level": settings.log_level,
+        "access_log": False,
+        "log_config": build_uvicorn_log_config(settings),
     }
 
 
@@ -41,10 +44,7 @@ def main() -> None:
     except ConfigError as exc:
         report_config_error(exc)
         raise SystemExit(2) from None
-    logging.basicConfig(
-        level=logging.DEBUG if settings.log_level == "trace" else settings.log_level.upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(settings.log_level, settings.log_format, service="avelis-api", env=settings.environment)
     if settings.auto_migrate:
         migrate()
     if settings.auto_init_admin:

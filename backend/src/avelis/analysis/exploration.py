@@ -31,7 +31,7 @@ from avelis.analysis.explore import (
     validate,
 )
 from avelis.connectors.base import QueryError, QueryResult
-from avelis.governance import access
+from avelis.governance import access, data_policy
 from avelis.models import Asset, AssetVersion, ColumnVersion, Datasource, DatasourceCredential, Definition, User
 
 
@@ -154,6 +154,10 @@ def resolver(session: Session, user: User, source: ExploreSource):
                 raise deny(label, "view_lineage_unresolved", "是视图，但上游血缘不完整，无法确认可读范围，拒绝执行")
             if not all(access.can_read_asset(session, user, a, allowed) for a in upstream.values()):
                 raise deny(label, "view_upstream_not_visible", "是视图，它的上游有当前用户不可见的资产")
+            if not data_policy.active_rls_predicates_for_user(session, user, asset.id) and any(
+                data_policy.active_rls_predicates_for_user(session, user, up.id) for up in upstream.values()
+            ):
+                raise deny(label, "rls_upstream_view", "是视图，其上游表启用了行级权限，暂不支持通过视图查询")
             definition = session.scalar(select(Definition.raw_sql).where(Definition.asset_version_id == version.id))
             if definition is None:
                 raise deny(label, "view_definition_missing", "是视图，但没有采集到定义")
@@ -181,6 +185,13 @@ def resolver(session: Session, user: User, source: ExploreSource):
                 .order_by(ColumnVersion.ordinal)
             )
         )
+        rls_preds = tuple(data_policy.active_rls_predicates_for_user(session, user, asset.id))
+        col_pols = data_policy.column_policies_for_assets(session, [asset.id])
+        pii_cols = tuple(
+            (col_lower, pol.classification, pol.masking_strategy, tuple(pol.exempt_roles or ()))
+            for (_aid, col_lower), pol in sorted(col_pols.items())
+            if pol.masking_strategy != "none"
+        )
         return BoundTable(
             asset.id,
             version.id,
@@ -193,6 +204,9 @@ def resolver(session: Session, user: User, source: ExploreSource):
             use_only,
             definition,
             upstream_versions,
+            rls_preds,
+            (user.id, getattr(user, "username", None) or user.id),
+            pii_cols,
         )
 
     return resolve
@@ -339,6 +353,13 @@ def record(
             ],
             columns=[{"name": c.name, "deps": c.deps} for c in validated.columns],
         )
+        rls_entries = [
+            {"asset_id": t.asset_id, "qualified": t.qualified, "predicates": list(t.rls_predicates)}
+            for t in validated.tables
+            if t.rls_predicates
+        ]
+        if rls_entries:
+            detail["rls_applied"] = rls_entries
     if isinstance(error, ExploreRejected):
         detail.update(stage=error.stage, code=error.code, message=error.message)
     elif isinstance(error, QueryError):

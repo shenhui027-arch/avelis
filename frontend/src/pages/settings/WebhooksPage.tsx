@@ -23,6 +23,11 @@ export const EVENT_TYPE_LABEL: Record<EventType | "webhook.test", string> = {
   "collect.schema_changed": t("采集发现结构变化"), "lineage_import.completed": t("血缘导入完成"),
   "lineage_import.failed": t("血缘导入失败"), "attribution.unavailable": t("变更归因不可用"),
   "auth.login_failure_threshold": t("登录失败超过阈值"),
+  "auth.login_failed": t("登录失败"), "auth.login_locked": t("登录触发锁定"),
+  "user.totp_enabled": t("启用双因素认证"), "user.totp_disabled": t("停用双因素认证"),
+  "user.pat_created": t("创建个人令牌"), "user.pat_revoked": t("吊销个人令牌"),
+  "user.anonymized": t("用户匿名化注销"), "data_policy.changed": t("数据安全策略变更"),
+  "analysis.exported": t("分析报告或数据导出"), "history.verify_failed": t("历史哈希链核验异常"),
   // 只由“发送测试”产生，不能订阅
   "webhook.test": t("测试事件"),
 };

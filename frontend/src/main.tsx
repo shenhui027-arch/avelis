@@ -48,6 +48,7 @@ const CalendarPage = lazyPage(() => import("./pages/settings/CalendarPage"), "Ca
 const McpPage = lazyPage(() => import("./pages/settings/McpPage"), "McpPage");
 const WebhooksPage = lazyPage(() => import("./pages/settings/WebhooksPage"), "WebhooksPage");
 const AuthSettingsPage = lazyPage(() => import("./pages/settings/AuthSettingsPage"), "AuthSettingsPage");
+const AuditCompliancePage = lazyPage(() => import("./pages/settings/AuditCompliancePage"), "AuditCompliancePage");
 
 function standalone(element: ReactNode) {
   return <Suspense fallback={null}>{element}</Suspense>;
@@ -98,6 +99,7 @@ const router = createBrowserRouter([
       { path: "settings/mcp", element: <McpPage /> },
       { path: "settings/webhooks", element: <WebhooksPage /> },
       { path: "settings/auth", element: <AuthSettingsPage /> },
+      { path: "settings/audit", element: <AuditCompliancePage /> },
       { path: "account/security", element: <SecurityPage /> },
       { path: "forbidden", element: <Forbidden /> },
       { path: "*", element: <NotFound /> },

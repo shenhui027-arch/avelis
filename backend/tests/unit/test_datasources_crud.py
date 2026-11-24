@@ -14,20 +14,14 @@ from sqlalchemy.pool import StaticPool
 
 from avelis.api import datasources
 from avelis.api.deps import current_user, get_session
+from avelis.db import Base
 from avelis.engines import CredentialMissing
 from avelis.governance.errors import GovernanceError
 from avelis.models import (
-    Asset,
-    AuditEvent,
-    ChangeSet,
     CollectionRun,
     Datasource,
     DatasourceCredential,
-    Domain,
     EndpointAlias,
-    ImportBatch,
-    ImportJob,
-    Job,
     User,
     UserRole,
 )
@@ -35,25 +29,16 @@ from avelis.models import (
 
 @pytest.fixture
 def ds_api(monkeypatch):
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        execution_options={"schema_translate_map": {"avelis_agent": None}},
+    )
     metadata = MetaData()
-    for model in (
-        User,
-        UserRole,
-        Domain,
-        Datasource,
-        DatasourceCredential,
-        EndpointAlias,
-        Asset,
-        CollectionRun,
-        ChangeSet,
-        ImportBatch,
-        ImportJob,
-        Job,
-        AuditEvent,
-    ):
-        table = model.__table__.to_metadata(metadata)
-        for column in table.columns:
+    for table in Base.metadata.sorted_tables:
+        copied = table.to_metadata(metadata)
+        for column in copied.columns:
             if isinstance(column.type, JSONB):
                 column.type = JSON()
     metadata.create_all(engine)

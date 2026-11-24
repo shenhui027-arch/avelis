@@ -27,6 +27,7 @@ export function UsersPage() {
   const [tempPasswordModal, setTempPasswordModal] = useState<{ username: string; password: string } | null>(null);
   const [copiedTemp, setCopiedTemp] = useState(false);
   const [kickTarget, setKickTarget] = useState<User | null>(null);
+  const [anonTarget, setAnonTarget] = useState<User | null>(null);
   const [message, setMessage] = useMessage();
 
   const isAdmin = roles.has("admin");
@@ -37,6 +38,10 @@ export function UsersPage() {
   );
   const revokeSessions = useAction(
     (userId: string) => unwrap(api.POST("/api/users/{user_id}/revoke-sessions", { params: { path: { user_id: userId } } })),
+    ["users"],
+  );
+  const anonymizeUser = useAction(
+    (userId: string) => unwrap(api.POST("/api/users/{user_id}/anonymize", { params: { path: { user_id: userId } } })),
     ["users"],
   );
 
@@ -130,6 +135,14 @@ export function UsersPage() {
                                 >
                                   {t("强制下线")}
                                 </button>
+                                <button
+                                  type="button"
+                                  className="av-btn av-btn--ghost av-btn--sm"
+                                  disabled={isSelf || (!u.is_active && u.username.startsWith("anonymized_"))}
+                                  onClick={() => setAnonTarget(u)}
+                                >
+                                  {t("匿名化")}
+                                </button>
                               </span>
                             ) : null}
                           </td>
@@ -195,6 +208,21 @@ export function UsersPage() {
             await revokeSessions.mutateAsync(kickTarget.id);
             setKickTarget(null);
             setMessage({ ok: true, text: t("已强制 {{username}} 下线", { username: kickTarget.username }) });
+          }}
+        />
+      ) : null}
+
+      {anonTarget ? (
+        <ConfirmDialog
+          danger
+          title={t("匿名化注销 {{username}}？", { username: anonTarget.username })}
+          body={t("将不可逆地抹除账号名、邮箱与双因素密钥，并吊销全部访问令牌与会话，同时完整保留历史审计哈希链。")}
+          confirm={t("确认匿名化")}
+          onCancel={() => setAnonTarget(null)}
+          onConfirm={async () => {
+            await anonymizeUser.mutateAsync(anonTarget.id);
+            setAnonTarget(null);
+            setMessage({ ok: true, text: t("已完成用户 {{username}} 匿名化注销", { username: anonTarget.username }) });
           }}
         />
       ) : null}

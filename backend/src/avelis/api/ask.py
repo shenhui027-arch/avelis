@@ -7,8 +7,9 @@ import contextvars
 import queue
 import threading
 from collections.abc import AsyncIterator
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -176,9 +177,7 @@ def _stream_ask(body: Question, request: Request, user: User, session: Session):
         sessionmaker(bind=bind, expire_on_commit=False, future=True)
         if bind is not None
         else (
-            db.session_factory()
-            if not hasattr(session, "_is_coroutine") and hasattr(db, "session_factory")
-            else None
+            db.session_factory() if not hasattr(session, "_is_coroutine") and hasattr(db, "session_factory") else None
         )
     )
 
@@ -191,9 +190,7 @@ def _stream_ask(body: Question, request: Request, user: User, session: Session):
         worker_session = worker_factory() if own_session and worker_factory is not None else session
         try:
             worker_user = (
-                worker_session.get(User, user_id, populate_existing=True)
-                if own_session and user_id
-                else user
+                worker_session.get(User, user_id, populate_existing=True) if own_session and user_id else user
             ) or user
             answer = agent.run_turn(worker_session, worker_user, body.question, body.thread_id, on_event=emit)
             view = answer_view(answer, worker_session, user=worker_user)
@@ -325,6 +322,17 @@ def get_answer(answer_id: str, user: User = Depends(current_user), session: Sess
     a = session.get(Answer, answer_id)
     if a is None or (a.asked_by != user.id and not access.is_admin(session, user)):
         raise HTTPException(404, "答案不存在或无权访问")
+    if a.status == "answered":
+        audit.record(
+            session,
+            user,
+            "answer.view",
+            "answer",
+            a.id,
+            asked_by=a.asked_by,
+            row_count=len((a.result or {}).get("rows") or []),
+        )
+        session.commit()
     return answer_view(a, session, user=user)
 
 
@@ -360,7 +368,14 @@ def list_audit(
     object_type: str | None = None,
     object_id: str | None = None,
     action: str | None = None,
-    limit: int = 200,
+    actor_name: str | None = None,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    client_ip: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
@@ -371,7 +386,7 @@ def list_audit(
             raise HTTPException(403, "只有管理员可以查看全部审计")
         if not access.can_see_object(session, user, object_type, object_id):
             raise HTTPException(404, "对象不存在或无权访问")
-    stmt = select(AuditEvent).order_by(AuditEvent.at.desc()).limit(min(limit, 1000))
+    stmt = select(AuditEvent).order_by(AuditEvent.at.desc())
     if not admin:
         stmt = stmt.where(
             func.coalesce(AuditEvent.detail["_governance"]["outcome"].as_string(), "success") != "failure"
@@ -382,6 +397,19 @@ def list_audit(
         stmt = stmt.where(AuditEvent.object_id == object_id)
     if action:
         stmt = stmt.where(AuditEvent.action == action)
+    if actor_name:
+        stmt = stmt.where(AuditEvent.actor_name == actor_name)
+    if request_id:
+        stmt = stmt.where(AuditEvent.detail["request_id"].as_string() == request_id)
+    if trace_id:
+        stmt = stmt.where(AuditEvent.detail["trace_id"].as_string() == trace_id)
+    if client_ip:
+        stmt = stmt.where(AuditEvent.detail["client_ip"].as_string() == client_ip)
+    if since:
+        stmt = stmt.where(AuditEvent.at >= since)
+    if until:
+        stmt = stmt.where(AuditEvent.at < until)
+    stmt = stmt.offset(offset).limit(min(limit, 1000))
     return [
         {
             "id": e.id,
@@ -392,6 +420,10 @@ def list_audit(
             "object_type": e.object_type,
             "object_id": e.object_id,
             "detail": e.detail,
+            "client_ip": (e.detail or {}).get("client_ip"),
+            "user_agent": (e.detail or {}).get("user_agent"),
+            "request_id": (e.detail or {}).get("request_id"),
+            "trace_id": (e.detail or {}).get("trace_id"),
             "outcome": (e.detail.get("_governance") or {}).get("outcome", "success"),
             "event_type": (e.detail.get("_governance") or {}).get("type"),
             "error": (e.detail.get("_governance") or {}).get("error"),
