@@ -11,6 +11,7 @@
 | [介面導覽](product-tour.zh-TW.md) | 登入、工作台、問數與分析會話、匯出、資料集、個人經驗、血緣、目錄、設定的截圖與說明 |
 | [部署指南](deployment.zh-TW.md) | Docker Compose、外部 PostgreSQL / Redis、不用 Docker 部署、升級、備份、排障 |
 | [設定參考](configuration.zh-TW.md) | 設定檔與全部 `AVELIS_*` 環境變數、預設值與是否必填 |
+| [可觀測性與排障](observability.zh-TW.md) | TraceID / RequestID 全鏈路關聯、JSON 日誌規範、Prometheus `/metrics` 與告警規則 |
 
 ## 開發
 
@@ -18,7 +19,7 @@
 |---|---|
 | [開發指南](development.zh-TW.md) | 後端與前端開發命令、本地示範環境、單元測試、一條命令復現驗收 |
 | [架構與治理說明](architecture.zh-TW.md) | 組成、資料模型、關鍵機制、治理規則、執行與已知邊界 |
-| [開發路線圖](roadmap.zh-TW.md) | M1 → M5 五階段開發計劃（計劃中）、執行順序與邊界約束 |
+| [開發路線圖](roadmap.zh-TW.md) | M1 → M5 五階段開發計劃（M1–M4 已完成，M5 計劃中）、執行順序與邊界約束 |
 | [引擎核驗記錄](engines/) | 各資料庫引擎的實機核驗：[StarRocks 3.5.14](engines/starrocks.md) |
 | [文件規範](documentation-guide.zh-TW.md) | README 與文件的結構、語言、術語、連結與圖片寫法 |
 | [貢獻指南](../CONTRIBUTING.md) | 開發環境、PR 流程、測試要求 |

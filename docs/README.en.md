@@ -11,6 +11,7 @@ Grouped by reader. The project README is available in [English](../README.en.md)
 | [Product tour](product-tour.en.md) | Screenshots and descriptions of sign-in, workbench, Ask and analysis sessions, export, datasets, personal experience, lineage, catalog and settings |
 | [Deployment guide](deployment.en.md) | Docker Compose, external PostgreSQL / Redis, deploying without Docker, upgrades, backups, troubleshooting |
 | [Configuration reference](configuration.en.md) | The configuration file and every `AVELIS_*` environment variable, with defaults and whether they are required |
+| [Observability guide](observability.en.md) | TraceID / RequestID correlation, JSON logging schema, Prometheus `/metrics` and alerting rules |
 
 ## Developing
 
@@ -18,7 +19,7 @@ Grouped by reader. The project README is available in [English](../README.en.md)
 |---|---|
 | [Development guide](development.en.md) | Backend and frontend commands, the local demo environment, unit tests, one-command acceptance |
 | [Architecture and governance](architecture.en.md) | Components, data model, key mechanisms, governance rules, operation and known limits |
-| [Roadmap](roadmap.en.md) | Planned five-phase development roadmap (M1 to M5), execution order and hard boundaries |
+| [Roadmap](roadmap.en.md) | Five-phase development roadmap (`M1`–`M4` completed, `M5` planned), execution order and hard boundaries |
 | [Engine verification records](engines/) (Simplified Chinese) | Database engines verified on real instances: [StarRocks 3.5.14](engines/starrocks.md) |
 | [Documentation guide](documentation-guide.en.md) | Structure, languages, terminology, links and images for the README and docs |
 | [Contributing guide](../CONTRIBUTING.md) | Development setup, pull request process, testing requirements |

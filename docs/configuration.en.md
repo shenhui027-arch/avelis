@@ -98,7 +98,7 @@ Any Redis-protocol service (Redis or Valkey). Precedence: `url` → individual f
 | `workers` | `AVELIS_WORKERS` | `1` | Number of processes (uvicorn workers) |
 | `public_url` | `AVELIS_PUBLIC_URL` | empty (derive MCP public addresses from each request) | Address users open, such as `http://10.0.0.5:8080`; when configured, used for the start-up log, CORS allow list, and OAuth issuer, as described below |
 | `frontend_dir` | `AVELIS_FRONTEND_DIR` | empty (`/app/frontend/dist` in the image) | Directory of the built frontend; when set, the same port serves the frontend and SPA routes fall back to `index.html`. Relative paths are resolved against the repository root |
-| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy addresses uvicorn trusts when processing `X-Forwarded-For` and `X-Forwarded-Proto` (comma-separated, `*` for all) |
+| `forwarded_allow_ips` | `AVELIS_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxy addresses trusted by the in-app `ProxyHeadersMiddleware` when processing `X-Forwarded-For` and `X-Forwarded-Proto` (comma-separated, `*` for all); when Forward Auth has no shared secret, this allow list is checked against the direct proxy peer IP before header rewriting |
 | `log_level` | `AVELIS_LOG_LEVEL` | `info` | `critical` / `error` / `warning` / `info` / `debug` |
 | `cors_origins` | `AVELIS_CORS_ORIGINS` | `http://127.0.0.1:5173`, `http://localhost:5173` | CORS allow list (an array in the configuration file, comma-separated in the environment variable); not needed when the frontend is served from the same port |
 

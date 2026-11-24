@@ -1,6 +1,6 @@
 // 变更记录（留底，ADR 0008）：按数据源、对象、类型、时间、数据库用户筛选；导出 CSV / JSON（带哈希）；管理员核验哈希链。
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, apiFetch, unwrap, type Schemas } from "../../api/client";
@@ -60,6 +60,8 @@ export function ChangeRecords() {
   const sources = useDatasources();
   // 筛选条件双向同步到 URL 查询参数，保留 view=records 以便刷新或分享
   const [params, setParams] = useSearchParams();
+  const latestParamsRef = useRef(params);
+  latestParamsRef.current = params;
   const filters: RecordFilters = {
     datasource_id: params.get("datasource_id") ?? "",
     asset_id: params.get("asset_id") ?? "",
@@ -73,23 +75,21 @@ export function ChangeRecords() {
   const [offset, setOffset] = useState(0);
   const [message, setMessage] = useMessage();
   const set = (k: keyof typeof filters) => (v: string) => {
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set("view", "records");
-      if (v) next.set(k, v); else next.delete(k);
-      if (k === "datasource_id") next.delete("asset_id");
-      return next;
-    }, { replace: true });
+    const next = new URLSearchParams(latestParamsRef.current);
+    next.set("view", "records");
+    if (v) next.set(k, v); else next.delete(k);
+    if (k === "datasource_id") next.delete("asset_id");
+    latestParamsRef.current = next;
+    setParams(next, { replace: true });
     setOffset(0);
   };
   const hasFilters = FILTER_KEYS.some((k) => Boolean(filters[k]));
   const resetFilters = () => {
-    setParams((prev) => {
-      const next = new URLSearchParams(prev);
-      for (const k of FILTER_KEYS) next.delete(k);
-      next.set("view", "records");
-      return next;
-    }, { replace: true });
+    const next = new URLSearchParams(latestParamsRef.current);
+    for (const k of FILTER_KEYS) next.delete(k);
+    next.set("view", "records");
+    latestParamsRef.current = next;
+    setParams(next, { replace: true });
     setOffset(0);
   };
   const { query, invalid } = recordQuery(filters, tz);

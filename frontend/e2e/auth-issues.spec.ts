@@ -98,6 +98,7 @@ test.describe("Auth Issues #149 & #150 Browser Verification", () => {
     const page = await ctxRemember.newPage();
     await loginViaUi(page, "steward_user", "Steward-e2e-password-2026!", true);
     await expect(page).toHaveURL("/");
+    await page.waitForLoadState("networkidle");
 
     const initialCookies = await getAuthCookies(ctxRemember);
     expect(initialCookies.access?.expires ?? -1).toBeGreaterThan(0);
@@ -151,6 +152,7 @@ test.describe("Auth Issues #149 & #150 Browser Verification", () => {
     const sessionPage = await ctxSession.newPage();
     await loginViaUi(sessionPage, "steward_user", "Steward-e2e-password-2026!", false);
     await expect(sessionPage).toHaveURL("/");
+    await sessionPage.waitForLoadState("networkidle");
 
     const sessInit = await getAuthCookies(ctxSession);
     expect(sessInit.access?.expires).toBe(-1);

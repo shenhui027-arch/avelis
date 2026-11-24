@@ -297,7 +297,13 @@ class MetadataGraph:
                             )
                         )
             if docs:
+                kw_stripped = keyword.strip()
                 extra = [fallback_nodes[k] for k, score in hybrid_rank(keyword, docs) if score > 0.0]
+                if re.fullmatch(r"[A-Za-z0-9_.-]+", kw_stripped) and ("_" in kw_stripped or "." in kw_stripped):
+                    parts = [p.casefold() for p in re.split(r"[_.-]+", kw_stripped) if len(p) >= 2]
+                    if parts:
+                        sem_by_id = {d.key: d.semantic_text.casefold() for d in docs}
+                        extra = [n for n in extra if all(p in sem_by_id.get(n["id"], "") for p in parts)]
                 count += len(extra)
                 room = max(0, 20 - len(chosen))
                 for node in extra[:room]:

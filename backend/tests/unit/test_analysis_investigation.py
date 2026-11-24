@@ -427,10 +427,10 @@ def test_offsetting_selects_the_matching_direction_among_first_two_causes(change
 
 
 def test_disabled_system_prompt_and_nonempty_context_pack_match_original_bytes(monkeypatch):
-    # 第 3 阶段固定增加 chart 说明；investigation 关闭时仍逐字保护其余提示与上下文。
+    # M3C 更新了窗口函数、sandbox_calc 与归因规则指引；锁定更新后的提示基线。
     assert (
         hashlib.sha256(agent.SYSTEM_PROMPT.encode()).hexdigest()
-        == "69d86774f27cfda7f70744086d0383153136918df686a9b68c8a5a92c408628f"
+        == "7d93380b01dfad36fab946c7909d352a450d8b8971b8b1f58f928b8f2e557181"
     )
     assert agent.system_message().content.encode() == agent.SYSTEM_PROMPT.format(**agent.PLACEHOLDER_EXAMPLE).encode()
     box = make_box(monkeypatch=monkeypatch)

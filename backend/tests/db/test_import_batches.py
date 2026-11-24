@@ -71,28 +71,42 @@ def _legacy_import(
 ):
     """按 0017_metric_time 的真实表结构写旧文件，避免用当前 ORM 的新增列。"""
     now = created_at or utcnow()
+    metadata = MetaData()
     if actor is None:
         actor = new_id()
+        users = Table("app_user", metadata, autoload_with=connection)
         connection.execute(
-            User.__table__.insert().values(
-                id=actor, username=f"u{new_id()}", display_name="导入测试", password_hash="x", created_at=now
+            users.insert().values(
+                id=actor,
+                username=f"u{new_id()}",
+                display_name="导入测试",
+                password_hash="x",
+                is_active=True,
+                must_change_password=False,
+                created_at=now,
             )
         )
     if datasource is None:
         datasource = new_id()
+        datasources = Table("datasource", metadata, autoload_with=connection)
         connection.execute(
-            Datasource.__table__.insert().values(
+            datasources.insert().values(
                 id=datasource,
                 name=f"import{new_id()}",
                 kind="postgres",
                 host="unused",
                 port=1,
+                options={},
+                is_test_adapter=False,
+                status="active",
+                server_identity={},
+                collect_interval_minutes=15,
+                allow_exploration=True,
                 created_by=actor,
                 created_at=now,
             )
         )
     job_id, statement_id = new_id(), new_id()
-    metadata = MetaData()
     jobs = Table("import_job", metadata, autoload_with=connection)
     statements = Table("extracted_statement", metadata, autoload_with=connection)
     values = dict(

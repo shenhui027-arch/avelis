@@ -1,5 +1,7 @@
 # 可观测性与生产排障指南（TraceID / 日志规范 / Prometheus Metrics）
 
+[English](observability.en.md) | 简体中文 | [繁體中文](observability.zh-TW.md)
+
 本文档说明 Avelis 在生产部署与线上排障时的链路追踪（`trace_id` / `request_id`）、结构化日志规范与 Prometheus `/metrics` 监控指标口径。
 
 > **模块化代码布局**：
