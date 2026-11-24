@@ -1281,3 +1281,319 @@ def test_resolve_or_create_external_user_raises_after_max_retry_attempts(env, mo
 
     with env.factory() as verify_sess:
         assert verify_sess.scalars(select(AuditEvent).where(AuditEvent.action == "user.create")).all() == []
+
+
+@pytest.mark.parametrize("provider", ["oidc", "forward_auth"])
+@pytest.mark.parametrize("route_suffix", ["password", "reset-password"])
+def test_password_reset_routes_reject_external_accounts_without_mutating(env, provider, route_suffix):
+    admin_tok = _login(env.client, "admin", "Admin-Pass-2026!").json()["access_token"]
+    env.client.cookies.clear()
+
+    ext_id = f"u-ext-{provider}-{route_suffix}"
+    with env.factory.begin() as s:
+        s.add(
+            User(
+                id=ext_id,
+                username=f"ext_{provider}_{route_suffix.replace('-', '_')}",
+                display_name="External User",
+                email="ext@example.com",
+                password_hash="!",
+                auth_provider=provider,
+                external_issuer="https://idp.example.com" if provider == "oidc" else "forward_auth",
+                external_sub=ext_id,
+                is_active=True,
+                must_change_password=False,
+            )
+        )
+
+    url = f"/api/users/{ext_id}/{route_suffix}"
+    payload = {"new_password": "BrandNew-Pass-2026!"} if route_suffix == "password" else None
+    resp = env.client.post(url, headers=_bearer(admin_tok), json=payload)
+    assert resp.status_code == 409, resp.text
+    assert "外部认证账号" in resp.json()["detail"]
+
+    with env.factory() as s:
+        u = s.get(User, ext_id)
+        assert u is not None
+        assert u.password_hash == "!"
+        assert u.must_change_password is False
+        assert u.password_changed_at is None
+        assert u.sessions_valid_after is None
+
+    # 本地账号两条重置入口均正常工作
+    local_payload = {"new_password": "Alice-Reset-2026!"} if route_suffix == "password" else None
+    local_resp = env.client.post(f"/api/users/u-alice/{route_suffix}", headers=_bearer(admin_tok), json=local_payload)
+    assert local_resp.status_code == 200, local_resp.text
+
+
+@pytest.mark.parametrize("revocation_action", ["self_password", "admin_password", "admin_reset", "revoke_sessions"])
+def test_pending_totp_challenge_is_invalidated_by_session_revocation(env, revocation_action):
+    admin_tok = _login(env.client, "admin", "Admin-Pass-2026!").json()["access_token"]
+    env.client.cookies.clear()
+    alice_tok = _login(env.client, "alice", "Alice-Pass-2026!").json()["access_token"]
+    env.client.cookies.clear()
+
+    # 启用 Alice 的 TOTP
+    enroll = env.client.post("/api/me/totp/enroll", headers=_bearer(alice_tok))
+    assert enroll.status_code == 200
+    secret = enroll.json()["secret"]
+    step0 = totp.totp_step()
+    assert (
+        env.client.post(
+            "/api/me/totp/verify",
+            headers=_bearer(alice_tok),
+            json={"code": totp.hotp_code(secret, step0)},
+        ).status_code
+        == 200
+    )
+
+    # 先发起登录获取待验证 TOTP challenge
+    chal_resp = _login(env.client, "alice", "Alice-Pass-2026!")
+    assert chal_resp.status_code == 403
+    old_challenge = chal_resp.json()["detail"]["challenge_token"]
+
+    # 执行触发会话撤销的操作
+    current_pw = "Alice-Pass-2026!"
+    if revocation_action == "self_password":
+        new_pw = "BrandNew-Valid-2026!"
+        assert (
+            env.client.post(
+                "/api/me/password",
+                headers=_bearer(alice_tok),
+                json={"current_password": current_pw, "new_password": new_pw},
+            ).status_code
+            == 200
+        )
+        current_pw = new_pw
+    elif revocation_action == "admin_password":
+        new_pw = "AdminSet-Valid-2026!"
+        assert (
+            env.client.post(
+                "/api/users/u-alice/password",
+                headers=_bearer(admin_tok),
+                json={"new_password": new_pw},
+            ).status_code
+            == 200
+        )
+        current_pw = new_pw
+    elif revocation_action == "admin_reset":
+        reset_res = env.client.post("/api/users/u-alice/reset-password", headers=_bearer(admin_tok))
+        assert reset_res.status_code == 200
+        current_pw = reset_res.json()["temporary_password"]
+    else:
+        assert env.client.post("/api/users/u-alice/revoke-sessions", headers=_bearer(admin_tok)).status_code == 200
+
+    # 旧待完成 TOTP 挑战即使提供正确验证码也被拒绝
+    rejected = env.client.post(
+        "/api/auth/totp/verify",
+        json={"challenge_token": old_challenge, "code": totp.hotp_code(secret, step0 + 1)},
+    )
+    assert rejected.status_code == 401
+    assert "会话已失效" in rejected.json()["detail"]
+
+    # 使用最新凭据重新发起登录与 TOTP 校验不受影响（前次挑战因会话失效未消耗 step0 + 1）
+    fresh_chal = _login(env.client, "alice", current_pw)
+    assert fresh_chal.status_code == 403
+    fresh_done = env.client.post(
+        "/api/auth/totp/verify",
+        json={
+            "challenge_token": fresh_chal.json()["detail"]["challenge_token"],
+            "code": totp.hotp_code(secret, step0 + 1),
+        },
+    )
+    assert fresh_done.status_code == 200, fresh_done.text
+    assert "access_token" in fresh_done.json()
+
+
+def test_totp_disable_password_branch_shares_rate_limit_and_skips_hashing_when_locked(env, monkeypatch):
+    alice_tok = _login(env.client, "alice", "Alice-Pass-2026!").json()["access_token"]
+    env.client.cookies.clear()
+
+    enroll = env.client.post("/api/me/totp/enroll", headers=_bearer(alice_tok)).json()
+    secret = enroll["secret"]
+    step0 = totp.totp_step()
+    assert (
+        env.client.post(
+            "/api/me/totp/verify",
+            headers=_bearer(alice_tok),
+            json={"code": totp.hotp_code(secret, step0)},
+        ).status_code
+        == 200
+    )
+
+    # 前 5 次错误密码均返回 403
+    for _ in range(5):
+        bad = env.client.post(
+            "/api/me/totp/disable",
+            headers=_bearer(alice_tok),
+            json={"current_password": "wrong-password"},
+        )
+        assert bad.status_code == 403
+
+    # 第 6 次被限流 429 且不再执行密码哈希校验，同时与 /api/me/password 共享同一限流桶
+    called = False
+    orig_verify = auth.verify_password
+
+    def tracked_verify(*args, **kwargs):
+        nonlocal called
+        called = True
+        return orig_verify(*args, **kwargs)
+
+    monkeypatch.setattr(auth, "verify_password", tracked_verify)
+    locked_resp = env.client.post(
+        "/api/me/totp/disable",
+        headers=_bearer(alice_tok),
+        json={"current_password": "Alice-Pass-2026!"},
+    )
+    assert locked_resp.status_code == 429
+    assert int(locked_resp.headers["Retry-After"]) > 0
+    assert called is False
+
+    pw_locked = env.client.post(
+        "/api/me/password",
+        headers=_bearer(alice_tok),
+        json={"current_password": "Alice-Pass-2026!", "new_password": "Alice-NewPass-2026!"},
+    )
+    assert pw_locked.status_code == 429
+
+    # 锁定期间使用 TOTP 验证码分支仍可正常工作（不走密码限流桶）
+    disabled_by_code = env.client.post(
+        "/api/me/totp/disable",
+        headers=_bearer(alice_tok),
+        json={"code": totp.hotp_code(secret, step0 + 1)},
+    )
+    assert disabled_by_code.status_code == 200 and disabled_by_code.json()["enabled"] is False
+
+
+def test_forward_auth_checks_direct_proxy_peer_before_forwarded_headers(env):
+    import socket
+
+    import uvicorn
+
+    from avelis import server
+
+    admin_tok = _login(env.client, "admin", "Admin-Pass-2026!").json()["access_token"]
+    env.client.cookies.clear()
+    assert (
+        env.client.put(
+            "/api/settings/auth",
+            headers=_bearer(admin_tok),
+            json={
+                "local_login_enabled": True,
+                "forward_auth_enabled": True,
+                "forward_auth_header": "X-Forwarded-User",
+                "forward_auth_auto_create": True,
+                "clear_forward_auth_secret": True,
+                "oidc": {"enabled": False},
+                "branding": {"brand_name": "Avelis"},
+            },
+        ).status_code
+        == 200
+    )
+
+    proxy_settings = replace(env.settings, forwarded_allow_ips="10.0.0.10")
+    env.set_settings(proxy_settings)
+    proxy_app = app_module.create_app(settings=proxy_settings)
+    proxy_app.dependency_overrides[deps.get_session] = env.app.dependency_overrides[deps.get_session]
+
+    # 可信直连代理 (10.0.0.10) 带上 X-Forwarded-For 访客 IP 203.0.113.50 与 X-Forwarded-Proto: https -> 放行
+    with TestClient(proxy_app, client=("10.0.0.10", 54321)) as trusted_client:
+        ok = trusted_client.get(
+            "/api/auth/forward",
+            headers={
+                "X-Forwarded-User": "Proxy.Visitor",
+                "X-Forwarded-For": "203.0.113.50",
+                "X-Forwarded-Proto": "https",
+            },
+        )
+        assert ok.status_code == 200, ok.text
+        set_cookies = ok.headers.get_list("set-cookie")
+        assert any("avelis_access=" in c and "; Secure" in c for c in set_cookies)
+
+    # 非可信直连客户端 (198.51.100.99) 即使伪造 X-Forwarded-For: 10.0.0.10 -> 403 拒绝
+    untrusted_app = app_module.create_app(settings=proxy_settings)
+    untrusted_app.dependency_overrides[deps.get_session] = env.app.dependency_overrides[deps.get_session]
+    with TestClient(untrusted_app, client=("198.51.100.99", 54321)) as untrusted_client:
+        denied = untrusted_client.get(
+            "/api/auth/forward",
+            headers={"X-Forwarded-User": "Spoofed.User", "X-Forwarded-For": "10.0.0.10"},
+        )
+        assert denied.status_code == 403
+
+    # 真实 Uvicorn TCP 服务 + server.uvicorn_options：回环代理 (127.0.0.1) 转发 X-Forwarded-For 仍可通过 Forward Auth
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    loopback_settings = replace(
+        env.settings,
+        forwarded_allow_ips="127.0.0.1",
+        host="127.0.0.1",
+        port=port,
+        workers=1,
+    )
+    env.set_settings(loopback_settings)
+    real_app = app_module.create_app(settings=loopback_settings)
+    real_app.dependency_overrides[deps.get_session] = env.app.dependency_overrides[deps.get_session]
+
+    opts = server.uvicorn_options(loopback_settings)
+    opts.pop("log_config", None)
+    config_obj = uvicorn.Config(real_app, **opts)
+    uv_server = uvicorn.Server(config_obj)
+    uv_server.install_signal_handlers = lambda: None
+    thread = threading.Thread(target=uv_server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.time() + 10
+        while not uv_server.started and time.time() < deadline:
+            time.sleep(0.05)
+        assert uv_server.started
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/api/auth/forward",
+            headers={"X-Forwarded-User": "Real.ProxyUser", "X-Forwarded-For": "203.0.113.50"},
+            timeout=5.0,
+        )
+        assert resp.status_code == 200, resp.text
+        assert "access_token" in resp.json()
+    finally:
+        uv_server.should_exit = True
+        thread.join(timeout=5)
+
+
+def test_legacy_case_distinct_usernames_resolve_deterministically_without_silent_pick(env):
+    with env.factory.begin() as s:
+        s.add_all(
+            [
+                User(
+                    id="u-dup-upper",
+                    username="DupUser",
+                    display_name="Upper Dup",
+                    password_hash=security.hash_password("Upper-Pass-2026!"),
+                    must_change_password=False,
+                ),
+                User(
+                    id="u-dup-lower",
+                    username="dupuser",
+                    display_name="Lower Dup",
+                    password_hash=security.hash_password("Lower-Pass-2026!"),
+                    must_change_password=False,
+                ),
+            ]
+        )
+
+    upper_ok = _login(env.client, "DupUser", "Upper-Pass-2026!")
+    assert upper_ok.status_code == 200
+    assert env.client.get("/api/me", headers=_bearer(upper_ok.json()["access_token"])).json()["id"] == "u-dup-upper"
+    env.client.cookies.clear()
+
+    lower_ok = _login(env.client, "dupuser", "Lower-Pass-2026!")
+    assert lower_ok.status_code == 200
+    assert env.client.get("/api/me", headers=_bearer(lower_ok.json()["access_token"])).json()["id"] == "u-dup-lower"
+    env.client.cookies.clear()
+
+    # 歧义大小写不静默任选一个，一律拒绝
+    ambiguous = _login(env.client, "DUPUSER", "Lower-Pass-2026!")
+    assert ambiguous.status_code == 401
+    ambiguous2 = _login(env.client, "DUPUSER", "Upper-Pass-2026!")
+    assert ambiguous2.status_code == 401

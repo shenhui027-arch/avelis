@@ -51,12 +51,11 @@ let refreshing: Promise<boolean> | null = null;
 
 async function refreshSession(): Promise<boolean> {
   if (refreshing) return refreshing;
-  const value = token.get();
   refreshing = (async () => {
+    // 浏览器续期走 HttpOnly Refresh Cookie，不发送可能已过期的 Bearer token，从而在刷新时保留 remember_me 状态
     const response = await fetch("/api/auth/refresh", {
       method: "POST",
       credentials: "include",
-      headers: value ? { Authorization: `Bearer ${value}` } : undefined,
     });
     if (!response.ok) return false;
     const json = await response.json();

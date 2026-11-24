@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from avelis import audit
@@ -19,7 +19,16 @@ def anonymize_user(session: Session, target_id_or_username: str, *, actor: User 
     key = (target_id_or_username or "").strip()
     if not key:
         raise ValueError("必须指定要匿名化的用户编号或用户名")
-    user = session.scalar(select(User).where(or_(User.id == key, func.lower(User.username) == normalize_username(key))))
+    user = session.scalar(select(User).where(User.id == key))
+    if user is None:
+        candidates = list(session.scalars(select(User).where(func.lower(User.username) == normalize_username(key))))
+        if len(candidates) > 1:
+            exact = next((u for u in candidates if u.username == key), None)
+            if exact is None:
+                raise ValueError("存在多个仅大小写不同的同名用户，请使用用户编号执行匿名化")
+            user = exact
+        elif candidates:
+            user = candidates[0]
     if user is None:
         raise LookupError(f"用户不存在：{key}")
     if actor is not None and actor.id == user.id:

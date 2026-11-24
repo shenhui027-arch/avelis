@@ -24,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 def uvicorn_options(settings: Settings) -> dict:
     """组装服务参数，不创建应用或连接外部服务。"""
+    # 代理头解析由 create_app 内的 DirectPeerCaptureMiddleware + ProxyHeadersMiddleware 按 forwarded_allow_ips 执行，
+    # 以便 Forward Auth 在 X-Forwarded-For 改写 scope['client'] 前仍可校验直连代理对端 IP。
     return {
         "host": settings.host,
         "port": settings.port,
         "workers": settings.workers,
-        "proxy_headers": True,
-        "forwarded_allow_ips": settings.forwarded_allow_ips,
+        "proxy_headers": False,
         "log_level": settings.log_level,
         "access_log": False,
         "log_config": build_uvicorn_log_config(settings),

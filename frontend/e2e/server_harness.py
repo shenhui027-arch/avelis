@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import json
 import os
 import shutil
 import sys
 import tempfile
 import threading
 import time
+import uuid
 import zlib
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
+import jwt
 import uvicorn
+from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import JSON, MetaData, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
@@ -90,7 +96,9 @@ class _InMemoryRedis:
             self._evict(key)
             return self._kv.get(key)
 
-    def set(self, key: str, value: Any, ex: int | None = None, px: int | None = None, nx: bool = False, xx: bool = False) -> bool | None:
+    def set(
+        self, key: str, value: Any, ex: int | None = None, px: int | None = None, nx: bool = False, xx: bool = False
+    ) -> bool | None:
         with self._lock:
             self._evict(key)
             has = key in self._kv
@@ -201,9 +209,109 @@ class _FlushBeforeSendMiddleware:
             await send(msg)
 
 
-def _create_sqlite_db(db_path: Path):
+def _start_mock_oidc_server() -> tuple[str, ThreadingHTTPServer]:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key()))
+    public_jwk["kid"] = "e2e-k1"
+    public_jwk["use"] = "sig"
+    public_jwk["alg"] = "RS256"
+    auth_codes: dict[str, str] = {}
+    code_lock = threading.Lock()
+    issuer_holder = {"url": ""}
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return None
+
+        def do_GET(self) -> None:
+            parsed = urlsplit(self.path)
+            issuer = issuer_holder["url"]
+            if parsed.path == "/.well-known/openid-configuration":
+                body = json.dumps(
+                    {
+                        "issuer": issuer,
+                        "authorization_endpoint": f"{issuer}/authorize",
+                        "token_endpoint": f"{issuer}/token",
+                        "jwks_uri": f"{issuer}/jwks",
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path == "/jwks":
+                body = json.dumps({"keys": [public_jwk]}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path == "/authorize":
+                qs = parse_qs(parsed.query)
+                redirect_uri = qs["redirect_uri"][0]
+                state = qs["state"][0]
+                nonce = qs["nonce"][0]
+                code = f"e2e-code-{uuid.uuid4().hex}"
+                with code_lock:
+                    auth_codes[code] = nonce
+                sep = "&" if "?" in redirect_uri else "?"
+                self.send_response(302)
+                self.send_header("Location", f"{redirect_uri}{sep}code={code}&state={state}")
+                self.end_headers()
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def do_POST(self) -> None:
+            if urlsplit(self.path).path != "/token":
+                self.send_response(404)
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length") or "0")
+            form = parse_qs(self.rfile.read(length).decode("utf-8"))
+            code = (form.get("code") or [""])[0]
+            with code_lock:
+                nonce = auth_codes.pop(code, "")
+            now_ts = int(time.time())
+            id_token = jwt.encode(
+                {
+                    "iss": issuer_holder["url"],
+                    "sub": "oidc-sub-steward",
+                    "aud": "avelis-e2e-client",
+                    "iat": now_ts,
+                    "exp": now_ts + 300,
+                    "nonce": nonce,
+                    "preferred_username": "oidc_steward",
+                    "name": "OIDC Steward",
+                    "email": "oidc_steward@avelis.local",
+                },
+                private_key,
+                algorithm="RS256",
+                headers={"kid": "e2e-k1"},
+            )
+            body = json.dumps({"access_token": "mock-oidc-at", "id_token": id_token, "token_type": "Bearer"}).encode(
+                "utf-8"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    issuer_url = f"http://127.0.0.1:{srv.server_port}"
+    issuer_holder["url"] = issuer_url
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    return issuer_url, srv
+
+
+def _create_sqlite_db(db_path: Path, *, oidc_issuer: str):
     from avelis import db, security
-    from avelis.models import Domain, DomainMember, User, UserRole
+    from avelis.models import AnalysisDataset, AnalysisRun, Asset, Datasource, Domain, DomainMember, User, UserRole
 
     engine = create_engine(
         f"sqlite:///{db_path.as_posix()}",
@@ -279,13 +387,15 @@ def _create_sqlite_db(db_path: Path):
         )
         session.add_all([admin, steward, analyst, forced, kick_target])
         session.flush()
-        session.add_all([
-            UserRole(user_id=admin.id, role="admin"),
-            UserRole(user_id=steward.id, role="steward"),
-            UserRole(user_id=analyst.id, role="analyst"),
-            UserRole(user_id=forced.id, role="analyst"),
-            UserRole(user_id=kick_target.id, role="analyst"),
-        ])
+        session.add_all(
+            [
+                UserRole(user_id=admin.id, role="admin"),
+                UserRole(user_id=steward.id, role="steward"),
+                UserRole(user_id=analyst.id, role="analyst"),
+                UserRole(user_id=forced.id, role="analyst"),
+                UserRole(user_id=kick_target.id, role="analyst"),
+            ]
+        )
         domain = Domain(
             id="e2e-domain-1",
             code="core_metrics",
@@ -295,11 +405,106 @@ def _create_sqlite_db(db_path: Path):
         )
         session.add(domain)
         session.flush()
-        session.add_all([
-            DomainMember(domain_id=domain.id, user_id=admin.id, role="owner"),
-            DomainMember(domain_id=domain.id, user_id=steward.id, role="maintainer"),
-            DomainMember(domain_id=domain.id, user_id=analyst.id, role="viewer"),
-        ])
+        session.add_all(
+            [
+                DomainMember(domain_id=domain.id, user_id=admin.id, role="owner"),
+                DomainMember(domain_id=domain.id, user_id=steward.id, role="maintainer"),
+                DomainMember(domain_id=domain.id, user_id=analyst.id, role="viewer"),
+            ]
+        )
+
+        oidc_steward = User(
+            id="e2e-oidc-steward",
+            username="oidc_steward",
+            display_name="OIDC Steward",
+            email="oidc_steward@avelis.local",
+            password_hash="!",
+            auth_provider="oidc",
+            external_issuer=oidc_issuer,
+            external_sub="oidc-sub-steward",
+            is_active=True,
+            must_change_password=False,
+        )
+        fw_steward = User(
+            id="e2e-fw-steward",
+            username="fw_steward",
+            display_name="Forward Auth Steward",
+            email="fw_steward@avelis.local",
+            password_hash="!",
+            auth_provider="forward_auth",
+            external_issuer="forward_auth",
+            external_sub="fw_steward",
+            is_active=True,
+            must_change_password=False,
+        )
+        ds = Datasource(
+            id="e2e-ds-pg",
+            name="E2E Postgres",
+            kind="postgres",
+            host="127.0.0.1",
+            port=5432,
+            options={"database": "demo", "schemas": ["public"]},
+            allow_exploration=True,
+        )
+        asset = Asset(
+            id="e2e-asset-1",
+            datasource_id=ds.id,
+            domain_id=domain.id,
+            catalog_name="demo",
+            db_name="public",
+            name="sales",
+            kind="table",
+            physical_id="e2e-sales-1",
+            status="active",
+        )
+        session.add_all([oidc_steward, fw_steward, ds, asset])
+        session.flush()
+        session.add_all(
+            [
+                UserRole(user_id=oidc_steward.id, role="steward"),
+                UserRole(user_id=fw_steward.id, role="steward"),
+                DomainMember(domain_id=domain.id, user_id=oidc_steward.id, role="maintainer"),
+                DomainMember(domain_id=domain.id, user_id=fw_steward.id, role="maintainer"),
+            ]
+        )
+        for run_id, uid in (
+            ("e2e-run-oidc", oidc_steward.id),
+            ("e2e-run-fw", fw_steward.id),
+            ("e2e-run-local", steward.id),
+        ):
+            session.add(
+                AnalysisRun(
+                    id=run_id,
+                    conversation_id=run_id,
+                    user_id=uid,
+                    question="E2E 区域销售汇总",
+                    trigger="manual",
+                    status="succeeded",
+                    window={},
+                    plan={},
+                    report={
+                        "title": "E2E Export Check",
+                        "summary": "区域销售数据已就绪。",
+                        "claims": [],
+                    },
+                    verification={},
+                    budget={},
+                )
+            )
+            session.add(
+                AnalysisDataset(
+                    id=f"{run_id}-d1",
+                    run_id=run_id,
+                    seq=1,
+                    kind="explore",
+                    title="E2E Regional GMV",
+                    inputs=[],
+                    columns=["region", "gmv"],
+                    rows=[["华东", 12345]],
+                    truncated=False,
+                    meta={"tables": [{"asset_id": asset.id}]},
+                )
+            )
     return engine, factory
 
 
@@ -310,6 +515,9 @@ def main() -> None:
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="avelis_fe_e2e_"))
     atexit.register(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
+
+    oidc_issuer, oidc_srv = _start_mock_oidc_server()
+    atexit.register(oidc_srv.shutdown)
 
     frontend_dist = REPO_ROOT / "frontend" / "dist"
     env_map = {
@@ -331,7 +539,7 @@ def main() -> None:
     from avelis.api.app import create_app
 
     settings = config.build_settings(env_map)
-    engine, factory = _create_sqlite_db(tmp_dir / "e2e.sqlite")
+    engine, factory = _create_sqlite_db(tmp_dir / "e2e.sqlite", oidc_issuer=oidc_issuer)
     redis_mem = _InMemoryRedis()
 
     @contextmanager
@@ -369,8 +577,26 @@ def main() -> None:
         if getattr(mod, "cache_client", None) is orig_client:
             setattr(mod, "cache_client", lambda: redis_mem)
 
-    app = _FlushBeforeSendMiddleware(create_app(settings=settings))
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    inner_app = _FlushBeforeSendMiddleware(create_app(settings=settings))
+
+    async def app(scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] == "http" and scope.get("path") == "/__e2e/info":
+            body = json.dumps({"oidc_issuer": oidc_issuer}).encode("utf-8")
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode("ascii")),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+        await inner_app(scope, receive, send)
+
+    uvicorn.run(app, host="127.0.0.1", port=args.port, proxy_headers=False, log_level="warning")
 
 
 if __name__ == "__main__":

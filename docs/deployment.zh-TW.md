@@ -159,7 +159,7 @@ docker run -d --name avelis-worker --no-healthcheck \
 
 ## 5. 反向代理與 HTTPS
 
-生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並保持 `AVELIS_BIND_ADDRESS` 的預設值 `127.0.0.1` 只讓本機代理存取。登入失敗限流按「帳號 + 來源地址」計數；MCP 未設定對外地址時還要使用正確的外部 scheme 與 Host。代理須保留 Host（含埠），傳遞 `X-Forwarded-For` 與 `X-Forwarded-Proto`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只寫可信代理，`"*"` 表示全部信任）。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）設為使用者實際存取的地址（如 `https://avelis.example.com`）。後端不額外信任 `X-Forwarded-Host` 等轉送標頭；使用路徑前綴時須正確設定 ASGI `root_path` 並讓代理保留相應公開路徑。
+生產環境建議在前面放一個反向代理（Nginx、Caddy、雲負載均衡）終止 HTTPS，並保持 `AVELIS_BIND_ADDRESS` 的預設值 `127.0.0.1` 只讓本機代理存取。登入失敗限流按「帳號 + 來源地址」計數；MCP 未設定對外地址時還要使用正確的外部 scheme 與 Host。代理須保留 Host（含埠），傳遞 `X-Forwarded-For` 與 `X-Forwarded-Proto`，並把代理地址寫進 `avelis.toml` 的 `[server] forwarded_allow_ips`（或 `AVELIS_FORWARDED_ALLOW_IPS`，只寫可信代理，`"*"` 表示全部信任）。`python -m avelis.server` 預設將代理標頭處理放在 ASGI 應用內，以在 `X-Forwarded-For` 生效前保留直連代理對端 IP 給 Forward Auth 驗證；若脫離 `avelis.server` 直接啟動 `uvicorn`，請加上 `--no-proxy-headers` 或為 Forward Auth 設定 `X-Forwarded-Auth-Secret`。也可直接把 `[server] public_url`（`AVELIS_PUBLIC_URL`）設為使用者實際存取的地址（如 `https://avelis.example.com`）。後端不額外信任 `X-Forwarded-Host` 等轉送標頭；使用路徑前綴時須正確設定 ASGI `root_path` 並讓代理保留相應公開路徑。
 
 Nginx 示例（同步分析介面最長等待約 7 分鐘，讀超時要留足）：
 

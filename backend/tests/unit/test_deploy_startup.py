@@ -278,15 +278,14 @@ def test_uvicorn_options_preserve_defaults(settings):
         "host": "127.0.0.1",
         "port": 8000,
         "workers": 1,
-        "proxy_headers": True,
-        "forwarded_allow_ips": "127.0.0.1",
+        "proxy_headers": False,
         "log_level": "info",
         "access_log": False,
         "log_config": build_uvicorn_log_config(settings),
     }
 
 
-def test_uvicorn_options_pass_configured_proxy_trust_and_workers(settings):
+def test_uvicorn_options_pass_configured_workers_and_disable_outer_proxy_headers(settings):
     from avelis.observability import build_uvicorn_log_config
 
     settings = dataclasses.replace(
@@ -297,8 +296,7 @@ def test_uvicorn_options_pass_configured_proxy_trust_and_workers(settings):
         "host": "0.0.0.0",
         "port": 8080,
         "workers": 3,
-        "proxy_headers": True,
-        "forwarded_allow_ips": "10.0.0.1,10.0.0.2",
+        "proxy_headers": False,
         "log_level": "warning",
         "access_log": False,
         "log_config": build_uvicorn_log_config(settings),
