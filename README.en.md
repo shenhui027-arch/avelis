@@ -15,7 +15,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.en.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
-[![version](https://img.shields.io/badge/version-v1.0.11-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.0.11)
+[![version](https://img.shields.io/badge/version-v1.1.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.0)
 
 [Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
-> Avelis v1.0.11 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis v1.1.0 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## A note from the author
 
@@ -47,11 +47,13 @@ AI has let developers like us be among the first to taste the rewards of this wa
 - **Learns from confirmation.** Questions the model raises are confirmed with the user and stored as governed experience that later questions and analyses reuse.
 - **Skill marketplace.** Upload skill packages in the open [Agent Skills](https://agentskills.io) format; an admin reviews them before they are listed, and each user decides which ones to enable. Q&A and analysis pick relevant enabled skills automatically, or you can reference them explicitly with “+” or “/” in the input box. Scripts in a package are stored, never executed.
 - **Pluggable models.** Configure DeepSeek, OpenAI, Anthropic, Qwen or any OpenAI-compatible endpoint in the UI and assign models per purpose. Without a model, a rule-based demo model is used and labelled as such.
+- **Security and compliance.** OIDC single sign-on, two-factor auth and personal access tokens, with brute-force protection at sign-in; TLS for data sources, column masking and row-level security; audit logs that record origin and exports, with hash-chain verification; structured logs and Prometheus metrics.
 
 ## What's new
 
 | Version | Added |
 |---|---|
+| **v1.1.0** | Security and enterprise features: Cookie sessions, OIDC single sign-on, two-factor auth, personal access tokens, brute-force protection and a redesigned sign-in page; Q&A and analysis support multiple model providers, live progress, cost tracking and quotas, plus a verified query repository and domain-shared experience; TLS for data sources, column masking, row-level security, audit verification and Prometheus metrics; the lineage page gains a trace bar (direction, depth, ends only) and a table view with CSV export |
 | **v1.0.11** | Skill marketplace: upload packages in the Agent Skills format, admin review before listing, each user enables their own; quick answers and root-cause analysis pick skills automatically, and “+” or “/” in the input box references them. The analysis process becomes a step-by-step timeline: a spinner and live reasoning text while running, with each reasoning passage and tool call expandable on its own |
 | **v1.0.10** | UI audit fixes: dark-theme contrast, narrow-screen layout and accessibility; one shared pagination bar and two collapsible-section styles across the app; “Edit” for rewriting existing content, “New” vs. “Add” by object type; loading and error states with retry |
 | **v1.0.9** | Interface wording: clearer titles, buttons and note states on the asset dossier, with a copy icon next to the table name; “Recent changes” is its own card on the workbench; the model context window accepts k and M units; empty states and analysis report wording are unified |
@@ -195,13 +197,9 @@ The full index is in [docs/README.en.md](docs/README.en.md). Design decision rec
 
 ## Roadmap
 
-Planned directions (delivered in order, without dates); see the [development roadmap](docs/roadmap.en.md) for scope and boundaries:
+The four phases for authentication security, interface and accessibility, agent capabilities, and data compliance and observability shipped in v1.1.0. Planned next (without dates); see the [development roadmap](docs/roadmap.en.md) for scope and boundaries:
 
-- **Authentication security and sign-in experience**: enforced first-login password change and HTTP security headers, anti-brute-force protection and Cookie auth, standard OIDC sign-in, local TOTP two-factor auth, personal access tokens, and redesigned sign-in, password-change and admin user operations.
-- **Interface polish, accessibility and frontend performance**: end-to-end navigation and retry flows, global command palette and complete CRUD, WCAG AA contrast and keyboard accessibility, streamlined motion, and lazy-loaded routes and locales.
-- **Agent intelligence and evaluation**: hybrid retrieval, domain-shared experiences and a verified query repository, multi-provider streaming with cost quotas, a read-only computation sandbox with broader engine exploration, backward-compatible MCP negotiation and skill security checks.
-- **Data compliance and engineering foundations**: TLS across all eight engines, key rotation, column masking and row-level security, expanded audit logs with hash-chain verification UI, structured observability and database-backed CI.
-- **Large-scale catalog and high availability** (implemented only after all four phases above are verified): sharded hash chains with streaming purge, incremental 10k-table collection and search indexes, multi-slot workers with cross-replica SSE, object storage and Helm deployment.
+- **Large-scale catalog and high availability**: sharded hash chains with streaming purge, incremental 10k-table collection and search indexes, multi-slot workers with cross-replica SSE, object storage and Helm deployment.
 - **Ongoing directions**: external catalogs and materialized views for more engines; richer Ask expressions (nested derived metrics, week and month grains, share of total).
 
 Changes are recorded in the [changelog](CHANGELOG.md).

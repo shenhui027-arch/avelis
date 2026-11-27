@@ -14,13 +14,17 @@ from avelis.events import delivery
 def worker(monkeypatch):
     handlers = {}
     connection = MagicMock()
+    worker_id = "test-worker"
+    remove_heartbeat = MagicMock()
     connection.brpop.return_value = (cache.JOB_QUEUE, "job-id")
     monkeypatch.setattr(jobs, "get_settings", lambda: SimpleNamespace(worker_schedule_seconds=60))
     monkeypatch.setattr(jobs.signal, "signal", lambda signum, handler: handlers.__setitem__(signum, handler))
     monkeypatch.setattr(cache, "client", lambda: connection)
+    monkeypatch.setattr(cache, "worker_id", lambda: worker_id)
+    monkeypatch.setattr(cache, "remove_worker_heartbeat", remove_heartbeat)
     monkeypatch.setattr(jobs, "scan_once", MagicMock())
     monkeypatch.setattr(jobs, "run_job", MagicMock())
-    return SimpleNamespace(handlers=handlers, connection=connection)
+    return SimpleNamespace(handlers=handlers, id=worker_id, remove_heartbeat=remove_heartbeat)
 
 
 @pytest.mark.parametrize("blocking_step", ["scan_once", "run_job"])
@@ -49,7 +53,7 @@ def test_worker_delivers_while_business_work_is_blocked(monkeypatch, worker, blo
     assert len(delivery_threads) == 1
     assert delivery_threads[0].name == "avelis-webhooks"
     assert not delivery_threads[0].is_alive()
-    worker.connection.delete.assert_called_once_with(cache.WORKER_HEARTBEAT)
+    worker.remove_heartbeat.assert_called_once_with(worker.id)
 
 
 def test_delivery_loop_recovers_after_failure_and_keeps_start_interval(monkeypatch, caplog):

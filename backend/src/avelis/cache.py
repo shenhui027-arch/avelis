@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import socket
 import threading
 import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -25,7 +28,13 @@ from avelis.config import get_settings
 from avelis.connectors.base import sha256_json
 
 JOB_QUEUE = "avelis:jobs"
+# 旧版本（≤ 1.0.11 / 1.1.0 之前）所有 worker 共用的心跳键：新 worker 仍续写它，供滚动更新期间的旧版 app 读取，
+# 但退出时不删除（只让它按 TTL 过期），避免删掉其他 worker 的心跳（#159）。
 WORKER_HEARTBEAT = "avelis:worker:heartbeat"
+# 每个 worker 一条记录：有序集合，成员为 worker ID，分值为最近一次上报的 Unix 时间戳（秒）。
+WORKER_HEARTBEATS = "avelis:worker:heartbeats"
+# 心跳有效期：超过这么久没有上报的 worker 视为不在（每 20 秒上报一次，留两次余量）。
+WORKER_HEARTBEAT_TTL = 60
 logger = logging.getLogger(__name__)
 
 
@@ -36,6 +45,59 @@ def _client(url: str) -> redis.Redis:
 
 def client() -> redis.Redis:
     return _client(get_settings().redis_url)
+
+
+def worker_id() -> str:
+    """本进程 worker 的唯一 ID：主机名、进程号与随机后缀，同一台机器重启后也不会与旧记录重名。"""
+    return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+
+
+def record_worker_heartbeat(worker: str, now: datetime) -> None:
+    """上报一次心跳。now 为带时区的 UTC 时间。只用以下命令（单测的内存 Redis 只实现这些）：
+    1. ZADD WORKER_HEARTBEATS {worker: now.timestamp()}
+    2. ZREMRANGEBYSCORE WORKER_HEARTBEATS -inf (now.timestamp() - WORKER_HEARTBEAT_TTL)
+       —— 顺手清掉异常退出留下的过期记录
+    3. SET WORKER_HEARTBEAT now.isoformat() ex=WORKER_HEARTBEAT_TTL —— 兼容旧版 app 的健康接口
+    Redis 出错时直接抛出，由调用方（jobs._guarded）记录日志。"""
+    connection = client()
+    timestamp = now.timestamp()
+    connection.zadd(WORKER_HEARTBEATS, {worker: timestamp})
+    connection.zremrangebyscore(WORKER_HEARTBEATS, "-inf", timestamp - WORKER_HEARTBEAT_TTL)
+    connection.set(WORKER_HEARTBEAT, now.isoformat(), ex=WORKER_HEARTBEAT_TTL)
+
+
+def remove_worker_heartbeat(worker: str) -> None:
+    """worker 正常退出：只删除自己的记录（ZREM WORKER_HEARTBEATS worker），不碰旧共享键，也不影响其他 worker。"""
+    client().zrem(WORKER_HEARTBEATS, worker)
+
+
+def worker_heartbeat_status(now: datetime) -> tuple[bool, str | None]:
+    """健康接口用：返回 (是否有存活 worker, 最近一次上报时间的 ISO 字符串)。
+    - 新记录：ZREVRANGEBYSCORE WORKER_HEARTBEATS +inf (now.timestamp() - WORKER_HEARTBEAT_TTL)
+      start=0 num=1 withscores=True，取分值最大的一条；分值转回 UTC 的 datetime.isoformat()。
+    - 旧共享键：GET WORKER_HEARTBEAT（旧版 worker 写的 ISO 字符串，键存在即在 TTL 内）。
+    - 两者任一存在即存活；last_seen 取两者中较晚的时间（解析旧键失败时忽略它的时间，但仍算存活）。
+      都没有时返回 (False, None)。
+    Redis 出错时直接抛出，由健康接口按不存活处理。"""
+    connection = client()
+    cutoff = now.timestamp() - WORKER_HEARTBEAT_TTL
+    # 读写使用同一过期边界，避免健康状态取决于是否已有 worker 清理过期记录。
+    latest = connection.zrevrangebyscore(WORKER_HEARTBEATS, "+inf", f"({cutoff}", start=0, num=1, withscores=True)
+    last_seen = datetime.fromtimestamp(latest[0][1], timezone.utc) if latest else None
+    legacy = connection.get(WORKER_HEARTBEAT)
+    if legacy is not None:
+        try:
+            legacy_seen = datetime.fromisoformat(legacy)
+        except ValueError:
+            pass
+        else:
+            if legacy_seen.tzinfo is None:
+                legacy_seen = legacy_seen.replace(tzinfo=timezone.utc)
+            if last_seen is None or legacy_seen > last_seen:
+                return True, legacy
+    if last_seen is not None:
+        return True, last_seen.isoformat()
+    return legacy is not None, None
 
 
 class LockBusy(Exception):

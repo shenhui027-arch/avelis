@@ -472,13 +472,14 @@ def main() -> None:
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _stop)
 
+    # 心跳归属本 worker（#159）：多实例时一个 worker 正常退出不会删掉其他 worker 的心跳
+    worker = cache.worker_id()
+
     def _heartbeat():
         while True:
             _guarded(
                 "写入 worker 心跳",
-                lambda: cache.client().set(
-                    cache.WORKER_HEARTBEAT, utcnow().replace(tzinfo=timezone.utc).isoformat(), ex=60
-                ),
+                lambda: cache.record_worker_heartbeat(worker, utcnow().replace(tzinfo=timezone.utc)),
             )
             heartbeat_ready.set()
             if heartbeat_stop.wait(20):
@@ -516,7 +517,7 @@ def main() -> None:
         delivery_thread.join(timeout=5.0)
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=1)
-        _guarded("删除 worker 心跳", lambda: cache.client().delete(cache.WORKER_HEARTBEAT))
+        _guarded("删除 worker 心跳", lambda: cache.remove_worker_heartbeat(worker))
     log.info("worker 已停止")
 
 

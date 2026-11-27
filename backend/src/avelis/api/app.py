@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
@@ -39,7 +40,7 @@ from avelis.api import (
 from avelis.api.deps import ACCESS_COOKIE, try_authenticated_user
 from avelis.api.metrics import register_metrics_route, request_session
 from avelis.api.schemas import WorkerHealthOut
-from avelis.cache import WORKER_HEARTBEAT, LockBusy
+from avelis.cache import LockBusy, worker_heartbeat_status
 from avelis.cache import client as cache_client
 from avelis.config import Settings, get_settings
 from avelis.db import get_engine
@@ -265,11 +266,12 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/health/worker", response_model=WorkerHealthOut)
     def worker_health() -> dict:
+        # 汇总所有 worker 各自的心跳（#159）；Redis 不可用时按不存活处理
         try:
-            last_seen = cache_client().get(WORKER_HEARTBEAT)
+            alive, last_seen = worker_heartbeat_status(datetime.now(timezone.utc))
         except Exception:
-            last_seen = None
-        return {"alive": last_seen is not None, "last_seen": last_seen}
+            alive, last_seen = False, None
+        return {"alive": alive, "last_seen": last_seen}
 
     @app.get("/api/health/ready")
     def ready() -> JSONResponse:
