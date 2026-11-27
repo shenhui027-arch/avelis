@@ -2,11 +2,11 @@
 
 English | [简体中文](product-tour.md) | [繁體中文](product-tour.zh-TW.md)
 
-This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-19 from v1.0.11, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved before the screenshots from what was confirmed in this analysis, and the skills on the skills page are sample packages uploaded beforehand.
+This tour walks through the main pages of Avelis with screenshots. They were taken on 2026-11-27 from v1.1.0, at a 1440×900 viewport in the default light theme, plus two in the dark theme. The data on the pages is synthetic e-commerce and store demo data, and all names are fictional. The entries on the personal experience page were saved before the screenshots from what was confirmed in this analysis, and the skills on the skills page are sample packages uploaded beforehand.
 
 ## Sign-in
 
-The sign-in page shows the product's tagline and an example of a grounded analysis on the left, and the sign-in form on the right. Accounts whose password was created or reset by an administrator must change it on first sign-in.
+The sign-in page shows the product's tagline and a three-step preview (lineage trace → metric check → grounded insight) on the left, and the sign-in form on the right, with “Remember me (7 days)”; when single sign-on is configured, its sign-in button appears as well. Accounts whose password was created or reset by an administrator must change it on first sign-in.
 
 ![Sign-in page](images/en/login.png)
 
