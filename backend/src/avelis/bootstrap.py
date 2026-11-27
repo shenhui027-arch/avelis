@@ -2,8 +2,7 @@
 
   uv run python -m avelis.bootstrap migrate        迁移元数据库到最新版本
   uv run python -m avelis.bootstrap init-admin     创建首个启用的管理员（AVELIS_INITIAL_ADMIN_USERNAME 默认 admin，
-                                                   未配置密码时生成一次性高强度随机密码并仅记录一次启动日志；
-                                                   首次登录均强制修改密码）
+                                                   未配置口令时使用默认口令，显式配置口令时首次登录须修改）
   uv run python -m avelis.bootstrap admin          创建自动化管理员 ops_admin（密码取自 AVELIS_DEMO_USER_PASSWORD），
                                                    并按 AVELIS_ADMIN_PASSWORD 初始化本地超级管理员 admin（重设其密码）
   uv run python -m avelis.bootstrap demo [--reset] [--metrics]  演示走查用：经 API 建好用户、业务域、数据源并采集
@@ -23,8 +22,6 @@
 from __future__ import annotations
 
 import logging
-import secrets
-import string
 import sys
 
 from alembic import command
@@ -90,35 +87,12 @@ def validate_initial_admin_password(username: str, password: str) -> None:
         raise InitialAdminError("AVELIS_INITIAL_ADMIN_PASSWORD 至少包含 4 种不同字符")
 
 
-def _generate_initial_password(username: str) -> str:
-    symbols = "!@#$%^&*-_=+"
-    alphabet = string.ascii_letters + string.digits + symbols
-    rng = secrets.SystemRandom()
-    for _ in range(16):
-        chars = [
-            secrets.choice(string.ascii_uppercase),
-            secrets.choice(string.ascii_lowercase),
-            secrets.choice(string.digits),
-            secrets.choice(symbols),
-            *(secrets.choice(alphabet) for _ in range(16)),
-        ]
-        rng.shuffle(chars)
-        candidate = "".join(chars)
-        try:
-            validate_initial_admin_password(username, candidate)
-            return candidate
-        except InitialAdminError:
-            continue
-    raise InitialAdminError("无法生成符合策略的初始随机密码")
-
-
 def init_admin() -> str | None:
     """仅在没有启用的管理员时创建首个管理员，不修改已有账号。"""
     env = get_settings().env
     raw_username = env.get("AVELIS_INITIAL_ADMIN_USERNAME", "admin")
     username = normalize_username(raw_username)
     configured_password = env.get("AVELIS_INITIAL_ADMIN_PASSWORD", "")
-    generated_password = ""
     with session_scope() as session:
         session.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "avelis:bootstrap:init-admin"}
@@ -138,28 +112,23 @@ def init_admin() -> str | None:
             raise InitialAdminError("初始管理员的同名用户已存在，未修改该用户")
         if configured_password:
             validate_initial_admin_password(username, configured_password)
-        else:
-            generated_password = _generate_initial_password(username)
         user = User(
             username=username,
             display_name="管理员",
-            password_hash=hash_password(configured_password or generated_password),
+            password_hash=hash_password(configured_password or "123456"),
             is_active=True,
-            must_change_password=True,
+            must_change_password=bool(configured_password),
         )
         session.add(user)
         session.flush()
         session.add(UserRole(user_id=user.id, role="admin"))
         audit.record(session, None, "user.create", "user", user.id, username=username, roles=["admin"], via="cli")
         user_id = user.id
-    if generated_password:
-        logger.warning(
-            "未配置 AVELIS_INITIAL_ADMIN_PASSWORD，已为初始管理员 %s 生成一次性随机口令"
-            "（仅记录一次，首次登录必须修改）：%s",
-            username,
-            generated_password,
-        )
-    print("初始管理员已创建，首次登录必须修改密码")
+    if configured_password:
+        print("初始管理员已创建，首次登录必须修改密码")
+    else:
+        logger.warning("使用默认初始管理员 %s，默认口令请登录后在界面修改", username)
+        print("初始管理员已创建")
     return user_id
 
 

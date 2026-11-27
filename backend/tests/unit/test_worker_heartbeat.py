@@ -12,20 +12,24 @@ from avelis import cache, jobs
 
 @pytest.fixture
 def worker(monkeypatch):
-    handlers = {}
-    connection = MagicMock()
-    connection.brpop.return_value = (cache.JOB_QUEUE, "job-id")
-    scan = MagicMock()
-    run = MagicMock()
+    worker = MagicMock()
+    worker.id = "test-worker"
+    worker.handlers = {}
+    worker.connection.brpop.return_value = (cache.JOB_QUEUE, "job-id")
+    worker.record_heartbeat.side_effect = cache.record_worker_heartbeat
+    worker.remove_heartbeat.side_effect = cache.remove_worker_heartbeat
     monkeypatch.setattr(jobs, "get_settings", lambda: SimpleNamespace(worker_schedule_seconds=60))
-    monkeypatch.setattr(jobs.signal, "signal", lambda signum, handler: handlers.__setitem__(signum, handler))
+    monkeypatch.setattr(jobs.signal, "signal", lambda signum, handler: worker.handlers.__setitem__(signum, handler))
     monkeypatch.setattr(jobs.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(jobs.time, "sleep", MagicMock())
-    monkeypatch.setattr(jobs, "scan_once", scan)
+    monkeypatch.setattr(jobs, "scan_once", worker.scan)
     monkeypatch.setattr(jobs, "_deliver_events_loop", lambda stop: stop.wait())
-    monkeypatch.setattr(jobs, "run_job", run)
-    monkeypatch.setattr(cache, "client", lambda: connection)
-    return SimpleNamespace(connection=connection, handlers=handlers, scan=scan, run=run)
+    monkeypatch.setattr(jobs, "run_job", worker.run)
+    monkeypatch.setattr(cache, "client", lambda: worker.connection)
+    monkeypatch.setattr(cache, "worker_id", lambda: worker.id)
+    monkeypatch.setattr(cache, "record_worker_heartbeat", worker.record_heartbeat)
+    monkeypatch.setattr(cache, "remove_worker_heartbeat", worker.remove_heartbeat)
+    return worker
 
 
 @pytest.fixture
@@ -75,11 +79,11 @@ def test_worker_starts_daemon_heartbeat_before_scan_without_writing_each_loop(mo
     now = datetime(2026, 11, 1, 8)
     monkeypatch.setattr(jobs, "utcnow", lambda: now)
     writers = []
-    worker.connection.set.side_effect = lambda *args, **kwargs: writers.append(threading.current_thread())
-    worker.connection.delete.side_effect = lambda *args: heartbeat.actions.append("delete")
+    worker.record_heartbeat.side_effect = lambda *_: writers.append(threading.current_thread())
+    worker.remove_heartbeat.side_effect = lambda _: heartbeat.actions.append("remove")
 
     def scan():
-        assert worker.connection.set.call_count == 1  # 启动即写入，先于可能耗时的扫描
+        assert worker.record_heartbeat.call_count == 1  # 启动即写入，先于可能耗时的扫描
         assert writers == heartbeat.threads
         assert writers[0].daemon
 
@@ -93,17 +97,15 @@ def test_worker_starts_daemon_heartbeat_before_scan_without_writing_each_loop(mo
     worker.connection.brpop.side_effect = pop
     jobs.main()
 
-    worker.connection.set.assert_called_once_with(
-        cache.WORKER_HEARTBEAT, now.replace(tzinfo=timezone.utc).isoformat(), ex=60
-    )
+    worker.record_heartbeat.assert_called_once_with(worker.id, now.replace(tzinfo=timezone.utc))
     assert worker.connection.brpop.call_args_list == [call([cache.JOB_QUEUE], timeout=5)] * 2
     assert worker.run.call_args_list == [call("job-id")] * 2
     assert heartbeat.waits == [20]
     assert heartbeat.stop.is_set()
     assert not heartbeat.threads[0].is_alive()
-    assert heartbeat.actions == ["stop", ("join", 1), "delete"]
-    worker.connection.delete.assert_called_once_with(cache.WORKER_HEARTBEAT)
-    assert worker.connection.mock_calls[-1] == call.delete(cache.WORKER_HEARTBEAT)
+    assert heartbeat.actions == ["stop", ("join", 1), "remove"]
+    worker.remove_heartbeat.assert_called_once_with(worker.id)
+    assert worker.mock_calls[-1] == call.remove_heartbeat(worker.id)
 
 
 def test_worker_renews_heartbeat_while_job_is_blocked(monkeypatch, worker, heartbeat):
@@ -130,19 +132,19 @@ def test_worker_renews_heartbeat_while_job_is_blocked(monkeypatch, worker, heart
             running.clear()
             worker.handlers[jobs.signal.SIGINT]()
 
-    worker.connection.set.side_effect = write
+    worker.record_heartbeat.side_effect = write
     worker.run.side_effect = run
     jobs.main()
 
     assert writes_during_job == [False, True]
     assert writers == heartbeat.threads * 2
-    assert worker.connection.set.call_args_list == [
-        call(cache.WORKER_HEARTBEAT, now.replace(tzinfo=timezone.utc).isoformat(), ex=60),
-        call(cache.WORKER_HEARTBEAT, (now + timedelta(seconds=20)).replace(tzinfo=timezone.utc).isoformat(), ex=60),
+    assert worker.record_heartbeat.call_args_list == [
+        call(worker.id, now.replace(tzinfo=timezone.utc)),
+        call(worker.id, (now + timedelta(seconds=20)).replace(tzinfo=timezone.utc)),
     ]
     worker.run.assert_called_once_with("job-id")
     assert not heartbeat.threads[0].is_alive()
-    worker.connection.delete.assert_called_once_with(cache.WORKER_HEARTBEAT)
+    worker.remove_heartbeat.assert_called_once_with(worker.id)
 
 
 @pytest.mark.parametrize("operation", ["set", "client"])
@@ -189,10 +191,10 @@ def test_worker_and_heartbeat_continue_after_heartbeat_redis_failure(monkeypatch
     worker.scan.assert_called_once_with()
     worker.run.assert_called_once_with("job-id")
     assert not heartbeat.threads[0].is_alive()
-    worker.connection.delete.assert_called_once_with(cache.WORKER_HEARTBEAT)
+    worker.remove_heartbeat.assert_called_once_with(worker.id)
 
 
-@pytest.mark.parametrize("operation", ["set", "brpop", "delete", "client"])
+@pytest.mark.parametrize("operation", ["set", "brpop", "zrem", "client"])
 def test_worker_continues_when_redis_fails(monkeypatch, worker, heartbeat, operation):
     error = ConnectionError("Redis 不可用")
     if operation == "client":
@@ -205,13 +207,12 @@ def test_worker_continues_when_redis_fails(monkeypatch, worker, heartbeat, opera
     jobs.main()
 
     worker.scan.assert_called_once_with()
-    if operation in ("set", "delete"):
+    if operation in ("set", "zrem"):
         worker.run.assert_called_once_with("job-id")
     else:
         worker.run.assert_not_called()
         jobs.time.sleep.assert_called_once_with(5)
     if operation == "client":
         assert client.call_count == 3  # 写心跳、等待任务、退出清理均失败也能正常退出
-    else:
-        worker.connection.delete.assert_called_once_with(cache.WORKER_HEARTBEAT)
+    worker.remove_heartbeat.assert_called_once_with(worker.id)
     assert not heartbeat.threads[0].is_alive()

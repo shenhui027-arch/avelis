@@ -161,9 +161,11 @@ def test_init_admin_rejects_explicit_invalid_password_without_writing(monkeypatc
 
 @pytest.mark.parametrize("password", [None, ""])
 @pytest.mark.parametrize("username", [None, "deploy-admin"])
-def test_init_admin_missing_password_generates_random_password_with_forced_change(
+def test_init_admin_default_password_is_verifiable_without_forced_change(
     monkeypatch, settings, admin_session, caplog, capsys, password, username
 ):
+    """未配置初始口令时：所有部署都建 admin / 123456，可直接登录，不强制改密
+    （用户 2026-11-18 重申、2026-11-27 发 v1.1.0 前再次确认）。"""
     env = {} if password is None else {"AVELIS_INITIAL_ADMIN_PASSWORD": password}
     if username is not None:
         env["AVELIS_INITIAL_ADMIN_USERNAME"] = username
@@ -175,16 +177,14 @@ def test_init_admin_missing_password_generates_random_password_with_forced_chang
         assert bootstrap.init_admin() == "initial-admin-id"
     user, role, event = admin_session[1]
     assert user.username == (username or "admin") and user.is_active is True
-    assert user.must_change_password is True
-    assert not verify_password("123456", user.password_hash)
+    assert user.must_change_password is False
+    assert verify_password("123456", user.password_hash)
     assert isinstance(role, UserRole) and role.user_id == user.id and role.role == "admin"
     assert isinstance(event, AuditEvent) and event.action == "user.create"
     assert len(caplog.records) == 1 and caplog.records[0].levelno == logging.WARNING
-    assert f"已为初始管理员 {user.username} 生成一次性随机口令" in caplog.text
-    generated = caplog.text.rsplit("：", 1)[-1].strip()
-    assert len(generated) >= 20
-    assert verify_password(generated, user.password_hash)
-    assert "必须修改密码" in capsys.readouterr().out
+    assert f"使用默认初始管理员 {user.username}，默认口令请登录后在界面修改" in caplog.text
+    assert "123456" not in caplog.text  # 日志不写口令本身
+    assert "必须修改密码" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("username", ["", "   "])
@@ -415,7 +415,7 @@ def test_server_migration_failure_prevents_startup(monkeypatch, startup):
 
 
 @pytest.mark.parametrize("password", [None, ""])
-def test_server_missing_admin_password_creates_random_admin_and_serves(
+def test_server_missing_admin_password_creates_default_admin_and_serves(
     monkeypatch, startup, admin_session, caplog, password
 ):
     settings, _, init_admin, run = startup
@@ -429,11 +429,10 @@ def test_server_missing_admin_password_creates_random_admin_and_serves(
         server.main()
     init_admin.assert_called_once_with()
     user = admin_session[1][0]
-    assert user.username == "admin" and user.must_change_password is True
-    assert not verify_password("123456", user.password_hash)
-    assert "已为初始管理员 admin 生成一次性随机口令" in caplog.text
-    generated = caplog.text.rsplit("：", 1)[-1].strip()
-    assert len(generated) >= 20 and verify_password(generated, user.password_hash)
+    assert user.username == "admin" and user.must_change_password is False
+    assert verify_password("123456", user.password_hash)
+    assert "使用默认初始管理员 admin，默认口令请登录后在界面修改" in caplog.text
+    assert "123456" not in caplog.text
     assert caplog.records[-1].levelno == logging.WARNING
     run.assert_called_once()
 
