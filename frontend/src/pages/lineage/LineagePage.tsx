@@ -1,4 +1,5 @@
 // 血缘：画布模式 —— 列级血缘画布（@xyflow/react + dagre 自动布局）| 检查器。
+// 选中表或字段后按方向 / 深度沿数据流追溯（trace.ts），可只看两端；另有表格视图（EdgeTable.tsx）。
 // 节点按 Avelis UI 的 av-node 渲染；取值边为实线，过滤 / 关联键 / 分组这类影响关系为警告色虚线，
 // 外部表与真实表是“同一张表”（点线 + 链条标记），导入的设计时表为虚线占位节点。点击列高亮列级路径。
 import dagre from "@dagrejs/dagre";
@@ -11,18 +12,21 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { Link, useSearchParams } from "react-router";
 
 import { useAsset, useDomains, useGraph, type Graph } from "../../api/hooks";
+import { Select } from "../../components/controls";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import {
   Dot, Empty, Hint, Icon, KIND_LABEL, Plat, QueryState, RELATION_LABEL, Seg, Status, SWATCHES, Switch, statusOf, shortName,
 } from "../../components/ui";
 import { useOverlay } from "../../components/overlay";
 import { t } from "../../i18n";
+import { EdgeTable } from "./EdgeTable";
+import { buildFlowIndex, endsGraph, trace, TRACE_RELATION, type Direction, type TraceResult } from "./trace";
 
 type GNode = Graph["nodes"][number];
 type ColKey = string; // `${nodeId}::${column}`
 
 const MAX_COLS = 6;
-const VALUE = new Set(["value_direct", "value_computed", "value_aggregated", "table"]);
+const VALUE = new Set(["value_direct", "value_computed", "value_aggregated", "table", TRACE_RELATION]);
 
 interface AssetData extends Record<string, unknown> {
   node: GNode;
@@ -155,6 +159,10 @@ function Canvas() {
   const [density, setDensity] = useState<AssetData["density"]>("overview");
   const [showColumns, setShowColumns] = useState(false);
   const [showJoins, setShowJoins] = useState(true);
+  const [view, setView] = useState<"graph" | "table">("graph");
+  const [direction, setDirection] = useState<Direction>("both");
+  const [depth, setDepth] = useState<number | null>(null);
+  const [ends, setEnds] = useState(false);
   const [domainOpen, setDomainOpen] = useState(false);
   const domainFilterRef = useRef<HTMLDivElement>(null);
   const domainTriggerRef = useRef<HTMLButtonElement>(null);
@@ -205,82 +213,26 @@ function Canvas() {
     return map;
   }, [domains.data]);
 
-  // 选中路径：选了列时走列级取值关系；只选了表时走表级上下游（含“同一张表”）。都向上游、下游各走一遍
-  const path = useMemo(() => {
-    const cols = new Set<ColKey>();
-    const edgeKeys = new Set<string>();
-    if (!graph.data) return { cols, edgeKeys };
-    if (!column) {
-      if (!selected) return { cols, edgeKeys };
-      const up = new Map<string, { node: string; edge: string }[]>();
-      const down = new Map<string, { node: string; edge: string }[]>();
-      const link = (from: string, to: string, edge: string) => {
-        down.set(from, [...(down.get(from) ?? []), { node: to, edge }]);
-        up.set(to, [...(up.get(to) ?? []), { node: from, edge }]);
-      };
-      for (const e of graph.data.edges) link(e.source, e.target, `${e.source}->${e.target}`);
-      for (const l of graph.data.identity_links) {
-        const src = graph.data.nodes.find((n) => n.qualified === l.source);
-        if (src && l.target) link(l.target.id, src.id, `id:${l.id}`);
-      }
-      for (const next of [up, down]) {
-        const stack = [selected];
-        const visited = new Set<string>();
-        while (stack.length) {
-          const n = stack.pop()!;
-          if (visited.has(n)) continue;
-          visited.add(n);
-          for (const step of next.get(n) ?? []) { edgeKeys.add(step.edge); stack.push(step.node); }
-        }
-      }
-      return { cols, edgeKeys };
-    }
-    const up = new Map<ColKey, { from: ColKey; edge: string }[]>();
-    const down = new Map<ColKey, { to: ColKey; edge: string }[]>();
-    for (const e of graph.data.edges) {
-      for (const c of e.columns) {
-        if (!c.target_column || !c.source_column || !VALUE.has(c.relation)) continue;
-        const s = `${e.source}::${c.source_column}`;
-        const targetKey = `${e.target}::${c.target_column}`;
-        const key = `${e.source}->${e.target}`;
-        up.set(targetKey, [...(up.get(targetKey) ?? []), { from: s, edge: key }]);
-        down.set(s, [...(down.get(s) ?? []), { to: targetKey, edge: key }]);
-      }
-    }
-    for (const l of graph.data.identity_links) {
-      if (!l.target) continue;
-      const src = graph.data.nodes.find((n) => n.qualified === l.source);
-      if (!src) continue;
-      for (const m of ((l.column_match as { matched?: string[] }).matched ?? [])) {
-        const a = `${src.id}::${m}`;
-        const b = `${l.target.id}::${m}`;
-        up.set(a, [...(up.get(a) ?? []), { from: b, edge: `id:${l.id}` }]);
-        down.set(b, [...(down.get(b) ?? []), { to: a, edge: `id:${l.id}` }]);
-      }
-    }
-    const walk = (start: ColKey, next: Map<ColKey, { from?: ColKey; to?: ColKey; edge: string }[]>) => {
-      const stack = [start];
-      const visited = new Set<ColKey>();
-      while (stack.length) {
-        const k = stack.pop()!;
-        if (visited.has(k)) continue;
-        visited.add(k);
-        cols.add(k);
-        for (const n of next.get(k) ?? []) {
-          edgeKeys.add(n.edge);
-          stack.push((n.from ?? n.to)!);
-        }
-      }
-    };
-    walk(column, up);
-    walk(column, down as unknown as Map<ColKey, { from?: ColKey; edge: string }[]>);
-    return { cols, edgeKeys };
-  }, [column, selected, graph.data]);
+  // 选中路径：选了列时走列级数据流，只选了表时走表级上下游（含“同一张表”）；方向、深度由路径工具条控制。
+  // 只沿数据流走（直接 / 计算 / 聚合 / 表级），过滤、关联键、分组不参与追溯（见 trace.ts）
+  const flowIndex = useMemo(() => (graph.data ? buildFlowIndex(graph.data) : null), [graph.data]);
+  const traced = useMemo<TraceResult | null>(() => {
+    if (!flowIndex || !selected) return null;
+    return column
+      ? trace(flowIndex, column, { level: "column", direction, depth })
+      : trace(flowIndex, selected, { level: "table", direction, depth });
+  }, [flowIndex, selected, column, direction, depth]);
+  const path = useMemo(() => ({ cols: traced?.cols ?? new Set<ColKey>(), edgeKeys: traced?.edgeKeys ?? new Set<string>() }), [traced]);
+  // 只看两端：画布换成折叠了中间层的派生图（检查器仍按完整图显示真实上下游）
+  const shown = useMemo<Graph | undefined>(() => {
+    if (!graph.data || !ends || !traced || !selected) return graph.data;
+    return endsGraph(graph.data, column ?? selected, traced, column ? "column" : "table");
+  }, [graph.data, ends, traced, selected, column]);
 
   // dagre.layout 几何位置只依赖图结构、节点密度与宽度，不随选中列、悬停路径或关联路径显隐重算
   const layoutData = useMemo(() => {
-    if (!graph.data) return null;
-    const g = graph.data;
+    if (!shown) return null;
+    const g = shown;
     const columnsByNode = graphColumns(g);
     const linkOf = new Map(g.identity_links.filter((l) => l.target).map((l) => [l.source, l]));
     const layout = new dagre.graphlib.Graph();
@@ -332,11 +284,11 @@ function Canvas() {
       positions.set(n.id, { x: 40 + (i % perRow) * (nodeWidth + 24), y: (linked.size ? bottom + 96 : 40) + Math.floor(i / perRow) * rowHeight });
     });
     return { columnsByNode, links, heights, positions, qualifiedNode, idNodes };
-  }, [graph.data, density, nodeWidth]);
+  }, [shown, density, nodeWidth]);
 
   const { nodes, edges } = useMemo(() => {
-    if (!graph.data || !layoutData) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
-    const g = graph.data;
+    if (!shown || !layoutData) return { nodes: [] as Node<AssetData>[], edges: [] as Edge[] };
+    const g = shown;
     const { columnsByNode, links, heights, positions, qualifiedNode, idNodes } = layoutData;
     const built: Node<AssetData>[] = g.nodes.map((n) => ({
       id: n.id, type: "asset", position: positions.get(n.id) ?? { x: 0, y: 0 }, width: nodeWidth, height: heights.get(n.id),
@@ -352,14 +304,19 @@ function Canvas() {
     const hasPath = path.edgeKeys.size > 0;
     const ambient = g.edges.length <= AMBIENT_LIMIT;
     for (const e of g.edges) {
-      const value = e.relations.some((r) => VALUE.has(r));
-      const designTime = e.origins.every((o) => o !== "parsed" && o !== "manual");
+      const isTrace = e.relations.includes(TRACE_RELATION);
+      const hops = isTrace && e.columns.length
+        ? Math.min(...e.columns.map((c) => Number(c.attributes?.hops ?? 1)))
+        : 1;
+      const value = isTrace || e.relations.some((r) => VALUE.has(r));
+      const designTime = !isTrace && e.origins.every((o) => o !== "parsed" && o !== "manual");
       const key = `${e.source}->${e.target}`;
-      const onPath = path.edgeKeys.has(key);
+      const onPath = isTrace || path.edgeKeys.has(key);
       builtEdges.push({
         id: key, source: e.source, target: e.target, type: "flow",
-        label: !value && e.relations.includes("join_key") ? t("关联") : undefined,
-        labelStyle: { fill: "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
+        // 直接相连（1 层）时中间没有折叠任何表，不加标签
+        label: isTrace ? (hops > 1 ? t("经 {{count}} 层", { count: hops }) : undefined) : !value && e.relations.includes("join_key") ? t("关联") : undefined,
+        labelStyle: { fill: isTrace ? "var(--flow)" : "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
         labelBgStyle: { fill: "var(--bg-overlay)" },
         data: { tone: value ? "value" : "influence", design: designTime, onPath, dim: hasPath && !onPath, ambient },
       });
@@ -409,7 +366,7 @@ function Canvas() {
       placed.push({ x: mx, y: my + chosenDy });
     }
     return { nodes: built, edges: builtEdges };
-  }, [layoutData, graph.data, selected, path, swatchOf, density, nodeWidth, showJoins]);
+  }, [layoutData, shown, selected, path, swatchOf, density, nodeWidth, showJoins]);
 
   const clearFilters = () => { setParams(new URLSearchParams()); setSelected(null); setColumn(null); setShowColumns(false); };
   const toggleDomain = (id: string) => {
@@ -422,13 +379,14 @@ function Canvas() {
     setShowColumns(false);
   };
   const selectedNode = graph.isSuccess ? graph.data.nodes.find((node) => node.id === selected) : undefined;
-  const inspectorOpen = !!selectedNode;
+  // 表格视图占满整个工作区，检查器只在图视图里显示
+  const inspectorOpen = !!selectedNode && view === "graph";
   useEffect(() => {
-    if (!graph.isSuccess || !graph.data.nodes.length) return;
-    // 表很多时整图缩到看不清没有意义：最小缩到能读出表名，其余靠搜索和拖动
+    if (!shown?.nodes.length) return;
+    // 表很多时整图缩到看不清没有意义：最小缩到能读出表名，其余靠搜索和拖动。切换“只看两端”时画布换了一张图，同样重新适配
     const frame = requestAnimationFrame(() => { void flow.fitView({ padding: 0.16, minZoom: READABLE_ZOOM }); });
     return () => cancelAnimationFrame(frame);
-  }, [graph.data, graph.isSuccess, density, flow]);
+  }, [shown, density, flow]);
   // 选中表后，把它和高亮的上下游一起动画移到可见区域；属性栏刚打开时画布会变窄，等画布宽度更新后再定位
   const latest = useRef({ edges, path });
   latest.current = { edges, path };
@@ -474,6 +432,7 @@ function Canvas() {
           {/* 关联路径显隐改用 Switch 控件替代原生复选框 */}
           <label className="av-lineage__toggle"><Switch checked={showJoins} onChange={setShowJoins} label={t("关联路径")} /><span>{t("关联路径")}</span></label>
           <Seg value={density} label={t("节点显示")} options={[{ value: "overview", label: t("只看表") }, { value: "columns", label: t("显示字段") }]} onChange={setDensity} />
+          <Seg value={view} label={t("视图")} options={[{ value: "graph", label: t("图") }, { value: "table", label: t("表格") }]} onChange={setView} />
           {focusAsset ? <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={clearFilters}>{t("查看全部血缘")}</button> : null}
           <Link className="av-btn av-btn--sm av-btn--primary av-lineage__import" to="/lineage/import"><Icon name="upload" small />{t("导入")}</Link>
         </div>
@@ -481,7 +440,10 @@ function Canvas() {
           <QueryState query={graph} isEmpty={(data) => !data.nodes.length}
             emptyText={domainIds.length || focusAsset ? t("没有匹配的血缘") : t("暂无血缘")}
             emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>{t("清除筛选")}</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">{t("导入血缘")}</Link>}>
-            {() => (
+            {(data) => view === "table" ? (
+              <EdgeTable graph={data} pathEdges={traced ? traced.edgeKeys : null} originLabel={(origin) => ORIGIN[origin] ?? origin}
+                onLocate={(id, col) => { setView("graph"); setSelected(id); setColumn(col ? `${id}::${col}` : null); setShowColumns(false); }} />
+            ) : (
               <ErrorBoundary compact label={t("血缘画布渲染异常")}>
                 <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes} minZoom={0.1} maxZoom={1.6}
                   proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
@@ -490,7 +452,9 @@ function Canvas() {
               </ErrorBoundary>
             )}
           </QueryState>
-          {graph.isSuccess && graph.data.nodes.length ? <>
+          {view === "graph" && traced && selectedNode ? <PathBar level={column ? "column" : "table"} direction={direction} onDirection={setDirection}
+            depth={depth} onDepth={setDepth} ends={ends} onEnds={setEnds} result={traced} /> : null}
+          {view === "graph" && graph.isSuccess && graph.data.nodes.length ? <>
             <details className="av-float av-disclosure av-lineage__legend">
               <summary>{t("图例")}</summary>
               <div className="av-lineage__legend-items">
@@ -516,7 +480,7 @@ function Canvas() {
           </> : null}
         </div>
       </div>
-      {selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label={t("检查器")}>
+      {inspectorOpen && selectedNode && graph.data ? <aside className="av-inspector av-lineage__inspector" aria-label={t("检查器")}>
         <div className="av-lineage__resize" role="separator" aria-orientation="vertical" aria-label={t("拖动调整检查器宽度")}
           title={t("拖动调整宽度，双击恢复默认")} onPointerDown={startResize}
           onDoubleClick={() => { setInspectorWidth(INSPECTOR_DEFAULT); try { localStorage.removeItem(INSPECTOR_KEY); } catch { /* 忽略 */ } }} />
@@ -568,6 +532,50 @@ function NodeSearch({ nodes, onPick }: { nodes: GNode[]; onPick: (id: string) =>
           </button>
         )) : <span className="av-caption av-lineage__search-empty">{t("没有匹配的表")}</span>}
       </div> : null}
+    </div>
+  );
+}
+
+/** 路径工具条：浮在画布左上角，只在选中表或字段时出现。 */
+function PathBar({ level, direction, onDirection, depth, onDepth, ends, onEnds, result }: {
+  level: "table" | "column"; direction: Direction; onDirection: (v: Direction) => void;
+  depth: number | null; onDepth: (v: number | null) => void; ends: boolean; onEnds: (v: boolean) => void; result: TraceResult;
+}) {
+  const summary = [
+    ...(direction !== "down" ? [t("上游 {{count}} 层", { count: result.reach.up })] : []),
+    ...(direction !== "up" ? [t("下游 {{count}} 层", { count: result.reach.down })] : []),
+    ...(direction !== "down" ? [t("来源 {{count}}", { count: result.sources.size })] : []),
+    ...(direction !== "up" ? [t("去向 {{count}}", { count: result.sinks.size })] : []),
+  ].join(" · ");
+  return (
+    <div className="av-float av-lineage__pathbar" role="group" aria-label={t("追溯路径")}>
+      <span className="av-sr">{level === "column" ? t("当前按字段追溯") : t("当前按表追溯")}</span>
+      <Seg<Direction>
+        value={direction}
+        label={t("追溯方向")}
+        options={[
+          { value: "up", label: t("上游") },
+          { value: "both", label: t("双向") },
+          { value: "down", label: t("下游") },
+        ]}
+        onChange={onDirection}
+      />
+      <Select
+        className="av-lineage__depth"
+        value={depth === null ? "" : String(depth)}
+        label={t("追溯深度")}
+        onChange={(v) => onDepth(v === "" ? null : Number(v))}
+      >
+        <option value="">{t("全部层级")}</option>
+        {[1, 2, 3, 5].map((n) => (
+          <option key={n} value={String(n)}>{t("{{count}} 层", { count: n })}</option>
+        ))}
+      </Select>
+      <label className="av-lineage__toggle" data-tip={t("只保留起点与最上游来源、最终去向，中间流经的表折叠")}>
+        <Switch checked={ends} onChange={onEnds} label={t("只看两端")} />
+        <span>{t("只看两端")}</span>
+      </label>
+      <span className="av-caption av-lineage__pathbar-meta">{summary}</span>
     </div>
   );
 }

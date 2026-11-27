@@ -10,6 +10,7 @@ import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { Code, ConfirmDialog, Crumbs, DateInput, Drawer, Empty, formatSql, Hint, Icon, Pill, QueryState, Seg, Status } from "../../components/ui";
 import { usePopover } from "../../components/overlay";
 import { copyToClipboard, submitOnEnter } from "../../components/shortcuts";
+import { downloadText, toCsv } from "../../csv";
 import { formatTime, lastMonths } from "../../format";
 import { FilterAlignmentNote } from "../../components/FilterAlignmentNote";
 import { CandidatesPanel, ClarifyPanel, type ClarifyItem, ConfirmPanel, ExperienceList, type ExperienceScopeFilter, FollowupForm, SourcesPanel, useContinue, type ProposalItem } from "./AnalysisInteractions";
@@ -554,22 +555,6 @@ function Figures({ runId, figures }: { runId: string; figures: Figure[] }) {
   </section>;
 }
 
-function csvCell(value: unknown): string {
-  const raw = value == null ? "" : String(value);
-  const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
-  return `"${safe.replace(/"/g, '""')}"`;
-}
-
-function downloadText(content: string, mime: string, filename: string) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 function deepenQuestion(a: Answer, result: AskResult, dimensions: string[]): string {
   const head = (a.message ?? "").split("：")[0].trim();
   const dims = dimensions.length ? t("，按 {{dims}}", { dims: dimensions.map((c) => columnLabel(result, c)).join("、") }) : "";
@@ -607,8 +592,7 @@ function LookupAnswer({ a, run, onContinue }: { a: Answer; run: Run; onContinue?
   const exportCsv = () => {
     const cols = result.columns?.length ? result.columns : ["question", "message"];
     const rows = result.rows?.length ? result.rows : [[a.question, a.message]];
-    const lines = [cols.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))];
-    downloadText("\uFEFF" + lines.join("\r\n"), "text/csv;charset=utf-8", `lookup-${a.id}.csv`);
+    downloadText(toCsv([cols, ...rows]), "text/csv;charset=utf-8", `lookup-${a.id}.csv`);
   };
 
   const exportMd = () => {

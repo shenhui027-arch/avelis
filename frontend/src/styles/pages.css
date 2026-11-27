@@ -150,6 +150,25 @@
 @media (prefers-reduced-motion: reduce) { .av-flow__dots { display: none; } }
 .av-lineage__zoom { bottom: var(--space-4); right: var(--space-4); gap: var(--space-1); }
 .av-lineage__zoom .av-btn:not(.av-btn--icon) { min-width: calc(var(--space-8) * 2); }
+/* 追溯工具条：浮在画布左上角，与底部图例 / 缩放互不遮挡 */
+.av-lineage__pathbar { top: var(--space-4); left: var(--space-4); z-index: 4; flex-wrap: wrap; gap: var(--space-2) var(--space-3); max-width: calc(100% - var(--space-8)); padding: var(--space-1) var(--space-2); }
+.av-select-wrap.av-lineage__depth { flex: none; width: auto; }
+.av-lineage__depth .av-select { width: auto; min-width: calc(var(--space-8) * 3 + var(--space-4)); }
+.av-lineage__pathbar-meta { padding-inline: var(--space-1); white-space: nowrap; }
+/* 血缘表格视图：占满画布区域，表体独立纵向滚动 */
+.av-lineage__table { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; background: var(--bg-base); }
+.av-lineage__table-bar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line-subtle); background: var(--bg-surface); }
+.av-lineage__table-search.av-input { flex: 0 1 calc(var(--space-8) * 9); width: auto; min-width: calc(var(--space-8) * 5); height: var(--size-control-md); }
+.av-select-wrap.av-lineage__table-select { flex: none; width: auto; }
+.av-lineage__table-select .av-select { width: auto; min-width: calc(var(--space-8) * 4); }
+.av-lineage__table-count { margin-left: auto; white-space: nowrap; }
+.av-lineage__table-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--bg-surface); }
+.av-lineage__table .av-table thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-surface); }
+.av-lineage__table-link { padding: 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; }
+.av-lineage__table-link:hover { color: var(--accent-text); text-decoration: underline; }
+.av-lineage__table-expr { max-width: calc(var(--space-8) * 10); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.av-lineage__table > .av-pager { flex: none; border-top: 1px solid var(--line-subtle); background: var(--bg-surface); }
+.av-lineage__table > .av-empty { flex: 1; background: var(--bg-surface); }
 .av-lineage__inspector { position: relative; min-height: 0; height: 100%; overflow-x: hidden; overflow-y: auto; }
 .av-lineage__inspector-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .av-lineage__inspector-actions > .av-section-label { min-width: 0; }
