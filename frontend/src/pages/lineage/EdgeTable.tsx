@@ -19,10 +19,12 @@ export function relationLabel(relation: string): string {
   return relation === IDENTITY_RELATION ? t("同一张表") : RELATION_LABEL[relation] ?? relation;
 }
 
-export function EdgeTable({ graph, pathEdges, originLabel, onLocate }: {
+export function EdgeTable({ graph, pathEdges, pathCols, originLabel, onLocate }: {
   graph: Graph;
   /** 画布上当前选中路径经过的边键；没有选中时为 null（此时范围固定为“全部”，Seg 不显示） */
   pathEdges: ReadonlySet<string> | null;
+  /** 选中字段时的字段级追溯结果；“选中路径”据此只保留所选字段的映射（选中表时为空集合） */
+  pathCols: ReadonlySet<string> | null;
   /** 来源（解析 / 人工 / 导入解析…）的显示文字，与检查器同一张表：LineagePage 的 ORIGIN */
   originLabel: (origin: string) => string;
   /** 定位到画布：选中该节点（有字段时选中字段）并切回图视图 */
@@ -36,10 +38,10 @@ export function EdgeTable({ graph, pathEdges, originLabel, onLocate }: {
 
   const all = useMemo(() => edgeRows(graph), [graph]);
   const rows = useMemo(() => {
-    const base = scope === "path" && pathEdges ? edgeRows(graph, pathEdges) : all;
+    const base = scope === "path" && pathEdges ? edgeRows(graph, pathEdges, pathCols ?? undefined) : all;
     const filtered = filterRows(base, { text, relation });
     return sort ? sortRows(filtered, sort.key, sort.dir) : filtered;
-  }, [all, graph, scope, pathEdges, text, relation, sort]);
+  }, [all, graph, scope, pathEdges, pathCols, text, relation, sort]);
   const relations = useMemo(() => [...new Set(all.map((row) => row.relation))], [all]);
 
   // 筛选、范围、排序或外部路径变化时翻回第一页，防止页码越界显示空白

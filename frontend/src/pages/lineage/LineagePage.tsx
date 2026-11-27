@@ -223,6 +223,8 @@ function Canvas() {
       : trace(flowIndex, selected, { level: "table", direction, depth });
   }, [flowIndex, selected, column, direction, depth]);
   const path = useMemo(() => ({ cols: traced?.cols ?? new Set<ColKey>(), edgeKeys: traced?.edgeKeys ?? new Set<string>() }), [traced]);
+  // 检查器的字段清单始终取自完整图：只看两端时折叠图里的表级边没有字段名，设计时表又不另查资产字段
+  const fullColumns = useMemo(() => (graph.data ? graphColumns(graph.data) : new Map<string, AssetData["columns"]>()), [graph.data]);
   // 只看两端：画布换成折叠了中间层的派生图（检查器仍按完整图显示真实上下游）
   const shown = useMemo<Graph | undefined>(() => {
     if (!graph.data || !ends || !traced || !selected) return graph.data;
@@ -441,7 +443,7 @@ function Canvas() {
             emptyText={domainIds.length || focusAsset ? t("没有匹配的血缘") : t("暂无血缘")}
             emptyAction={domainIds.length || focusAsset ? <button type="button" className="av-btn av-btn--secondary" onClick={clearFilters}>{t("清除筛选")}</button> : <Link className="av-btn av-btn--primary" to="/lineage/import">{t("导入血缘")}</Link>}>
             {(data) => view === "table" ? (
-              <EdgeTable graph={data} pathEdges={traced ? traced.edgeKeys : null} originLabel={(origin) => ORIGIN[origin] ?? origin}
+              <EdgeTable graph={data} pathEdges={traced ? traced.edgeKeys : null} pathCols={traced ? traced.cols : null} originLabel={(origin) => ORIGIN[origin] ?? origin}
                 onLocate={(id, col) => { setView("graph"); setSelected(id); setColumn(col ? `${id}::${col}` : null); setShowColumns(false); }} />
             ) : (
               <ErrorBoundary compact label={t("血缘画布渲染异常")}>
@@ -485,7 +487,7 @@ function Canvas() {
           title={t("拖动调整宽度，双击恢复默认")} onPointerDown={startResize}
           onDoubleClick={() => { setInspectorWidth(INSPECTOR_DEFAULT); try { localStorage.removeItem(INSPECTOR_KEY); } catch { /* 忽略 */ } }} />
         <Inspector key={selectedNode.id} node={selectedNode} graph={graph.data}
-          graphColumnNames={(layoutData?.columnsByNode.get(selectedNode.id) ?? []).map((item) => item.name)}
+          graphColumnNames={(fullColumns.get(selectedNode.id) ?? []).map((item) => item.name)}
           column={column?.split("::")[1] ?? null}
           showColumns={showColumns} onShowColumns={() => setShowColumns(true)} onColumn={(name) => setColumn(selectedNode.id + "::" + name)}
           onPick={pick} onPickColumn={(id, col) => { setSelected(id); setColumn(`${id}::${col}`); setShowColumns(false); }}

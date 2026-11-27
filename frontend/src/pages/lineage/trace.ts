@@ -298,9 +298,14 @@ export interface EdgeRow {
 
 /**
  * 由图生成表格行。表名取节点 qualified；设计时节点（id 以 "ref:" 开头）去掉前缀。
- * onlyEdges 给出时只保留 edge 在集合内的行。顺序：按 graph.edges 原顺序，列按原顺序，身份映射排在最后。
+ * onlyEdges 给出时只保留 edge 在集合内的行。onlyCols（字段级追溯结果）非空时再按字段过滤：列级行要求源、目标字段都在集合内，
+ * 没有字段的行（表级关系、影响条件）不保留，身份映射行仍按 onlyEdges 保留——同一对表之间与所选字段无关的映射不算在路径里。
+ * 顺序：按 graph.edges 原顺序，列按原顺序，身份映射排在最后。
  */
-export function edgeRows(graph: Graph, onlyEdges?: ReadonlySet<string>): EdgeRow[] {
+export function edgeRows(graph: Graph, onlyEdges?: ReadonlySet<string>, onlyCols?: ReadonlySet<ColKey>): EdgeRow[] {
+  const byColumn = !!onlyCols && onlyCols.size > 0;
+  const onColumnPath = (sourceId: string, source: string | null | undefined, targetId: string, target: string | null | undefined) =>
+    !!source && !!target && onlyCols!.has(`${sourceId}::${source}`) && onlyCols!.has(`${targetId}::${target}`);
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
   const byQualified = new Map(graph.nodes.map((n) => [n.qualified, n]));
   const tableName = (id: string): string => {
@@ -326,6 +331,7 @@ export function edgeRows(graph: Graph, onlyEdges?: ReadonlySet<string>): EdgeRow
     const target = tableName(e.target);
     if (e.columns.length) {
       e.columns.forEach((c, idx) => {
+        if (byColumn && !onColumnPath(e.source, c.source_column, e.target, c.target_column)) return;
         rows.push({
           key: allocKey(`${edgeKey}:${idx}`),
           edge: edgeKey,
@@ -340,7 +346,7 @@ export function edgeRows(graph: Graph, onlyEdges?: ReadonlySet<string>): EdgeRow
           origin: c.origin,
         });
       });
-    } else {
+    } else if (!byColumn) {
       rows.push({
         key: allocKey(edgeKey),
         edge: edgeKey,

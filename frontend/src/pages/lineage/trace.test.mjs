@@ -111,6 +111,11 @@ assert.deepEqual([tableRow.source, tableRow.sourceColumn, tableRow.targetColumn,
 assert.deepEqual([rows.at(-1).edge, rows.at(-1).sourceId, rows.at(-1).targetId, rows.at(-1).relation, rows.at(-1).sourceColumn],
   ["id:L1", "A", "EXT", m.IDENTITY_RELATION, null]);
 assert.deepEqual(m.edgeRows(graph, new Set(["A->B", "id:L1"])).map((x) => x.edge), ["A->B", "A->B", "id:L1"]);
+// 字段级“选中路径”：同一对表之间与所选字段无关的映射（a2→b2、b2→c2）、表级行与影响条件都不算
+r = m.trace(index, "B::b1", { level: "column", direction: "both", depth: null });
+assert.deepEqual(m.edgeRows(graph, r.edgeKeys, r.cols).map((x) => `${x.sourceId}.${x.sourceColumn}>${x.targetId}.${x.targetColumn}`),
+  ["A.a1>B.b1", "B.b1>C.c1", "C.c1>D.d1"]);
+assert.equal(m.edgeRows(graph, r.edgeKeys, new Set()).length, 5); // 空集合等同于只按边过滤
 
 // 筛选：不分大小写，匹配表名、字段、表达式；按关系筛
 assert.deepEqual(m.filterRows(rows, { text: "B2", relation: "" }).map((x) => `${x.sourceColumn}>${x.targetColumn}`), ["a2>b2", "b2>c2"]);
