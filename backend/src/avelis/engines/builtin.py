@@ -23,6 +23,8 @@ from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
 from avelis.connectors.tidb import TiDBConnector
 from avelis.connectors.tls import TLS_MODES
+from avelis.connectors.trino import AUTH_MODES as TRINO_AUTH_MODES
+from avelis.connectors.trino import TrinoConnector
 from avelis.engines.base import (
     DDL_AUDIT,
     EXTERNAL_TABLES,
@@ -265,6 +267,38 @@ TIDB = Engine(
     "DDL 作业记录不含执行用户，暂不支持 DDL 归因；2026-11-28 已实机验证 TiDB v8.5.4",
 )
 
+TRINO = Engine(
+    kind="trino",
+    label="Trino",
+    # Catalog.模式.表 三段；一个数据源对应一个 Catalog（与 PostgreSQL 的库相同，按 catalog 选项补 Catalog 段）
+    sql=SqlDialect(name="trino", default_catalog="system"),
+    name_levels=("catalog", "schema", "table"),
+    catalog_option="catalog",
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=TrinoConnector,
+    querier=TrinoConnector,
+    default_port=8080,
+    options=(
+        OptionField("catalog", "Catalog", type="text", required=True),
+        OptionField("schemas", "采集的模式", required=True),
+        OptionField(
+            "auth",
+            "认证方式",
+            type="choice",
+            choices=TRINO_AUTH_MODES,
+            default="NONE",
+            hint="NONE 只传账号名（服务端未开启认证时）；PASSWORD 需账号与口令，且必须走 HTTPS",
+        ),
+        *TLS_OPTIONS,
+    ),
+    credential_free=("auth", ("NONE",)),
+    note="一个数据源对应一个 Catalog；采集只读元数据，视图定义取 information_schema.views 的规范化文本解析血缘，"
+    "引用其他 Catalog 的表记为未采集来源；问数用专用查询账号，Trino 没有只读会话，"
+    "只读依赖 SQL 校验与访问控制中只有 SELECT 的账号；"
+    "超时与内存上限映射到会话属性 query_max_run_time、query_max_memory；不暴露主键与表 ID，表与视图按名称对应；"
+    "物化视图未联调，按普通表采集；不报告数据新鲜度；2026-11-28 已实机验证 Trino 482",
+)
+
 FAKE = Engine(
     kind="fake",
     label="测试适配器",
@@ -278,4 +312,4 @@ FAKE = Engine(
     note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, TIDB, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, TIDB, TRINO, FAKE)

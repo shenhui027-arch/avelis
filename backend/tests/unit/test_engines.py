@@ -33,6 +33,7 @@ def test_registry_lists_only_integrated_engines():
         "doris",
         "hive",
         "tidb",
+        "trino",
         "fake",
     }
     with pytest.raises(UnsupportedEngine, match="db2"):

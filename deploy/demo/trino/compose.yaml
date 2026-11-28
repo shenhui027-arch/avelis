@@ -1,0 +1,45 @@
+# Trino 适配器联调环境（独立 Compose 项目 avelis-trino，与共享演示环境 avelis-demo 的容器、网络、数据卷完全隔离）。
+#
+#   trino    Trino 单节点。两个 Catalog：memory（内存连接器，支持建表、写入与视图，重启即清空）与
+#            pg（PostgreSQL 连接器，指向下面的 source-pg），用来联调跨 Catalog 的视图血缘。
+#            未开启认证：任何用户名都能连，联调用 avelis。
+#   source-pg 给 pg Catalog 用的源库（不挂数据卷，重建即清空，由测试重新建表）。
+#   meta-pg  只给这组联调用的元数据库（库名以 _test 结尾，测试会清空它），不连共享演示环境的元数据库。
+#
+# 启动（口令只放在环境变量里，不写进仓库）：
+#   TRINO_SOURCE_PG_PASSWORD=… TRINO_META_PG_PASSWORD=… docker compose -f deploy/demo/trino/compose.yaml up -d
+# 用完即停：docker compose -f deploy/demo/trino/compose.yaml down
+# 联调测试见 backend/tests/metadb/test_trino_collect.py。
+name: avelis-trino
+
+services:
+  trino:
+    image: trinodb/trino:${TRINO_VERSION:-482}
+    environment:
+      TRINO_SOURCE_PG_PASSWORD: ${TRINO_SOURCE_PG_PASSWORD:?set TRINO_SOURCE_PG_PASSWORD}
+    volumes:
+      - ./catalog/memory.properties:/etc/trino/catalog/memory.properties:ro
+      - ./catalog/pg.properties:/etc/trino/catalog/pg.properties:ro
+    ports:
+      - "127.0.0.1:${TRINO_PORT:-28080}:8080"
+    mem_limit: 2g
+    depends_on:
+      - source-pg
+
+  source-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: trino
+      POSTGRES_PASSWORD: ${TRINO_SOURCE_PG_PASSWORD:?set TRINO_SOURCE_PG_PASSWORD}
+    ports:
+      - "127.0.0.1:${TRINO_SOURCE_PG_PORT:-27432}:5432"
+
+  meta-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: avelis_trino_test
+      POSTGRES_USER: avelis
+      POSTGRES_PASSWORD: ${TRINO_META_PG_PASSWORD:?set TRINO_META_PG_PASSWORD}
+    ports:
+      - "127.0.0.1:${TRINO_META_PG_PORT:-29432}:5432"
