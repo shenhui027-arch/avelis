@@ -2940,3 +2940,18 @@ msgstr "manifest.json has no compiled SQL; run dbt compile or dbt build first"
 
 msgid "不是有效的 dbt manifest.json"
 msgstr "Not a valid dbt manifest.json"
+
+msgid "无法连接到数据库：请检查地址、端口和网络是否可达"
+msgstr "Unable to connect to the database. Check the address, port, and network connectivity."
+
+msgid "连接数据库超时：请检查网络，或稍后重试"
+msgstr "The database connection timed out. Check the network or try again later."
+
+msgid "账号或口令错误：请检查采集账号"
+msgstr "Incorrect username or password. Check the collection account."
+
+msgid "权限不足：采集账号缺少读取元数据的权限"
+msgstr "Insufficient permissions. The collection account lacks permission to read metadata."
+
+msgid "TLS 连接失败：请检查证书与 TLS 配置"
+msgstr "The TLS connection failed. Check the certificate and TLS configuration."

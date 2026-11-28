@@ -215,6 +215,8 @@ class RunOut(Out):
     finished_at: str | None = None
     stats: Json = Field(default_factory=dict)
     error: str | None = None
+    error_kind: str | None = None
+    error_message: str | None = None
     snapshot_hash: str | None = None
 
 
@@ -224,6 +226,8 @@ class CollectOut(Out):
     status: str
     stats: Json | None = None
     error: str | None = None
+    error_kind: str | None = None
+    error_message: str | None = None
 
 
 class CredentialOut(Out):
@@ -294,6 +298,8 @@ class TestConnectionOut(Out):
     latency_ms: int
     server_identity: Json | None = None
     error: str | None = None
+    error_kind: str | None = None
+    error_message: str | None = None
 
 
 class JobOut(Out):

@@ -2945,3 +2945,18 @@ msgstr "manifest.json 裡沒有編譯後的 SQL，請先執行 dbt compile 或 d
 
 msgid "不是有效的 dbt manifest.json"
 msgstr "不是有效的 dbt manifest.json"
+
+msgid "无法连接到数据库：请检查地址、端口和网络是否可达"
+msgstr "無法連線到資料庫：請檢查位址、連接埠和網路是否可達"
+
+msgid "连接数据库超时：请检查网络，或稍后重试"
+msgstr "連線至資料庫逾時：請檢查網路，或稍後再試"
+
+msgid "账号或口令错误：请检查采集账号"
+msgstr "帳號或密碼錯誤：請檢查採集帳號"
+
+msgid "权限不足：采集账号缺少读取元数据的权限"
+msgstr "權限不足：採集帳號缺少讀取中繼資料的權限"
+
+msgid "TLS 连接失败：请检查证书与 TLS 配置"
+msgstr "TLS 連線失敗：請檢查憑證與 TLS 設定"

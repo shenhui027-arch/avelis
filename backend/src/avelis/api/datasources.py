@@ -16,6 +16,7 @@ from avelis import audit, jobs
 from avelis.api import schemas as S
 from avelis.api.deps import current_user, get_session
 from avelis.cache import LockBusy
+from avelis.collect.error_text import classify, explain
 from avelis.collect.service import CollectionFailed
 from avelis.config import get_settings
 from avelis.connectors.tls import parse_tls_options
@@ -166,6 +167,8 @@ def run_view(run: CollectionRun) -> dict:
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "stats": run.stats,
         "error": run.error,
+        "error_kind": classify(run.error),
+        "error_message": explain(run.error),
         "snapshot_hash": run.snapshot_hash,
     }
 
@@ -309,7 +312,15 @@ def test_datasource_connection(
     try:
         collector = collect_connector(session, ds)
     except (CredentialMissing, UnsupportedEngine) as exc:
-        return {"ok": False, "latency_ms": 0, "server_identity": None, "error": translate(str(exc))}
+        raw = str(exc)
+        return {
+            "ok": False,
+            "latency_ms": 0,
+            "server_identity": None,
+            "error": translate(raw),
+            "error_kind": classify(raw),
+            "error_message": explain(raw),
+        }
     pool = ThreadPoolExecutor(max_workers=1)
     future = pool.submit(collector.server_identity)
     try:
@@ -323,11 +334,27 @@ def test_datasource_connection(
         future.cancel()
         latency_ms = int((time.monotonic() - started) * 1000)
         audit.record(session, user, "datasource.test", "datasource", ds.id, ok=False, latency_ms=latency_ms)
-        return {"ok": False, "latency_ms": latency_ms, "server_identity": None, "error": translate("连接超时（8秒）")}
+        raw = "连接超时（8秒）"
+        return {
+            "ok": False,
+            "latency_ms": latency_ms,
+            "server_identity": None,
+            "error": translate(raw),
+            "error_kind": classify(raw),
+            "error_message": explain(raw),
+        }
     except Exception as exc:  # noqa: BLE001
         latency_ms = int((time.monotonic() - started) * 1000)
         audit.record(session, user, "datasource.test", "datasource", ds.id, ok=False, latency_ms=latency_ms)
-        return {"ok": False, "latency_ms": latency_ms, "server_identity": None, "error": str(exc)[:300]}
+        raw = str(exc)
+        return {
+            "ok": False,
+            "latency_ms": latency_ms,
+            "server_identity": None,
+            "error": raw[:300],
+            "error_kind": classify(raw),
+            "error_message": explain(raw),
+        }
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
@@ -405,7 +432,8 @@ def collect(
     except LockBusy as exc:
         raise HTTPException(409, "该数据源正在采集中") from exc
     except CollectionFailed as exc:
-        raise HTTPException(502, Msg("采集失败：{error}", error=exc)) from exc
+        # 认得出的错误给本地化说明，原文已记入采集批次供排查
+        raise HTTPException(502, Msg("采集失败：{error}", error=explain(str(exc)) or exc)) from exc
     session.expire_all()
     return run_view(session.get(CollectionRun, run_id))
 
