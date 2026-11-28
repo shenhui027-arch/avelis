@@ -256,8 +256,8 @@ TIDB = Engine(
     querier=TiDBConnector,
     default_port=4000,
     options=(OptionField("databases", "采集的库", required=True), *TLS_OPTIONS),
-    note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW），"
-    "在历史读只读事务中执行（读取约 1 秒前的数据）；单条查询内存上限映射到 tidb_mem_quota_query；"
+    note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（只授予 SELECT 与 SHOW VIEW），"
+    "TiDB 的只读事务只有空实现，只读依赖 SQL 校验与账号权限；单条查询内存上限映射到 tidb_mem_quota_query；"
     "TiDB 没有可读的集群 ID，不做实例变化检测；TIDB_TABLE_ID 在 TRUNCATE 后会变，表与视图按名称对应；"
     "DDL 作业记录不含执行用户，暂不支持 DDL 归因；2026-11-28 已实机验证 TiDB v8.5.4",
 )

@@ -16,7 +16,7 @@
 | 视图定义 | `information_schema.views.VIEW_DEFINITION` 是补全了库名、带反引号的规范文本，如 `` SELECT `o`.`user_id` AS `user_id`,SUM(`o`.`amt`) … FROM `shop`.`orders` AS `o` `` | 交 `mysql` 方言解析，列级血缘、过滤、关联键与分组都能识别 |
 | 实例身份 | `@@server_uuid` 恒为全零；unistore 下没有可读的集群 ID | `instance_id` 留空，不做实例变化检测；只记录主机名、端口与版本 |
 | 物理身份 | `information_schema.tables.TIDB_TABLE_ID` 在 `TRUNCATE` 后会换新值，`ALTER TABLE` 不变 | 不作物理身份，表与视图按名称对应；否则清空数据会被当成删表重建 |
-| 只读事务 | `START TRANSACTION READ ONLY` 与 `transaction_read_only` 只有空实现，报错 1235 | 改用历史读事务 `START TRANSACTION READ ONLY AS OF TIMESTAMP NOW(3) - INTERVAL 1 SECOND`，写入由引擎拒绝（root 账号实测同样被拒） |
+| 只读事务 | `START TRANSACTION READ ONLY` 与 `transaction_read_only` 只有空实现，报错 1235。历史读事务（`START TRANSACTION READ ONLY AS OF TIMESTAMP …`）虽然只读，但读的是过去时间点的表结构：刚执行过 DDL 或刚建的表报 1146（表不存在），`AS OF NOW(6)` 实测也只有 3/5 次成功 | 不开启事务。只读依赖 Avelis 的单条 SELECT 校验与只读问数账号（只授予 SELECT 与 SHOW VIEW）；只读账号执行 UPDATE 报 8121，归为 `permission` |
 | 超时 | `MAX_EXECUTION_TIME` 生效，超时报 3024 | 归为 `timeout`。`SLEEP()` 被打断时返回 1 而不报错，联调改用三方笛卡尔积验证 |
 | 行数上限 | `SQL_SELECT_LIMIT` 生效 | 沿用 MySQL |
 | 内存上限 | `tidb_mem_quota_query` 按查询生效，超出报 8175 | `mem_limit_bytes` 映射到它；8175 归为 `other`，原文保留 |
@@ -24,7 +24,6 @@
 
 ## 已知局限
 
-- 问数读取约 1 秒前的数据（历史读）。刚建不到 1 秒的表在历史读里还不存在，会报错。
-- 历史读事务里读取 `information_schema` 内存表会报 8024（invalid transaction）。问数只查业务表，不受影响。
+- 引擎层没有会话只读：问数账号必须只授予 SELECT 与 SHOW VIEW，Avelis 的 SQL 校验只放行单条 SELECT。
 - 没有实例变化检测：数据源地址被改到另一个 TiDB 集群时，采集不会提示“实例变化”。
 - TiKV 集群部署、TiFlash 副本与分区表的元数据没有联调。

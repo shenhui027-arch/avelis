@@ -210,24 +210,23 @@ def test_query_runs_read_only_with_limits(tidb):
         max_rows=10,
     ).rows
     assert [(city, float(amount)) for city, amount in view_rows] == [("杭州", 12.5), ("上海", 7.25)]
-    # 只读事务由引擎拒绝写入（即使账号有写权限也一样）；这里只读账号本身也没有写权限
+    # TiDB 的只读事务只有空实现：只读账号本身没有写权限，写入被拒（调用层另有单条 SELECT 校验）
     with pytest.raises(QueryError) as caught:
         connector.execute_select(
             f"UPDATE {DB}.sales SET amount = 0", timeout_seconds=10, mem_limit_bytes=0, max_rows=10
         )
-    assert caught.value.code in ("permission", "other")
+    assert caught.value.code == "permission"
 
 
-def test_stale_read_transaction_rejects_writes_even_for_root(tidb):
-    from avelis.connectors.tidb import TiDBConnector
-
-    root = TiDBConnector(tidb["host"], tidb["port"], "root", "", {"databases": [DB]})
-    with pytest.raises(QueryError):
-        root.execute_select(f"DELETE FROM {DB}.shops", timeout_seconds=10, mem_limit_bytes=0, max_rows=10)
-    rows = root.execute_select(
-        f"SELECT COUNT(*) FROM {DB}.shops", timeout_seconds=10, mem_limit_bytes=0, max_rows=10
-    ).rows
-    assert rows == [[2]]
+def test_query_sees_columns_added_just_before(tidb):
+    # 不用历史读：刚执行过 DDL 的表立即可查（历史读事务在这里会报 1146）
+    _root(tidb, f"ALTER TABLE {DB}.shops ADD COLUMN region VARCHAR(16)")
+    rows = (
+        _query(tidb)
+        .execute_select(f"SELECT COUNT(region) FROM {DB}.shops", timeout_seconds=10, mem_limit_bytes=0, max_rows=10)
+        .rows
+    )
+    assert rows == [[0]]
 
 
 def test_memory_quota_and_timeout_are_classified(tidb):
@@ -241,8 +240,7 @@ def test_memory_quota_and_timeout_are_classified(tidb):
             max_rows=10,
         )
     assert caught.value.code == "other" and caught.value.db_errno == 8175
-    # SLEEP() 被 MAX_EXECUTION_TIME 打断时返回 1 而不报错：用采集范围外的数字表做三方笛卡尔积来验证超时。
-    # 历史读读取约 1 秒前的数据，建表后等 2 秒再查。
+    # SLEEP() 被 MAX_EXECUTION_TIME 打断时返回 1 而不报错：用采集范围外的数字表做三方笛卡尔积来验证超时
     _root(
         tidb,
         f"DROP DATABASE IF EXISTS {AUX}",
@@ -253,7 +251,6 @@ def test_memory_quota_and_timeout_are_classified(tidb):
         "SELECT n FROM r",
         f"GRANT SELECT ON {AUX}.* TO '{QUERY_USER}'@'%'",
     )
-    time.sleep(2)
     started = time.monotonic()
     with pytest.raises(QueryError) as caught:
         connector.execute_select(

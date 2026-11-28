@@ -51,18 +51,17 @@ def run_select(monkeypatch, *, mem_limit_bytes, respond=lambda sql, params: [(1,
     return conn, result
 
 
-def test_select_uses_stale_read_only_transaction_and_memory_quota(monkeypatch):
+def test_select_sets_limits_and_memory_quota_without_noop_read_only(monkeypatch):
     conn, result = run_select(monkeypatch, mem_limit_bytes=2 * 1024**3)
     statements = [sql for sql, _ in conn.statements]
     assert statements == [
         "SET SESSION MAX_EXECUTION_TIME = 7000",
         "SET SESSION SQL_SELECT_LIMIT = 101",
         f"SET SESSION tidb_mem_quota_query = {2 * 1024**3}",
-        "START TRANSACTION READ ONLY AS OF TIMESTAMP NOW(3) - INTERVAL 1 SECOND",
         "SELECT 1",
     ]
-    # TiDB 的 READ ONLY 只有空实现：不能出现 MySQL 的只读事务写法
-    assert "START TRANSACTION READ ONLY" not in statements
+    # TiDB 的 READ ONLY 只有空实现（报 1235）；历史读事务读不到刚变更的表结构：两种都不用
+    assert not any("TRANSACTION" in sql for sql in statements)
     assert conn.rollbacks == 1 and conn.closed
     assert result.rows == [[1]] and not result.truncated
 
@@ -90,6 +89,7 @@ def test_mysql_connector_behaviour_is_unchanged(monkeypatch):
     ("errno", "message", "code"),
     [
         (TIDB_MEMORY_QUOTA_ERRNO, "Your query has been cancelled due to exceeding the allowed memory limit", "other"),
+        (8121, "privilege check for 'Update' fail", "permission"),
         (3024, "Query execution was interrupted, maximum statement execution time exceeded", "timeout"),
         (1142, "SELECT command denied to user 'ro'@'%' for table 'orders'", "permission"),
         (1146, "Table 'shop.nope' doesn't exist", "invalid_object"),
