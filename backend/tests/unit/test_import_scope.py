@@ -25,6 +25,7 @@ def datasource(**options):
         ("[dbo].[t1]", "dbo"),
         ("orders", None),
         ("", None),
+        ("analytics.public.events.v1", None),  # 超过三段：表名本身含点等歧义，不猜库名
     ],
 )
 def test_ref_database(ref, expected):
@@ -40,7 +41,7 @@ def test_scope_key_follows_engine_options():
 def test_annotate_unmatched_marks_sources_against_current_scope():
     items = [
         {"ref": "ods.events", "role": "source", "count": 3, "statement_ids": ["s1"]},
-        {"ref": "EC_TRADE.orders", "role": "source", "count": 1, "statement_ids": ["s2"]},
+        {"ref": "ec_trade.orders", "role": "source", "count": 1, "statement_ids": ["s2"]},
         {"ref": "orders", "role": "source", "count": 1, "statement_ids": ["s3"]},
         {"ref": "tmp.staging", "role": "target", "count": 2, "statement_ids": ["s4"]},
     ]
@@ -48,7 +49,7 @@ def test_annotate_unmatched_marks_sources_against_current_scope():
     out = scope.annotate_unmatched(items, datasource(databases=["ec_trade", "ec_dw"]), engine("databases"))
     assert items == before  # 不修改入参
     assert out[0] | {} == before[0] | {"database": "ods", "in_scope": False, "addable": True}
-    assert out[1] | {} == before[1] | {"database": "EC_TRADE", "in_scope": True, "addable": False}  # 不区分大小写
+    assert out[1] | {} == before[1] | {"database": "ec_trade", "in_scope": True, "addable": False}
     assert out[2] | {} == before[2] | {"database": None, "in_scope": False, "addable": False}
     assert out[3] == before[3] | {"database": "tmp"}  # 写入目标只补库名
 
@@ -70,7 +71,7 @@ def audits(monkeypatch):
 def test_add_to_scope_appends_missing_names_and_audits(audits):
     ds = datasource(databases=["ec_trade"], tls={"mode": "verify"})
     original = ds.options
-    added = scope.add_to_scope(object(), "user", ds, engine("databases"), ["ods", "EC_TRADE", "ods", "dim"])
+    added = scope.add_to_scope(object(), "user", ds, engine("databases"), ["ods", "ec_trade", "ods", "dim"])
     assert added == ["ods", "dim"]
     assert ds.options == {"databases": ["ec_trade", "ods", "dim"], "tls": {"mode": "verify"}}
     assert ds.options is not original  # 整体替换，JSON 列才会被识别为变更
@@ -89,7 +90,7 @@ def test_add_to_scope_uppercases_oracle_schemas(audits):
 def test_add_to_scope_nothing_new_does_not_audit_or_rewrite(audits):
     ds = datasource(databases=["ods"])
     original = ds.options
-    assert scope.add_to_scope(object(), "user", ds, engine("databases"), ["ODS"]) == []
+    assert scope.add_to_scope(object(), "user", ds, engine("databases"), ["ods"]) == []
     assert ds.options is original and audits == []
 
 
@@ -103,3 +104,22 @@ def test_add_to_scope_rejects_bad_input(audits, names):
 def test_add_to_scope_requires_scope_key(audits):
     with pytest.raises(ValueError):
         scope.add_to_scope(object(), "user", datasource(), engine("endpoint"), ["ods"])
+
+
+def test_scope_names_compare_exactly_except_oracle(audits):
+    """采集器按配置原样匹配：PostgreSQL 的 "Sales" 与 sales 是不同模式；只有 Oracle 按大写比较。"""
+    pg = datasource(schemas=["sales"])
+    out = scope.annotate_unmatched(
+        [{"ref": "db.Sales.events", "role": "source", "count": 1, "statement_ids": []}],
+        pg,
+        engine("schemas", kind="postgres"),
+    )
+    assert out[0]["in_scope"] is False and out[0]["addable"] is True
+    assert scope.add_to_scope(object(), "user", pg, engine("schemas", kind="postgres"), ["Sales"]) == ["Sales"]
+    ora = datasource(schemas=["SALES"])
+    out = scope.annotate_unmatched(
+        [{"ref": "db.sales.events", "role": "source", "count": 1, "statement_ids": []}],
+        ora,
+        engine("schemas", kind="oracle"),
+    )
+    assert out[0]["in_scope"] is True

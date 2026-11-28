@@ -594,7 +594,8 @@ function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
   }
 
   async function addScope(database: string) {
-    const key = database.toLowerCase();
+    // 采集范围按名字精确匹配（大小写不同是不同的库 / 模式），去重键与后端一致
+    const key = database;
     if (addingRef.current.has(key)) return;
     addingRef.current.add(key);
     setAddingDbs((prev) => new Set(prev).add(key));
@@ -658,7 +659,7 @@ function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
                   ? t("库 {{database}} 已在采集范围，请检查表名或默认库", { database: db })
                   : ""
               : "";
-      const dbKey = db ? db.toLowerCase() : "";
+      const dbKey = db ?? "";
       const showAdd = Boolean(canEdit && db && !blocked && item.addable && !seenDbs.has(dbKey));
       if (showAdd) seenDbs.add(dbKey);
       const adding = dbKey !== "" && addingDbs.has(dbKey);

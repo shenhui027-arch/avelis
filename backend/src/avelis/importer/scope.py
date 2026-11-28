@@ -31,10 +31,11 @@ def scope_key(engine: Any) -> str | None:
 
 
 def ref_database(ref: str) -> str | None:
-    """表引用里的库 / 模式名：取按点分隔后的倒数第二段（`db.table`、`catalog.db.table`），去掉反引号、双引号、方括号；
-    只有一段（没有库名）时返回 None。"""
+    """表引用里的库 / 模式名：`db.table` 或 `catalog.db.table` 的库段，去掉反引号、双引号、方括号。
+    只有一段（没有库名）或超过三段时返回 None：拍平的引用丢了标识符边界（如表名本身含点），
+    无法确定库名，宁可不给加入入口。"""
     parts = ref.split(".")
-    if len(parts) < 2:
+    if not 2 <= len(parts) <= 3:
         return None
     database = parts[-2].strip().strip('`"[]')
     return database if database.strip() else None
@@ -57,6 +58,12 @@ def valid_name(engine: Any, name: str) -> bool:
     return ident.fullmatch(candidate) is not None
 
 
+def _scope_name(engine: Any, name: str) -> str:
+    """范围名的比较形式：采集器按配置原样匹配（PostgreSQL 的 "Sales" 与 sales 是不同模式），所以精确比较；
+    只有 Oracle 的模式名按大写保存与比较。"""
+    return name.upper() if engine.kind == "oracle" else name
+
+
 def _configured_names(datasource: Datasource, key: str) -> list[str]:
     names = (datasource.options or {}).get(key)
     # 兼容以字符串保存的范围，新增时按采集器要求写成列表。
@@ -67,12 +74,12 @@ def _configured_names(datasource: Datasource, key: str) -> list[str]:
 
 def annotate_unmatched(items: list[dict], datasource: Datasource, engine: Any) -> list[dict]:
     """给未匹配条目补充范围信息，返回新列表（不修改入参）：每条加 `database`（ref_database 的结果）；
-    role == "source" 的条目再加 `in_scope`（库在当前范围内，不区分大小写）
+    role == "source" 的条目再加 `in_scope`（库在当前范围内，按 _scope_name 精确比较）
     与 `addable`（引擎有范围键、库名合法且可加入范围），并按需标出 `external_catalog` 或 `invalid_name`。
     role == "target"（写入目标，多是尚未建表的设计时目标）只加 database。"""
     key = scope_key(engine)
     configured = _configured_names(datasource, key) if key is not None else []
-    known = {name.casefold() for name in configured if isinstance(name, str)}
+    known = {_scope_name(engine, name) for name in configured if isinstance(name, str)}
     dialect_for = getattr(engine, "dialect_for", None)
     dialect = dialect_for(datasource.options) if dialect_for is not None else None
     default_catalog = getattr(dialect, "default_catalog", None)
@@ -89,7 +96,7 @@ def annotate_unmatched(items: list[dict], datasource: Datasource, engine: Any) -
                 and parts[0].strip().strip('`"[]').casefold() != default_catalog.casefold()
             )
             invalid_name = database is not None and not valid_name(engine, database)
-            in_scope = not external_catalog and database is not None and database.casefold() in known
+            in_scope = not external_catalog and database is not None and _scope_name(engine, database) in known
             entry["in_scope"] = in_scope
             entry["addable"] = (
                 key is not None and database is not None and not (in_scope or external_catalog or invalid_name)
@@ -103,7 +110,7 @@ def annotate_unmatched(items: list[dict], datasource: Datasource, engine: Any) -
 
 
 def add_to_scope(session: Session, user: User, datasource: Datasource, engine: Any, names: list[str]) -> list[str]:
-    """把库 / 模式加入数据源采集范围，返回实际新增的名字（按传入顺序去重，已在范围内的跳过，比较不区分大小写）。
+    """把库 / 模式加入数据源采集范围，返回实际新增的名字（按传入顺序去重，已在范围内的跳过，按 _scope_name 精确比较）。
     - 引擎没有范围键时抛 ValueError；names 为空、超过 MAX_ADD 或含不合法的库 / 模式名时抛 ValueError。
     - Oracle（engine.kind == "oracle"）的模式名按大写保存，其余原样保存。
     - 写回时给 datasource.options 赋一个新的 dict（JSON 列需要整体替换才会被识别为变更）。
@@ -117,17 +124,16 @@ def add_to_scope(session: Session, user: User, datasource: Datasource, engine: A
         raise ValueError(Msg("一次只能加入 1 到 {limit} 个库或模式", limit=MAX_ADD))
 
     configured = _configured_names(datasource, key)
-    known = {name.casefold() for name in configured if isinstance(name, str)}
+    known = {_scope_name(engine, name) for name in configured if isinstance(name, str)}
     added = []
     for name in names:
         if not valid_name(engine, name):
             raise ValueError(Msg("库或模式名 {name} 不符合采集器的命名规则", name=name))
-        stored = name.upper() if engine.kind == "oracle" else name
-        folded = stored.casefold()
-        if folded in known:
+        stored = _scope_name(engine, name)
+        if stored in known:
             continue
         added.append(stored)
-        known.add(folded)
+        known.add(stored)
     if added:
         # 整体替换才能让 ORM 识别 JSON 列变更。
         datasource.options = {**(datasource.options or {}), key: [*configured, *added]}

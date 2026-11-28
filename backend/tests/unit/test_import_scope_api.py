@@ -126,7 +126,7 @@ def test_scope_add_rejects_engine_without_scope_key(scope_api):
 
 def test_scope_add_persists_options_audits_and_enqueues_collection(scope_api):
     client, session, user, _ = scope_api
-    response = client.post(SCOPE_URL, json={"names": ["ods", "PUBLIC", "ODS", "warehouse"]})
+    response = client.post(SCOPE_URL, json={"names": ["ods", "public", "ods", "warehouse"]})
     assert response.status_code == 200, response.text
     (job,) = session.scalars(select(Job)).all()
     assert response.json() == {"added": ["ods", "warehouse"], "job_id": job.id}
@@ -152,7 +152,7 @@ def test_scope_add_persists_options_audits_and_enqueues_collection(scope_api):
 
 def test_scope_add_existing_names_skips_collection_and_audit(scope_api):
     client, session, _, _ = scope_api
-    response = client.post(SCOPE_URL, json={"names": ["PUBLIC", "reporting", "public"]})
+    response = client.post(SCOPE_URL, json={"names": ["public", "reporting", "public"]})
     assert response.status_code == 200, response.text
     assert response.json() == {"added": [], "job_id": None}
     assert session.scalars(select(Job)).all() == []
@@ -177,7 +177,7 @@ def test_batch_view_annotates_unmatched_using_current_scope(scope_api):
         {**source, "database": "ods", "in_scope": False, "addable": True},
         {**target, "database": "dw"},
     ]
-    response = client.post(SCOPE_URL, json={"names": ["ODS"]})
+    response = client.post(SCOPE_URL, json={"names": ["ods"]})
     assert response.status_code == 200, response.text
     session.expire_all()
     assert batch.batch_view(session, imported)["unmatched_tables"] == [
