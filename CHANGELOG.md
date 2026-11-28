@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+## [1.2.0] - 2026-11-28
+
+本版本新增 TiDB、Trino、Spark SQL 三种数据源，并为 Hive 补齐只读问数；问数与探索查询统一拒绝读写服务器文件或执行代码的写法。元数据库没有新的迁移；已采集的视图会在下次采集时按新版解析器重新解析。
+
 ### 新增
 
 - **TiDB 数据源**：新增 TiDB 引擎（2026-11-28 在 TiDB v8.5.4 上实机验证），借用 MySQL 方言，支持采集元数据、视图列级血缘、只读问数与执行前核对。单条查询内存上限映射到 `tidb_mem_quota_query`；TiDB 的只读事务只有空实现，问数的只读依赖 SQL 校验与只读问数账号（只授予 SELECT 与 SHOW VIEW）。表与视图按名称对应（`TIDB_TABLE_ID` 在 `TRUNCATE` 后会变）。
@@ -21,6 +25,8 @@
 - Hive 的按周、按天时间粒度生成了 Hive 不支持的 `TRUNC(x, 'WEEK')`、`DATE_TRUNC(…)`（结果为空或报错），改为 `DATE_ADD(NEXT_DAY(x, 'MO'), -7)` 与 `TO_DATE(x)`（SQLGlot 分支修复）。
 - 问数、探索查询与已核验查询统一拒绝能读写服务器文件或执行代码的写法，包括 Hive 的 `TRANSFORM … USING` 与 `reflect` / `java_method`，以及 `LOAD_FILE`、`SLEEP` 等函数；此前问数校验只检查语句类型。
 - Trino 的日期加减生成了 Trino 不支持的 `INTERVAL 'n' QUARTER`，改为 `(n * INTERVAL '3' MONTH)`（SQLGlot 分支修复）；探索查询对 Trino 的按周、按季加减改写为天、月。
+- 免口令认证（Hive、Spark、Trino 的 NONE 等）的数据源，查询账号此前必须填写密码，不填则问数报“未配置查询账号”；现在与采集账号一样可不填，也可只填账号作为会话用户。需要口令的认证方式仍要求填写密码。
+- 问数理解问题时，候选口径中没有匹配的指标（例如新接入、尚未发布口径的数据源），即使用户确认“直接查表”仍会反复追问，两次后以“需要澄清”结束；现在没有匹配口径时不再因此追问，已回答过的追问视为已确认，推理阶段可直接对允许探索的数据源做探索查询。
 
 ### 已知局限
 
@@ -460,7 +466,8 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.1.1...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/shenhui027-arch/avelis/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/shenhui027-arch/avelis/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/shenhui027-arch/avelis/compare/v1.0.11...v1.1.0
 [1.0.11]: https://github.com/shenhui027-arch/avelis/compare/v1.0.10...v1.0.11

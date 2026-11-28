@@ -70,7 +70,7 @@ def _strip_root_path(scope) -> str:
     return path
 
 
-API_VERSION = "1.1.1"
+API_VERSION = "1.2.0"
 
 
 class SecurityHeadersMiddleware:
