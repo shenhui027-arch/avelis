@@ -44,8 +44,17 @@ def valid_name(engine: Any, name: str) -> bool:
     """用采集器的标识符规则检查库 / 模式名，Oracle 按保存时的大写形式检查。"""
     collector = getattr(engine, "collector", None)
     module = sys.modules.get(getattr(collector, "__module__", ""))
+    candidate = name.upper() if engine.kind == "oracle" else name
+    # 优先用采集器实际调用的 _checked（MySQL 从 StarRocks 模块导入，自身没有 IDENT），其次 IDENT，最后保守规则
+    checked = getattr(module, "_checked", None)
+    if callable(checked):
+        try:
+            checked([candidate], "")
+        except ValueError:
+            return False
+        return True
     ident = getattr(module, "IDENT", _DEFAULT_IDENT)
-    return ident.fullmatch(name.upper() if engine.kind == "oracle" else name) is not None
+    return ident.fullmatch(candidate) is not None
 
 
 def _configured_names(datasource: Datasource, key: str) -> list[str]:

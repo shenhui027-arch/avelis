@@ -234,3 +234,15 @@ def test_params_reparse_note_describes_submitted_changes(scope_api, monkeypatch,
     assert response.status_code == 202, response.text
     assert response.json()["notes"] == [note]
     assert response.json()["params"] == {"schema": "public", **params}
+
+
+def test_valid_name_uses_the_checker_the_collector_actually_calls():
+    """MySQL 采集器从 StarRocks 模块导入 _checked（允许连字符），不能退回保守规则误判。"""
+    from avelis.engines import get_engine
+    from avelis.importer.scope import valid_name
+
+    mysql = get_engine("mysql")
+    assert valid_name(mysql, "sales-archive") is True
+    assert valid_name(mysql, "bad name") is False
+    postgres = get_engine("postgres")
+    assert valid_name(postgres, "sales-archive") is False
