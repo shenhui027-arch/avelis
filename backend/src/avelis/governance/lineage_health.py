@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -177,11 +177,16 @@ def load_snapshot(
     - asset_id 不为空时可只加载与它相关的部分以减少查询（结果须与全量加载后再按 focus 过滤一致）。
     qualified 与血缘图一致（参照 api/catalog.py 的 asset_summary / lineage_graph 的写法）。"""
     allowed = access.domain_ids(session, user)
+    roles = access.roles_of(session, user)
     visible: dict[str, Asset] = {}
     unreadable: set[str] = set()
     hidden_targets: set[tuple[str, str]] = set()
+    # 当前资产按（数据源, qualified）索引，用来补绑导入时还没采集、之后才采集到的来源
+    current_by_name: dict[tuple[str, str], str] = {}
     for asset in session.scalars(select(Asset).order_by(Asset.id)):
-        if not access.can_read_asset(session, user, asset, allowed):
+        if asset.status == "active":
+            current_by_name.setdefault((asset.datasource_id, _qualified(asset)), asset.id)
+        if not access.can_read_asset(session, user, asset, allowed, roles):
             unreadable.add(asset.id)
             hidden_targets.add((asset.datasource_id, _qualified(asset)))
         elif asset.status == "active":
@@ -229,18 +234,23 @@ def load_snapshot(
         .where(LineageEdge.status == "active")
         .order_by(LineageEdge.created_at, LineageEdge.id)
     )
-    edges = [
-        EdgeRow(*row)
-        for row in edge_rows
-        if row.source_asset_id not in unreadable and row.target_asset_id not in unreadable
-    ]
+    edges: list[EdgeRow] = []
+    for row in edge_rows:
+        edge = EdgeRow(*row)
+        if edge.source_asset_id is None and edge.target_asset_id is not None:
+            # 导入边只在写入时绑定资产；来源后来才采集到时，按目标所在数据源用名称补绑（与候选的匹配口径一致）
+            target = visible.get(edge.target_asset_id)
+            bound = current_by_name.get((target.datasource_id, edge.source_ref)) if target is not None else None
+            if bound is not None:
+                edge = replace(edge, source_asset_id=bound)
+        if edge.source_asset_id not in unreadable and edge.target_asset_id not in unreadable:
+            edges.append(edge)
 
     # 候选只有名称引用，按所属数据源排除已知不可读的目标；同名的可读当前资产优先。
     readable_targets = {(asset.datasource_id, assets[key].qualified) for key, asset in visible.items()}
     hidden_targets.difference_update(readable_targets)
     # 目标还没有资产记录（未采集）时无从按资产判断可读，
     # 只给能读导入记录的维护者看（同 importer.service.require_import_access）。
-    roles = access.roles_of(session, user)
     import_reader = "admin" in roles or "steward" in roles
     candidates = [
         CandidateRow(candidate_id, source_ref, target_ref, confidence)

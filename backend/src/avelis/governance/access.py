@@ -154,12 +154,19 @@ def can_see_object(
     return False
 
 
-def can_read_asset(session: Session, user: User, asset: Asset, allowed: set[str] | None = None) -> bool:
+def can_read_asset(
+    session: Session,
+    user: User,
+    asset: Asset,
+    allowed: set[str] | None = None,
+    roles: set[str] | None = None,
+) -> bool:
     """归属了业务域的资产只对该域成员可见。未归属业务域的资产按 AVELIS_UNASSIGNED_ASSET_POLICY：
-    deny（默认）只有管理员与维护者可见（他们负责归属），查询者看不到也查不到；allow 不做域限制。"""
+    deny（默认）只有管理员与维护者可见（他们负责归属），查询者看不到也查不到；allow 不做域限制。
+    批量判断时调用方可预先传入 allowed（domain_ids）与 roles（roles_of），避免逐个资产查询。"""
     if asset.domain_id is None:
         if get_settings().unassigned_asset_policy == "allow":
             return True
-        return bool(roles_of(session, user) & {"admin", "steward"})
+        return bool((roles_of(session, user) if roles is None else roles) & {"admin", "steward"})
     allowed = domain_ids(session, user) if allowed is None else allowed
     return asset.domain_id in allowed
