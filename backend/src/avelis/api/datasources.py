@@ -45,7 +45,8 @@ router = APIRouter(prefix="/api", tags=["数据源与采集"])
 
 class Credential(BaseModel):
     username: str = Field(min_length=1, max_length=128)
-    password: str = Field(min_length=1, max_length=512, repr=False)
+    # 免口令的认证方式（如 Hive / Spark / Trino 的 NONE）下可只填账号（作会话用户）；其余情况由 _set_credential 要求口令
+    password: str = Field(default="", max_length=512, repr=False)
 
 
 class DatasourceCreate(BaseModel):
@@ -174,6 +175,8 @@ def run_view(run: CollectionRun) -> dict:
 
 
 def _set_credential(session: Session, ds: Datasource, purpose: str, cred: Credential) -> None:
+    if not cred.password and engine_of(ds).credentials_required(ds.options):
+        raise HTTPException(422, Msg("当前认证方式需要口令，请填写密码"))
     row = session.scalar(
         select(DatasourceCredential).where(
             DatasourceCredential.datasource_id == ds.id, DatasourceCredential.purpose == purpose

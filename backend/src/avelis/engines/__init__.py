@@ -78,7 +78,8 @@ def query_connector(session: Session, ds: Datasource):
     engine = engine_of(ds)
     if not engine.supports(QUERY) or engine.querier is None:
         raise CapabilityMissing(engine, QUERY, ds.name)
-    user, password = _credential(session, ds, "query")
+    # 与采集相同：免口令的认证方式（如 Hive / Spark / Trino 的 NONE）下查询账号可不填，连接器用默认会话用户
+    user, password = _credential(session, ds, "query", required=engine.credentials_required(ds.options))
     return engine.querier(ds.host, ds.port, user, password, ds.options or {})
 
 

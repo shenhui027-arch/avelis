@@ -5095,8 +5095,11 @@ export interface components {
         Credential: {
             /** Username */
             username: string;
-            /** Password */
-            password: string;
+            /**
+             * Password
+             * @default
+             */
+            password?: string;
         };
         /** CredentialFreeOut */
         CredentialFreeOut: {

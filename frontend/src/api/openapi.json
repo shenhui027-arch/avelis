@@ -17308,14 +17308,13 @@
      "password": {
       "type": "string",
       "maxLength": 512,
-      "minLength": 1,
-      "title": "Password"
+      "title": "Password",
+      "default": ""
      }
     },
     "type": "object",
     "required": [
-     "username",
-     "password"
+     "username"
     ],
     "title": "Credential"
    },
