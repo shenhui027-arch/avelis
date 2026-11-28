@@ -30,7 +30,7 @@ from sqlglot.schema import MappingSchema
 
 from avelis.connectors.base import sha256_text
 
-PARSER_VERSION = f"sqlglot-{sqlglot.__version__}/avelis-1"
+PARSER_VERSION = f"sqlglot-{sqlglot.__version__}/avelis-2"  # avelis-2：输出列按位置对应视图列名（output_names）
 
 VALUE_RANK = {"value_direct": 0, "value_computed": 1, "value_aggregated": 2}
 
@@ -213,7 +213,11 @@ def parse_query(
     schema: dict[str, dict[str, dict[str, dict[str, str]]]],
     default_catalog: str | None = None,
     default_db: str | None = None,
+    output_names: list[str] | None = None,
 ) -> ParsedQuery:
+    """output_names：视图的列名（按位置）。视图的列就是查询的输出列，按位置一一对应；声明了列名的视图
+    （CREATE VIEW v (a, b) AS …）保存的查询里没有这些名字，解析结果的输出列、分组键与透传映射都按位置换成它们。
+    列数对不上（如残留 *）时不换。"""
     d = dialect.name
     canonical, digest = canonical_hash_of(sql, dialect)
     try:
@@ -278,8 +282,13 @@ def parse_query(
     for sub in traverse_scope(qualified):
         _collect_influences(sub, result, problems, d)
 
+    names = [c.name for c in result.columns]
+    if output_names and len(output_names) == len(result.columns):
+        names = list(output_names)
+        for column, name in zip(result.columns, names, strict=True):
+            column.name = name
     result.distinct = bool(select.args.get("distinct"))
-    result.group_outputs = _group_outputs(select, d)
+    result.group_outputs = _group_outputs(select, d, names)
     result.passthrough = _passthrough(scope, result)
     if problems:
         result.status = "partial"
@@ -441,18 +450,21 @@ def _source_tables(node: exp.Expression, scope: Scope) -> list[str]:
     return []
 
 
-def _group_outputs(select: exp.Select, d: str) -> list[str] | None:
-    """GROUP BY 的键都出现在输出中时，返回对应的输出列名（即视图的粒度）。"""
+def _group_outputs(select: exp.Select, d: str, names: list[str]) -> list[str] | None:
+    """GROUP BY 的键都出现在输出中时，返回对应的输出列名（即视图的粒度）。
+
+    按表达式找到投影的位置，再取该位置的输出列名（names，已按位置换成视图列名），不按名字反查：
+    重名的输出列（如两列都叫 k）不会被认错。"""
     group = select.args.get("group")
     if not group:
         return None
     keys = [k.sql(dialect=d) for k in group.expressions]
-    outputs = {}
-    for projection in select.selects:
+    positions: dict[str, int] = {}
+    for i, projection in enumerate(select.selects):
         inner = projection.this if isinstance(projection, exp.Alias) else projection
-        outputs[inner.sql(dialect=d)] = projection.alias_or_name
-    names = [outputs.get(k) for k in keys]
-    return names if all(names) else []
+        positions.setdefault(inner.sql(dialect=d), i)
+    found = [positions.get(k) for k in keys]
+    return [names[i] for i in found] if all(i is not None for i in found) else []
 
 
 def _passthrough(scope: Scope, result: ParsedQuery) -> dict[str, Any] | None:
