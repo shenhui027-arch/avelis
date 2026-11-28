@@ -624,6 +624,8 @@ def _unit(node: exp.Expression) -> str:
     if isinstance(node, exp.Interval) and unit is None and isinstance(node.this, exp.Literal):  # INTERVAL '7 DAY'
         parts = str(node.this.this).split()
         return parts[1].upper().rstrip("S") if len(parts) == 2 else ""
+    if isinstance(unit, exp.WeekStart):  # Oracle TRUNC(…, 'IW') 解析为 WEEK_START(MONDAY)：按周截断
+        return "WEEK"
     return (unit.name if isinstance(unit, (exp.Var, exp.Literal)) else str(unit or "")).upper().rstrip("S")
 
 
