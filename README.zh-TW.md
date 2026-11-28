@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%2011%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
-[![version](https://img.shields.io/badge/version-v1.1.1-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.1)
+[![version](https://img.shields.io/badge/version-v1.2.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.2.0)
 
 [功能亮點](#功能亮點) · [最近更新](#最近更新) · [截圖](#截圖) · [支援的資料庫](#支援的資料庫) · [快速開始](#快速開始) · [文件](#文件) · [路線圖](#路線圖) · [參與貢獻](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日誌](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然語言回答關於業務資料的問題，並說清每個數從�
 ![分析會話：結論優先的報告、原因排序、證據欄與模型欄](docs/images/zh-TW/analysis.png)
 
 > [!NOTE]
-> Avelis v1.1.1 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
+> Avelis v1.2.0 已發布，變更見[更新日誌](CHANGELOG.md)。介面與文件都提供簡體中文、繁體中文與英文。
 
 ## 寫在前面
 
@@ -53,6 +53,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.2.0** | 新增 TiDB、Trino、Spark SQL 資料來源（採集中繼資料、檢視欄位級血緣、唯讀問數與執行前核對），Hive 支援唯讀問數與探索查詢；問數與探索查詢統一拒絕讀寫伺服器檔案或執行程式碼的寫法；免口令認證的資料來源查詢帳號可不填；沒有已發布口徑時問數可直接探索查詢 |
 | **v1.1.1** | 血緣增強：連線依計算、聚合、篩選、關聯鍵、分組顯示類型徽章；匯入血緣支援 dbt `manifest.json`，未匹配的來源表可一鍵加入採集範圍；新增血緣體檢（規則檢查與 AI 複核）。採集與測試連線失敗時先顯示翻譯後的說明，再附驅動程式原文 |
 | **v1.1.0** | 安全與企業能力：Cookie 登入、OIDC 單一登入、雙因素驗證、個人存取權杖、防暴力破解與重新設計的登入頁；問數與分析支援多個模型供應商、即時推送、費用統計與配額，新增已核驗查詢庫與業務域共享經驗；資料來源 TLS、欄位遮罩、列級權限、稽核驗真與 Prometheus 指標；血緣頁新增追溯工具列（方向、深度、只看兩端）與表格檢視（匯出 CSV）|
 | **v1.0.11** | 技能市場：按 Agent Skills 規範上傳技能包，管理員審核上架，個人自行啟用；取數問答與歸因分析自動選用技能，輸入框可用「+」或「/」引用。分析過程改為逐條時間線：執行中顯示轉圈與即時推理文字，每段推理、每次工具呼叫都可單獨展開 |
