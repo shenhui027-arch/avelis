@@ -5,13 +5,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from avelis.api import datasources
 from avelis.api.deps import current_user, get_session
-from avelis.i18n import LocaleMiddleware
+from avelis.collect.service import CollectionFailed
+from avelis.i18n import LocaleMiddleware, translate
 from avelis.models import CollectionRun, Datasource, User
 
 DRIVER_ERROR = "Connection refused"
@@ -102,3 +103,26 @@ def test_successful_connection_has_null_error_fields(client, monkeypatch):
     assert body["error"] is None
     assert body["error_kind"] is None
     assert body["error_message"] is None
+
+
+def test_wait_collect_failure_detail_uses_explanation(monkeypatch):
+    session = Mock(spec=Session)
+    session.get.return_value = Datasource(id="ds-1")
+    monkeypatch.setattr(datasources.access, "require_role", lambda *args: None)
+
+    def fail(*_args, **_kwargs):
+        raise CollectionFailed(DRIVER_ERROR)
+
+    monkeypatch.setattr(datasources.jobs, "collect_now", fail)
+    with pytest.raises(HTTPException) as caught:
+        datasources.collect("ds-1", wait=True, user=User(id="steward-1"), session=session)
+    assert caught.value.status_code == 502
+    assert translate(caught.value.detail) == f"采集失败：{UNREACHABLE_ZH_CN}"
+
+    # 认不出的错误照旧带原文
+    monkeypatch.setattr(
+        datasources.jobs, "collect_now", lambda *_a, **_k: (_ for _ in ()).throw(CollectionFailed("boom"))
+    )
+    with pytest.raises(HTTPException) as caught:
+        datasources.collect("ds-1", wait=True, user=User(id="steward-1"), session=session)
+    assert translate(caught.value.detail) == "采集失败：boom"

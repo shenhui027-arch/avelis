@@ -226,6 +226,8 @@ class CollectOut(Out):
     status: str
     stats: Json | None = None
     error: str | None = None
+    error_kind: str | None = None
+    error_message: str | None = None
 
 
 class CredentialOut(Out):

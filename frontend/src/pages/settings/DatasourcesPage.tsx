@@ -12,6 +12,7 @@ import {
 } from "../../components/ui";
 import { RunStrip, useRuns } from "../../components/RunStrip";
 import { t } from "../../i18n";
+import { bannerText, errorParts, shortRaw } from "./collectError";
 
 type Datasource = Schemas["DatasourceOut"];
 type CredentialPurpose = "collect" | "query";
@@ -71,6 +72,8 @@ function optionDefault(engine: Schemas["EngineOut"] | undefined, key: string): s
 function validPort(value: string): boolean {
   return /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 65535;
 }
+
+const withRaw = (text: string, raw: string) => t("{{text}}（原文：{{raw}}）", { text, raw });
 
 export function DatasourcesPage() {
   const { id } = useParams();
@@ -171,7 +174,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
                   ok: r.ok,
                   text: r.ok
                     ? t("连接正常（{{ms}} ms）", { ms: r.latency_ms })
-                    : r.error || t("连接测试失败"),
+                    : bannerText(r, t("连接测试失败"), withRaw),
                 }),
                 onError: (e) => setMessage({ ok: false, text: errorText(e) }),
               })}>
@@ -190,7 +193,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
           aria-busy={collect.isPending} onClick={() => collect.mutate(undefined, {
             onSuccess: (r) => setMessage({ ok: r.status === "succeeded", text: r.status === "succeeded"
               ? t("采集完成：新版本 {{v1}}，变更 {{v2}} 项", { v1: String(r.stats?.new_versions ?? 0), v2: eventCount(r.stats) })
-              : r.error ?? t("采集失败") }),
+              : bannerText(r, t("采集失败"), withRaw) }),
             onError: (e) => setMessage({ ok: false, text: errorText(e) }),
           })}>
           <Icon name="refresh" small />{collect.isPending ? t("采集中…") : t("重新采集")}
@@ -208,7 +211,7 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
                   : history.length ? t("最近 {{count}} 次无成功记录", { count: history.length }) : t("暂无采集记录")}</span></span>;
               }}
             </QueryState>
-            {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs">{t("查看采集错误")}</a> : null}
+            {ds.last_run?.error ? <a className="av-btn av-btn--ghost av-btn--sm" href="#datasource-runs" title={errorParts(ds.last_run, "").text}>{t("查看采集错误")}</a> : null}
           </div>
 
           <section className="av-datasources__section" aria-labelledby="datasource-connection">
@@ -269,12 +272,15 @@ function Detail({ ds, canEdit, isAdmin }: { ds: Datasource; canEdit: boolean; is
                 <thead><tr><th>{t("状态")}</th><th>{t("开始")}</th><th>{t("触发")}</th><th className="num">{t("观察")}</th><th className="num">{t("新版本")}</th><th className="num">{t("变更")}</th><th>{t("说明")}</th></tr></thead>
                 <tbody>{history.map((r) => {
                   const stats = r.stats ?? {};
+                  const { text, raw } = errorParts(r, "");
                   return <tr key={r.id}>
                     <td><Status value={r.status} /></td><td className="av-mono">{formatTime(r.started_at, tz)}</td>
                     <td>{({ manual: t("手动"), schedule: t("定时"), test: t("测试") } as Record<string, string>)[r.trigger] ?? r.trigger}</td>
                     <td className="num">{String(stats.assets_observed ?? "—")}</td><td className="num">{String(stats.new_versions ?? "—")}</td>
                     <td className="num">{r.status === "succeeded" || Object.keys(stats).length ? eventCount(stats) : "—"}</td>
-                    <td className="av-muted av-datasources__run-note">{r.error ?? (Array.isArray(stats.warnings) ? stats.warnings.join(t("；")) : "—")}</td>
+                    <td className="av-muted av-datasources__run-note">{text
+                      ? <>{text}{raw ? <div className="av-caption av-mono" title={r.error ?? undefined}>{shortRaw(raw)}</div> : null}</>
+                      : (Array.isArray(stats.warnings) ? stats.warnings.join(t("；")) : "—")}</td>
                   </tr>;
                 })}</tbody>
               </table></div>}

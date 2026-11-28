@@ -2023,6 +2023,7 @@
   "版本已更新或网络中断，请刷新页面重试。": "A new version was deployed or the network was interrupted. Reload the page to retry.",
   "连接正常（{{ms}} ms）": "Connection healthy ({{ms}} ms)",
   "连接测试失败": "Connection test failed",
+  "{{text}}（原文：{{raw}}）": "{{text}} (original: {{raw}})",
   "测试中…": "Testing…",
   "测试连接": "Test connection",
   "数据源已更新": "Datasource updated",

@@ -14,15 +14,16 @@ export const RAW_LIMIT = 160;
  * - 都没有 → { text: fallback, raw: null }
  */
 export function errorParts(e: CollectError | null | undefined, fallback: string): { text: string; raw: string | null } {
-  // TODO(agy): 按上面的规则实现
-  void e;
+  const message = typeof e?.error_message === "string" ? e.error_message.trim() : "";
+  const raw = typeof e?.error === "string" ? e.error.trim() : "";
+  if (message) return { text: message, raw: raw && raw !== message ? raw : null };
+  if (raw) return { text: raw, raw: null };
   return { text: fallback, raw: null };
 }
 
 /** 截断原文：长度不超过 RAW_LIMIT 原样返回；否则取前 RAW_LIMIT 个字符（去掉末尾空白）后加“…” */
 export function shortRaw(raw: string): string {
-  // TODO(agy): 实现
-  return raw;
+  return raw.length <= RAW_LIMIT ? raw : `${raw.slice(0, RAW_LIMIT).trimEnd()}…`;
 }
 
 /**
@@ -34,7 +35,6 @@ export function bannerText(
   fallback: string,
   withRaw: (text: string, raw: string) => string,
 ): string {
-  // TODO(agy): 用 errorParts 与 shortRaw 实现
-  void withRaw;
-  return errorParts(e, fallback).text;
+  const { text, raw } = errorParts(e, fallback);
+  return raw ? withRaw(text, shortRaw(raw)) : text;
 }

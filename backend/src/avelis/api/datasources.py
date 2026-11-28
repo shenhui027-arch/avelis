@@ -432,7 +432,8 @@ def collect(
     except LockBusy as exc:
         raise HTTPException(409, "该数据源正在采集中") from exc
     except CollectionFailed as exc:
-        raise HTTPException(502, Msg("采集失败：{error}", error=exc)) from exc
+        # 认得出的错误给本地化说明，原文已记入采集批次供排查
+        raise HTTPException(502, Msg("采集失败：{error}", error=explain(str(exc)) or exc)) from exc
     session.expire_all()
     return run_view(session.get(CollectionRun, run_id))
 
