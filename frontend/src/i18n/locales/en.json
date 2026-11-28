@@ -2375,5 +2375,11 @@
   "去向 {{count}}_one": "{{count}} target",
   "去向 {{count}}_other": "{{count}} targets",
   "还有 {{count}} 条_one": "{{count}} more",
-  "还有 {{count}} 条_other": "{{count}} more"
+  "还有 {{count}} 条_other": "{{count}} more",
+  "库 {{database}} 不在采集范围": "Database {{database}} is not in collection scope",
+  "库 {{database}} 已在采集范围，请检查表名或默认库": "Database {{database}} is already in collection scope; check the table name or default database",
+  "加入采集范围并采集": "Add to scope and collect",
+  "加入中…": "Adding…",
+  "已加入 {{names}}，正在采集，完成后重新解析本批次即可对上": "Added {{names}}; collecting now. Re-parse this batch once collection finishes to match",
+  "已在采集范围内": "Already in collection scope"
 }

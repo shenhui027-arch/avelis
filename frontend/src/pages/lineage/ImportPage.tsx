@@ -15,6 +15,7 @@ import {
 import { useOverlay } from "../../components/overlay";
 import { formatShortTime, formatTime } from "../../format";
 import { t } from "../../i18n";
+import { useRoles } from "../../layout/Shell";
 
 type WorkspaceTab = "source" | "result";
 type Focus = { fileId: string; lines: number[] } | null;
@@ -559,25 +560,78 @@ const occurrences = (item: Unmatched) => item.count;
 function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
   items: Unmatched[]; datasourceId: string; batchId: string; onShow: (ref: string) => void;
 }) {
-  // TODO(agy): 一键加入采集范围（接口 POST /api/datasources/{datasource_id}/scope，body { names }，返回 { added, job_id }）：
-  //  - 只有 admin / steward 能操作（useRoles()，与 DatasourcesPage 的 canEdit 同一判断）；其他人只看提示，不显示按钮。
-  //  - 读取来源每行在 meta 后补一段原因：addable → “库 {{database}} 不在采集范围”，并显示按钮“加入采集范围并采集”（.av-btn--secondary .av-btn--sm）；
-  //    in_scope → “库 {{database}} 已在采集范围，请检查表名或默认库”；没有库名（database 为空）→ 沿用现有提示。写入目标行不变。
-  //  - 同一个库可能对应多行：按钮按库去重，点击一次加入该库；请求期间该库的按钮 disabled 并显示“加入中…”。
-  //  - 成功后用 useMessage + Banner 提示：added 非空 → “已加入 {{names}}，正在采集，完成后重新解析本批次即可对上”；added 为空 → “已在采集范围内”；
-  //    并让 ["imports", batchId] 与数据源列表的查询失效（useQueryClient().invalidateQueries，查询键参照 api/hooks.ts 里 useImport / useDatasources 的写法）。
-  //  - 失败：Banner 显示接口返回的 detail（参照本文件里其他请求的错误处理写法）。
-  void datasourceId; void batchId;
+  const qc = useQueryClient();
+  const roles = useRoles();
+  const canEdit = roles.has("admin") || roles.has("steward");
+  const [message, setMessage] = useMessage();
+  const [addingDbs, setAddingDbs] = useState<Set<string>>(() => new Set());
+  const addingRef = useRef(new Set<string>());
+
+  async function addScope(database: string) {
+    const key = database.toLowerCase();
+    if (addingRef.current.has(key)) return;
+    addingRef.current.add(key);
+    setAddingDbs((prev) => new Set(prev).add(key));
+    setMessage(null);
+    try {
+      const out = await unwrap(api.POST("/api/datasources/{datasource_id}/scope", {
+        params: { path: { datasource_id: datasourceId } },
+        body: { names: [database] },
+      }));
+      setMessage({
+        ok: true,
+        text: out.added.length
+          ? t("已加入 {{names}}，正在采集，完成后重新解析本批次即可对上", { names: out.added.join(", ") })
+          : t("已在采集范围内"),
+      });
+      // 查询键与 api/hooks.ts 的 useImport / useDatasources 一致，刷新当前批次的范围状态与数据源列表
+      await Promise.allSettled([
+        qc.invalidateQueries({ queryKey: ["import", batchId] }),
+        qc.invalidateQueries({ queryKey: ["datasources"] }),
+      ]);
+    } catch (e) {
+      setMessage({ ok: false, text: errorText(e) });
+    } finally {
+      addingRef.current.delete(key);
+      setAddingDbs((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
   if (!items.length) return <Empty text={t("语句中的表都对上了已采集资产或本批次产生的表")} compact />;
   // 读取来源没对上是血缘缺口，排在前面；写入目标多是尚未建表的设计时目标
   const sorted = [...items].sort((a, b) => Number(a.role === "target") - Number(b.role === "target") || b.count - a.count);
+  // 同一库下可能有多张未匹配表，按钮按库去重避免重复展示与重复提交
+  const seenDbs = new Set<string>();
   return <>
     <p className="av-caption av-import-tables-hint">{t("既不是已采集资产、也不是本批次建出的表。读取来源请先采集，或检查库名与默认库。")}</p>
-    <div className="av-list">{sorted.map((item) => <div key={`${item.ref}:${item.role}`} className="av-row av-import-table">
-      <span className="av-row__main"><span className="av-row__title av-mono" title={item.ref}>{shortName(item.ref)}</span>
-        <span className="av-row__meta">{item.role === "target" ? t("写入目标") : t("读取来源")} · {t("{{n}} 处", { n: occurrences(item) })}</span></span>
-      <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => onShow(item.ref)}>{t("查看语句")}</button>
-    </div>)}</div>
+    <Banner message={message} />
+    <div className="av-list">{sorted.map((item) => {
+      const db = item.role === "source" ? item.database?.trim() || null : null;
+      const reason = db
+        ? item.addable
+          ? t("库 {{database}} 不在采集范围", { database: db })
+          : item.in_scope
+            ? t("库 {{database}} 已在采集范围，请检查表名或默认库", { database: db })
+            : ""
+        : "";
+      const dbKey = db ? db.toLowerCase() : "";
+      const showAdd = Boolean(canEdit && db && item.addable && !seenDbs.has(dbKey));
+      if (showAdd) seenDbs.add(dbKey);
+      const adding = dbKey !== "" && addingDbs.has(dbKey);
+      return <div key={`${item.ref}:${item.role}`} className="av-row av-import-table">
+        <span className="av-row__main"><span className="av-row__title av-mono" title={item.ref}>{shortName(item.ref)}</span>
+          <span className="av-row__meta">{item.role === "target" ? t("写入目标") : t("读取来源")} · {t("{{n}} 处", { n: occurrences(item) })}{reason ? ` · ${reason}` : ""}</span></span>
+        <span className="av-actions av-import-table__actions">
+          {showAdd && db ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={adding}
+            aria-busy={adding || undefined} onClick={() => void addScope(db)}>{adding ? t("加入中…") : t("加入采集范围并采集")}</button> : null}
+          <button type="button" className="av-btn av-btn--ghost av-btn--sm" onClick={() => onShow(item.ref)}>{t("查看语句")}</button>
+        </span>
+      </div>;
+    })}</div>
   </>;
 }
 
