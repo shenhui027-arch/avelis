@@ -15,7 +15,7 @@
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8C%81%E7%9A%84%E6%95%B0%E6%8D%AE%E5%BA%93)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.md)
-[![version](https://img.shields.io/badge/version-v1.1.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.0)
+[![version](https://img.shields.io/badge/version-v1.1.1-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.1)
 
 [功能亮点](#功能亮点) · [最近更新](#最近更新) · [截图](#截图) · [支持的数据库](#支持的数据库) · [快速开始](#快速开始) · [文档](#文档) · [路线图](#路线图) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [更新日志](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis 用自然语言回答关于业务数据的问题，并说清每个数从�
 ![分析会话：结论优先的报告、原因排序、证据栏与模型栏](docs/images/analysis.png)
 
 > [!NOTE]
-> Avelis v1.1.0 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
+> Avelis v1.1.1 已发布，变更见[更新日志](CHANGELOG.md)。界面与文档都提供简体中文、繁体中文与英文。
 
 ## 写在前面
 
@@ -53,6 +53,7 @@ AI 让我们这些开发者先尝到了技术进步的甜头。我希望这份�
 
 | 版本 | 新增 |
 |---|---|
+| **v1.1.1** | 血缘增强：连线按计算、聚合、过滤、关联键、分组显示类型徽章；导入血缘支持 dbt `manifest.json`，未匹配的来源表可一键加入采集范围；新增血缘体检（规则检查与 AI 复核）。采集与测试连接失败时先显示翻译后的说明，再附驱动原文 |
 | **v1.1.0** | 安全与企业能力：Cookie 登录、OIDC 单点登录、双因素认证、个人访问令牌、防暴力破解与重新设计的登录页；问数与分析支持多个模型提供方、实时推送、费用统计与配额，新增已核验查询库与业务域共享经验；数据源 TLS、字段脱敏、行级权限、审计验真与 Prometheus 指标；血缘页新增追溯工具条（方向、深度、只看两端）与表格视图（导出 CSV）|
 | **v1.0.11** | 技能市场：按 Agent Skills 规范上传技能包，管理员审核上架，个人自行启用；取数问答与归因分析自动选用技能，输入框可用“+”或“/”引用。分析过程改为逐条时间线：运行中显示转圈与实时推理文字，每段推理、每次工具调用都可单独展开 |
 | **v1.0.10** | 界面审计修复：深色主题对比度、窄屏布局与可访问性；分页条与折叠面板统一为同一套组件；改写按钮统一为“编辑”，新建与添加按对象区分；加载与出错状态补齐重试 |

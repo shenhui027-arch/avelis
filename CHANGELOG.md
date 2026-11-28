@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+## [1.1.1] - 2026-11-28
+
+本版本增强血缘：连线显示类型徽章，导入支持 dbt `manifest.json`，未匹配的来源表可一键加入采集范围，新增血缘体检；采集与测试连接失败时显示按界面语言翻译的说明。元数据库没有新的迁移。
+
 ### 新增
 
 - **血缘边类型徽章**：血缘图上带计算、聚合或影响条件的连线中点显示徽章（`Σ` 聚合、`ƒ` 计算、`⊳` 过滤、`⋈` 关联键、`▦` 分组），悬停逐条显示字段映射与表达式；直接传值的连线不加徽章。连线超过 120 条时，徽章只在选中路径上显示。图例同步补充徽章说明。
@@ -16,6 +20,7 @@
 
 - 关联键连线上原来的“关联”文字改由 `⋈` 徽章表示。
 - **采集与测试连接的错误说明**：采集失败、测试连接失败时，设置页不再只显示驱动原文，而是先给出按界面语言翻译的说明（无法连接、连接超时、账号或口令错误、权限不足、TLS 连接失败），原文附在其后供排查；认不出的错误照旧显示原文。接口 `RunOut`、`CollectOut`、`TestConnectionOut` 新增 `error_kind` 与 `error_message` 字段，`error` 原文不变。
+- README 与界面导览的截图在演示数据源全部采集成功后重新截取（三种语言，共 57 张）。
 
 ## [1.1.0] - 2026-11-27
 
@@ -429,7 +434,8 @@
 - 带时区列的业务时区换算只在编译出的 SQL 层面验证过，尚未在真实 ClickHouse / Oracle 上执行。
 - 首次启动从配置文件登记的模型服务名称（如“（来自配置）”）是数据，不随界面语言变化，可在“设置 → 模型配置”里修改。
 
-[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.1.0...HEAD
+[未发布]: https://github.com/shenhui027-arch/avelis/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/shenhui027-arch/avelis/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/shenhui027-arch/avelis/compare/v1.0.11...v1.1.0
 [1.0.11]: https://github.com/shenhui027-arch/avelis/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/shenhui027-arch/avelis/compare/v1.0.9...v1.0.10

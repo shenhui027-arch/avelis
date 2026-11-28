@@ -72,7 +72,7 @@ def create_mcp_app(settings, session_maker=None):
     session_maker = session_maker or (lambda: db.session_factory()())
     server = MCPServer(
         "Avelis",
-        version="1.1.0",
+        version="1.1.1",
         subscriptions=False,
     )
     tool_arguments = {}
