@@ -146,7 +146,7 @@ export function Pager({ offset, shown, page, total, hasNext, busy, paging, align
 
 const PLAT: Record<string, string> = {
   starrocks: "StarRocks", mysql: "MySQL", postgres: "PostgreSQL", clickhouse: "ClickHouse", doris: "Doris", sqlserver: "SQL Server",
-  oracle: "Oracle", hive: "Hive", fake: t("测试适配器"),
+  oracle: "Oracle", hive: "Hive", tidb: "TiDB", fake: t("测试适配器"),
 };
 
 /** 引擎名：显示全称（与后端引擎登记的 label 一致），未知类型原样显示。 */

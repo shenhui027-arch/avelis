@@ -20,8 +20,11 @@ from avelis.i18n import gettext
 
 
 class MySQLMetaConnector:
+    """MySQL 协议连接器。兼容 MySQL 协议的引擎（如 TiDB）继承本类，只覆盖下面标明“子类可覆盖”的钩子。"""
+
     kind = "mysql"
     dialect = "mysql"
+    catalog = "def"  # information_schema 中的 Catalog 段
     is_test_adapter = False
     # MySQL 列名不区分大小写；归因模块仍按目录原样精确匹配库名和对象名。
     ddl_identifier_fold = "insensitive"
@@ -75,9 +78,10 @@ class MySQLMetaConnector:
             conn = self._connect(read_timeout=timeout_seconds + 15)
             cur = conn.cursor(pymysql.cursors.Cursor)
             warnings = _set_timezone(cur, timezone)
-            cur.execute(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout_seconds) * 1000}")
-            cur.execute(f"SET SESSION SQL_SELECT_LIMIT = {int(max_rows) + 1}")
-            cur.execute("START TRANSACTION READ ONLY")
+            self._session_limits(
+                cur, timeout_seconds=timeout_seconds, max_rows=max_rows, mem_limit_bytes=mem_limit_bytes
+            )
+            self._begin_read_only(cur)
             transaction_started = True
             cur.execute(sql)
             columns = [d[0] for d in cur.description or []]
@@ -89,7 +93,7 @@ class MySQLMetaConnector:
                 warnings=warnings,
             )
         except pymysql.MySQLError as exc:
-            raise _query_error(exc) from exc
+            raise self._query_error(exc) from exc
         finally:
             if conn is not None:
                 try:
@@ -99,6 +103,23 @@ class MySQLMetaConnector:
                     pass  # 超时或断连后回滚可能失败；关闭连接，并保留原始查询错误。
                 finally:
                     conn.close()
+
+    def _session_limits(self, cur, *, timeout_seconds: int, max_rows: int, mem_limit_bytes: int) -> None:
+        """子类可覆盖：服务端超时与行数上限。MySQL 没有等价的每查询内存限制，不映射 mem_limit_bytes。"""
+        cur.execute(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout_seconds) * 1000}")
+        cur.execute(f"SET SESSION SQL_SELECT_LIMIT = {int(max_rows) + 1}")
+
+    def _begin_read_only(self, cur) -> None:
+        """子类可覆盖：开启只读事务；结束时由 execute_select 回滚。"""
+        cur.execute("START TRANSACTION READ ONLY")
+
+    def _query_error(self, exc: pymysql.MySQLError) -> QueryError:
+        """子类可覆盖：把驱动错误归一化成 QueryError 类别。"""
+        return _query_error(exc)
+
+    def _missing_view_definition(self, name: str) -> str:
+        """子类可覆盖：视图未读取到定义时的采集警告。"""
+        return gettext("MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用", name=name)
 
     def execute_explore(
         self,
@@ -159,7 +180,7 @@ class MySQLMetaConnector:
                 if key in out:
                     out[key]["definition"] = row["VIEW_DEFINITION"] or None
         except pymysql.MySQLError as exc:
-            raise _query_error(exc) from exc
+            raise self._query_error(exc) from exc
         finally:
             if conn is not None:
                 conn.close()
@@ -178,6 +199,7 @@ class MySQLMetaConnector:
 
     @staticmethod
     def _server_identity(cur) -> dict[str, Any]:
+        """子类可覆盖：实例身份。MySQL 用 @@server_uuid 作 instance_id。"""
         cur.execute("SELECT @@server_uuid AS server_uuid, @@hostname AS hostname, @@port AS port, VERSION() AS version")
         row = cur.fetchone()
         return {
@@ -187,6 +209,10 @@ class MySQLMetaConnector:
             "port": int(row["port"]),
             "version": row["version"],
         }
+
+    def _physical_id(self, table_row: dict[str, Any]) -> str | None:
+        """子类可覆盖：information_schema.tables 一行对应的物理身份。MySQL 没有稳定的物理 ID。"""
+        return None
 
     def snapshot(self) -> Snapshot:
         schemas = _checked(list(self.options.get("databases", [])), "库")
@@ -246,12 +272,10 @@ class MySQLMetaConnector:
             is_view = t["TABLE_TYPE"] == "VIEW"
             definition = (views.get(key) or None) if is_view else None
             if is_view and definition is None:
-                warnings.append(
-                    gettext("MySQL 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用", name=".".join(key))
-                )
+                warnings.append(self._missing_view_definition(".".join(key)))
             assets.append(
                 ObservedAsset(
-                    catalog="def",
+                    catalog=self.catalog,
                     db=key[0],
                     name=key[1],
                     kind="view" if is_view else "table",
@@ -260,6 +284,7 @@ class MySQLMetaConnector:
                     unique_keys=[cols for _, cols in sorted(indexes.items())],
                     comment=t["TABLE_COMMENT"] or None,
                     definition=definition,
+                    physical_id=self._physical_id(t),
                     properties={"create_time": str(t["CREATE_TIME"]) if t["CREATE_TIME"] else None},
                 )
             )

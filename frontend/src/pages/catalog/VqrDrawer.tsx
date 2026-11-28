@@ -30,6 +30,7 @@ const DIALECTS = [
   { value: "sqlserver", label: "SQL Server" },
   { value: "oracle", label: "Oracle" },
   { value: "hive", label: "Hive" },
+  { value: "tidb", label: "TiDB" },
 ];
 
 const splitList = (raw: string, byNewline = false) =>

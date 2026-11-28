@@ -4,9 +4,18 @@
 
 ## [未发布]
 
+### 新增
+
+- **TiDB 数据源**：新增 TiDB 引擎（2026-11-28 在 TiDB v8.5.4 上实机验证），借用 MySQL 方言，支持采集元数据、视图列级血缘、只读问数与执行前核对。单条查询内存上限映射到 `tidb_mem_quota_query`；TiDB 的只读事务只有空实现，问数的只读依赖 SQL 校验与只读问数账号（只授予 SELECT 与 SHOW VIEW）。表与视图按名称对应（`TIDB_TABLE_ID` 在 `TRUNCATE` 后会变）。
+
 ### 变更
 
 - SQL 解析库 SQLGlot 升级到 30.35.0（仍使用带 Hive `UNIONTYPE` 与 MySQL `RENAME TABLE` 修复的分支）。已采集的视图会在下次采集时按新版本重新解析。Oracle 探索查询的按月、按年截断改写为 `TRUNC(…, 'MONTH')`、`TRUNC(…, 'YEAR')`（与 `MM`、`YYYY` 等价）。
+
+### 已知局限
+
+- TiDB 的 DDL 作业记录不含执行用户，暂不支持变更归因；TiDB 没有可读的集群 ID，不做实例变化检测。
+- TiDB 引擎层没有会话只读（`READ ONLY` 只有空实现，历史读事务读不到刚变更的表结构），问数账号必须只授予 SELECT 与 SHOW VIEW。
 
 ## [1.1.1] - 2026-11-28
 
