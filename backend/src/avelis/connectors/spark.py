@@ -10,8 +10,11 @@
   - 普通列里也列出分区列；
   - Type 为 MANAGED / EXTERNAL / VIEW；
   - Table Properties、Partition Parameters 写成 “[k=v, k2=v2]”。
-- 视图定义：Spark 保存原文（View Text），不展开库名。不写库名的表按“View Catalog and Namespace”里建视图时的当前库解析，
-  不一定是视图所在的库，所以记在资产属性 view_context.db，由采集按它解析。
+- 视图定义：Spark 保存原文（View Text），不展开库名，也不含 CREATE VIEW v (列, …) 里声明的列名。不写库名的表按
+  “View Catalog and Namespace”里建视图时的当前库解析，不一定是视图所在的库。适配器因此像 Hive 的展开文本那样补全：
+  按建视图时的当前库补全表的库名（CTE 不动），并按位置把输出列名对齐到视图的列；记下的定义因此自足，
+  建视图时的当前库或声明的列名变化都会体现在定义的指纹与执行前核对里。补全失败（SQLGlot 解析不了）时保留原文。
+  建视图时的 Catalog 与库另记在资产属性 view_context 里，只作说明。
 - 问数执行：会话参数经 execute_async 的 configuration 传入无效，改为先执行 SET：
   - spark.sql.session.timeZone 设业务时区；
   - spark.sql.thriftServer.queryTimeout 设服务端兜底超时。
@@ -27,6 +30,11 @@
 from __future__ import annotations
 
 import re
+
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError, TokenError
+from sqlglot.optimizer.qualify_tables import qualify_tables
 
 from avelis.connectors.base import ObservedAsset, QueryError
 from avelis.connectors.hive import Described, HiveConnector, _cell, _first_line, _quote, observed
@@ -119,6 +127,35 @@ def parse_spark_described(rows: list[tuple]) -> Described:
     return out
 
 
+def spark_view_definition(view_text: str | None, namespace: str | None, columns: list[str]) -> str | None:
+    """把 Spark 保存的视图原文补全成自足的定义：表补上建视图时的当前库，输出列名按位置对齐视图的列。
+
+    namespace 取 “View Catalog and Namespace”（如 spark_catalog.default），最后一段是库；columns 是视图的列名。
+    投影含 * 或列数对不上时不改列名；解析失败时返回原文。
+    """
+    if not view_text:
+        return view_text
+    try:
+        tree = sqlglot.parse_one(view_text, read="spark")
+    except (ParseError, TokenError):
+        return view_text
+    db = (namespace or "").strip().rpartition(".")[2]
+    if db:
+        tree = qualify_tables(tree, db=db, dialect="spark")
+    head = tree
+    while isinstance(head, exp.SetOperation):
+        head = head.this
+    if isinstance(head, exp.Select) and columns and len(head.expressions) == len(columns):
+        projections = head.expressions
+        if not any(
+            isinstance(p, exp.Star) or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star)) for p in projections
+        ):
+            for projection, name in zip(projections, columns, strict=True):
+                if projection.alias_or_name != name:
+                    projection.replace(exp.alias_(projection.unalias().copy(), exp.to_identifier(name)))
+    return tree.sql(dialect="spark")
+
+
 class SparkConnector(HiveConnector):
     kind = "spark"
     dialect = "spark"
@@ -142,8 +179,14 @@ class SparkConnector(HiveConnector):
         return parse_spark_described(rows)
 
     def _definition(self, cur, db: str, name: str, kind: str | None, described: Described) -> str | None:
-        """视图定义取 View Text（Spark 保存的原文）；表没有定义。不另发 SHOW CREATE TABLE。"""
-        return described.expanded_query if kind == "view" else None
+        """视图定义取 View Text，按建视图时的当前库与视图的列补全（见模块说明）；表没有定义。"""
+        if kind != "view":
+            return None
+        return spark_view_definition(
+            described.expanded_query,
+            described.info.get("View Catalog and Namespace"),
+            [name for name, _, _ in described.columns],
+        )
 
     def _observed(self, db: str, name: str, described: Described, definition: str | None) -> ObservedAsset:
         """在 Hive 的观察结果上补 Spark 的属性：provider，以及视图的 view_context（建视图时的当前 Catalog 与库）。"""
@@ -183,4 +226,4 @@ class SparkConnector(HiveConnector):
         return QueryError(code, errno, message)
 
 
-__all__ = ["CATALOG", "SparkConnector", "bracket_properties", "parse_spark_described"]
+__all__ = ["CATALOG", "SparkConnector", "bracket_properties", "parse_spark_described", "spark_view_definition"]

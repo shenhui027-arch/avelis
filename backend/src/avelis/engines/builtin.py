@@ -305,7 +305,10 @@ SPARK = Engine(
     kind="spark",
     label="Spark SQL",
     # 库.表 两级；资产名补固定 Catalog 段 spark_catalog，生成的 SQL 不写 Catalog 段
-    sql=SqlDialect(name="spark", default_catalog=SPARK_CATALOG, catalog_in_sql=False),
+    # Spark 不区分大小写、元数据存为小写：解析前按 Spark 规则折叠未加引号的标识符，视图里写的 SALES 才能对上 sales
+    sql=SqlDialect(
+        name="spark", default_catalog=SPARK_CATALOG, catalog_in_sql=False, normalize=fold_identifiers("spark")
+    ),
     name_levels=("database", "table"),
     capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
     collector=SparkConnector,
@@ -325,7 +328,7 @@ SPARK = Engine(
     ),
     credential_free=("auth", ("NONE", "NOSASL")),
     note="经 Spark Thrift Server（HiveServer2 协议，binary 传输）采集元数据；视图定义取 Spark 保存的原文，"
-    "不写库名的表按建视图时的当前库解析；问数用专用查询账号，Spark 没有只读会话，"
+    "按建视图时的当前库补全库名、按视图的列对齐列名后解析；问数用专用查询账号，Spark 没有只读会话，"
     "只读依赖 SQL 校验与只有 SELECT 权限的账号；"
     "超时由 Avelis 到期取消（最多晚约 5 秒），没有每查询内存上限；数据新鲜度取最新分区的写入时间；"
     "不暴露表 ID，表与视图按名称对应；2026-11-28 已实机验证 Spark 4.0.1",

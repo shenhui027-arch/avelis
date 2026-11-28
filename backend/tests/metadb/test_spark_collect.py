@@ -141,7 +141,8 @@ def test_collect_tables_views_and_lineage(sp):
     assert view_v.properties["view_context"]["db"] == DB
     with session_scope() as s:
         definition = s.scalar(select(Definition).where(Definition.asset_version_id == view_v.id))
-        assert definition.dialect == "spark" and "FROM sales s" in definition.raw_sql  # Spark 保存原文，不补库名
+        # Spark 保存原文、不补库名；适配器按建视图时的当前库补全
+        assert definition.dialect == "spark" and f"FROM {DB}.sales AS s" in definition.raw_sql
         parsed = s.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id))
         assert parsed.status == "ok", parsed.reason
         edges = {
@@ -241,3 +242,40 @@ def test_explore_sql_with_week_and_quarter_runs_on_spark(sp):
     row = dict(zip([c.split(".")[-1] for c in result.columns], result.rows[0], strict=True))
     assert str(row["wk"]).startswith("2026-10-26") and str(row["q"]).startswith("2026-10-01")
     assert str(row["q1"]) == "2027-02-01" and str(row["w1"]) == "2026-10-25"
+
+
+def test_renamed_columns_uppercase_names_and_recreated_context(sp):
+    # CREATE VIEW v (列, …) 声明的列名、视图里大写的表名、在另一个当前库下按同样的文本重建视图
+    _execute(
+        sp,
+        f"CREATE DATABASE IF NOT EXISTS {DB}_alt",
+        f"CREATE TABLE IF NOT EXISTS {DB}_alt.shops (shop_id BIGINT, city STRING) USING parquet",
+        f"USE {DB}",
+        "CREATE OR REPLACE VIEW renamed (id_renamed, city_renamed) AS SELECT SHOP_ID, CITY FROM SHOPS",
+    )
+    run_collection(sp["ds"], trigger="manual")
+    view, view_v = _assets(sp["ds"])[f"spark_catalog.{DB}.renamed"]
+    with session_scope() as s:
+        definition = s.scalar(select(Definition).where(Definition.asset_version_id == view_v.id))
+        parsed = s.scalar(select(ParseResult).where(ParseResult.definition_id == definition.id))
+        assert parsed.status == "ok", parsed.reason
+        edges = {
+            (e.target_column, e.source_ref, e.source_column, e.source_asset_id is not None)
+            for e in s.scalars(
+                select(LineageEdge).where(LineageEdge.target_asset_id == view.id, LineageEdge.status == "active")
+            )
+        }
+    assert ("id_renamed", f"spark_catalog.{DB}.shops", "shop_id", True) in edges
+    assert ("city_renamed", f"spark_catalog.{DB}.shops", "city", True) in edges
+    before = definition.canonical_hash
+    _execute(
+        sp,
+        f"USE {DB}_alt",
+        f"CREATE OR REPLACE VIEW {DB}.renamed (id_renamed, city_renamed) AS SELECT SHOP_ID, CITY FROM SHOPS",
+    )
+    run_collection(sp["ds"], trigger="manual")
+    _, view_v2 = _assets(sp["ds"])[f"spark_catalog.{DB}.renamed"]
+    with session_scope() as s:
+        after = s.scalar(select(Definition.canonical_hash).where(Definition.asset_version_id == view_v2.id))
+    assert view_v2.id != view_v.id and after != before  # 文本相同、解析上下文不同：产生新版本
+    _execute(sp, f"DROP VIEW IF EXISTS {DB}.renamed", f"DROP DATABASE IF EXISTS {DB}_alt CASCADE")

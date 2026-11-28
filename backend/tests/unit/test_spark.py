@@ -11,7 +11,13 @@ from impala.error import OperationalError
 from avelis.analysis.explore import profile_for
 from avelis.connectors.base import QueryError
 from avelis.connectors.hive import BACKSTOP_SECONDS, HiveConnector
-from avelis.connectors.spark import CATALOG, SparkConnector, bracket_properties, parse_spark_described
+from avelis.connectors.spark import (
+    CATALOG,
+    SparkConnector,
+    bracket_properties,
+    parse_spark_described,
+    spark_view_definition,
+)
 from avelis.engines import get_engine
 from avelis.engines.base import DDL_AUDIT, LIVE_CHECK, METADATA, QUERY, VIEW_LINEAGE
 from avelis.lineage.sql import parse_query
@@ -60,6 +66,9 @@ VIEW = [
     ("View Query Output Columns", "[`city`, `total`]", ""),
     ("Table Properties", "[transient_lastDdlTime=1795862276]", ""),
 ]
+
+# View Text 按建视图时的当前库（spark_catalog.probe）补全后的定义
+COMPLETED = "SELECT city, SUM(amt) AS total FROM probe.t AS t WHERE amt > 0 GROUP BY city"
 
 PARTITION = [
     ("id", "int", "ID"),
@@ -166,7 +175,7 @@ def test_snapshot_records_view_context_and_skips_show_create(monkeypatch):
     assert (
         table.kind == "table" and table.properties["provider"] == "parquet" and "view_context" not in table.properties
     )
-    assert view.kind == "view" and view.definition == VIEW[9][1]
+    assert view.kind == "view" and view.definition == COMPLETED
     assert view.properties["view_context"] == {"catalog": "spark_catalog", "db": "probe"}
     assert not any(sql.startswith("SHOW CREATE") for sql in cursor.executed) and conn.closed
 
@@ -250,7 +259,7 @@ def test_describe_objects_treats_missing_tables_as_empty(monkeypatch):
     responses = {"DESCRIBE FORMATTED `probe`.`v`": VIEW, "DESCRIBE FORMATTED `probe`.`gone`": missing}
     c, _ = connector(monkeypatch, AsyncCursor(responses=responses))
     out = c.describe_objects([("probe", "v"), ("probe", "gone")])
-    assert out[("probe", "v")]["definition"] == VIEW[9][1] and out[("probe", "v")]["columns"][0] == ["city", "string"]
+    assert out[("probe", "v")]["definition"] == COMPLETED and out[("probe", "v")]["columns"][0] == ["city", "string"]
     assert out[("probe", "gone")] == {"columns": [], "definition": None, "physical_id": None}
 
 
@@ -262,3 +271,39 @@ def test_view_text_parses_with_view_context_database():
     assert parsed.tables == ["spark_catalog.probe.t"]
     total = next(col for col in parsed.columns if col.name == "total")
     assert {(s.ref.column, s.relation) for s in total.sources} == {("amt", "value_aggregated")}
+
+
+def test_view_definition_is_completed_with_namespace_and_view_columns():
+    # 不写库名的表按建视图时的当前库补全；CTE 不动；输出列名按位置对齐视图声明的列
+    assert spark_view_definition("SELECT id FROM t", "spark_catalog.reporting", ["renamed_id"]) == (
+        "SELECT id AS renamed_id FROM reporting.t AS t"
+    )
+    assert spark_view_definition("WITH c AS (SELECT id FROM t) SELECT id FROM c", "spark_catalog.x", ["id"]) == (
+        "WITH c AS (SELECT id FROM x.t AS t) SELECT id FROM c AS c"
+    )
+    assert spark_view_definition("SELECT a FROM x UNION ALL SELECT b FROM y", "spark_catalog.d", ["col"]) == (
+        "SELECT a AS col FROM d.x AS x UNION ALL SELECT b FROM d.y AS y"
+    )
+    # 投影含 * 或列数对不上：不改列名；解析失败：保留原文
+    assert spark_view_definition("SELECT * FROM t", "spark_catalog.d", ["a", "b"]) == "SELECT * FROM d.t AS t"
+    assert spark_view_definition("NOT SQL ((", "spark_catalog.d", ["a"]) == "NOT SQL (("
+
+
+def test_same_text_under_another_current_database_changes_the_definition():
+    a = spark_view_definition("SELECT id FROM t", "spark_catalog.sales", ["id"])
+    b = spark_view_definition("SELECT id FROM t", "spark_catalog.archive", ["id"])
+    assert a != b  # 定义的指纹与执行前核对都会看到建视图时的当前库变化
+
+
+def test_renamed_view_column_gets_lineage_and_uppercase_tables_resolve():
+    dialect = get_engine("spark").sql
+    schema = {CATALOG: {"probe": {"sales": {"id": "int", "amt": "decimal(10,2)"}}}}
+    sql = spark_view_definition("SELECT ID, AMT FROM SALES", "spark_catalog.probe", ["renamed_id", "amount"])
+    parsed = parse_query(sql, dialect=dialect, schema=schema, default_db="probe")
+    assert parsed.status == "ok", parsed.reason
+    assert parsed.tables == ["spark_catalog.probe.sales"]
+    columns = {col.name: {(s.ref.table, s.ref.column) for s in col.sources} for col in parsed.columns}
+    assert columns == {
+        "renamed_id": {("spark_catalog.probe.sales", "id")},
+        "amount": {("spark_catalog.probe.sales", "amt")},
+    }

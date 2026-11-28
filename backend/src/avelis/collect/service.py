@@ -632,15 +632,6 @@ def _view_rename_candidates(
 # --- 解析 -------------------------------------------------------------------------
 
 
-def _view_default_db(session: Session, asset: Asset, definition: Definition) -> str:
-    """解析视图定义时不写库名的表按哪个库解析：适配器在资产属性 view_context.db 里声明（如 Spark 记的是建视图时的
-    当前库，不一定是视图所在的库）；没有声明时用视图所在的库。"""
-    version = session.get(AssetVersion, definition.asset_version_id)
-    context = ((version.properties or {}) if version is not None else {}).get("view_context") or {}
-    db = context.get("db") if isinstance(context, dict) else None
-    return db if isinstance(db, str) and db else asset.db_name
-
-
 def build_schema(session: Session, datasource_id: str) -> dict:
     schema: dict = {}
     rows = session.execute(
@@ -701,12 +692,7 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
     }
     now = utcnow()
     for asset, definition in pending:
-        parsed = parse_query(
-            definition.raw_sql,
-            dialect=dialect_of(ds),
-            schema=schema,
-            default_db=_view_default_db(session, asset, definition),
-        )
+        parsed = parse_query(definition.raw_sql, dialect=dialect_of(ds), schema=schema, default_db=asset.db_name)
         # 同一定义、同一解析器版本只保留一条解析结果：重解析时原地更新
         result = session.scalar(
             select(ParseResult).where(
