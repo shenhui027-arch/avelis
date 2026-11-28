@@ -15,7 +15,7 @@ English | [简体中文](README.md) | [繁體中文](README.zh-TW.md)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.en.md)
 [![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#supported-databases)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.en.md)
-[![version](https://img.shields.io/badge/version-v1.1.0-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.0)
+[![version](https://img.shields.io/badge/version-v1.1.1-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.1)
 
 [Highlights](#highlights) · [What's new](#whats-new) · [Screenshots](#screenshots) · [Databases](#supported-databases) · [Quick start](#quick-start) · [Docs](#documentation) · [Roadmap](#roadmap) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md)
 
@@ -26,7 +26,7 @@ Avelis answers business questions about your databases and shows where every num
 ![Analysis session: conclusion-first report, ranked causes, evidence panel and model bar](docs/images/en/analysis.png)
 
 > [!NOTE]
-> Avelis v1.1.0 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
+> Avelis v1.1.1 is released; see the [changelog](CHANGELOG.md). The user interface and the documentation are available in English, Simplified Chinese and Traditional Chinese.
 
 ## A note from the author
 
@@ -53,6 +53,7 @@ AI has let developers like us be among the first to taste the rewards of this wa
 
 | Version | Added |
 |---|---|
+| **v1.1.1** | Lineage improvements: edges show type badges for computed, aggregated, filter, join-key and group-by mappings; lineage import accepts dbt `manifest.json`, and unmatched source tables can be added to the collection scope in one click; a new lineage health check (rule checks plus AI review). Collection and connection-test failures show a translated explanation first, followed by the original driver message |
 | **v1.1.0** | Security and enterprise features: Cookie sessions, OIDC single sign-on, two-factor auth, personal access tokens, brute-force protection and a redesigned sign-in page; Q&A and analysis support multiple model providers, live progress, cost tracking and quotas, plus a verified query repository and domain-shared experience; TLS for data sources, column masking, row-level security, audit verification and Prometheus metrics; the lineage page gains a trace bar (direction, depth, ends only) and a table view with CSV export |
 | **v1.0.11** | Skill marketplace: upload packages in the Agent Skills format, admin review before listing, each user enables their own; quick answers and root-cause analysis pick skills automatically, and “+” or “/” in the input box references them. The analysis process becomes a step-by-step timeline: a spinner and live reasoning text while running, with each reasoning passage and tool call expandable on its own |
 | **v1.0.10** | UI audit fixes: dark-theme contrast, narrow-screen layout and accessibility; one shared pagination bar and two collapsible-section styles across the app; “Edit” for rewriting existing content, “New” vs. “Add” by object type; loading and error states with retry |
