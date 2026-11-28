@@ -13,7 +13,7 @@
 [![backend](https://img.shields.io/badge/backend-Python%203.12%20%C2%B7%20FastAPI-3776AB?style=flat&logo=python&logoColor=white)](backend/pyproject.toml)
 [![frontend](https://img.shields.io/badge/frontend-React%2019%20%C2%B7%20TypeScript-2F74C0?style=flat&logo=react&logoColor=white)](frontend/package.json)
 [![agent](https://img.shields.io/badge/agent-LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white)](docs/architecture.zh-TW.md)
-[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%208%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
+[![SQL](https://img.shields.io/badge/SQL-SQLGlot%20%C2%B7%209%20engines-6E56CF?style=flat)](#%E6%94%AF%E6%8F%B4%E7%9A%84%E8%B3%87%E6%96%99%E5%BA%AB)
 [![deploy](https://img.shields.io/badge/deploy-Docker%20%C2%B7%20Compose-2496ED?style=flat&logo=docker&logoColor=white)](docs/deployment.zh-TW.md)
 [![version](https://img.shields.io/badge/version-v1.1.1-2EA44F?style=flat)](https://github.com/shenhui027-arch/avelis/releases/tag/v1.1.1)
 
@@ -100,10 +100,11 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 | Apache Doris | 4.1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Apache Hive | 4.1 | ✓ | ✓ | | | |
 | MySQL | 8.4.10 | ✓ | ✓ | ✓ | ✓ | ✓（2026-11-01 實機驗證，需綁定稽核表） |
+| TiDB | 8.5.4 | ✓ | ✓ | ✓ | ✓ | |
 
 StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表。MySQL 支援檢視表欄位級血緣、唯讀問數與執行前核對；變更歸因需綁定 DDL 稽核表，例如已開啟表輸出的 `mysql.general_log`。實測該日誌也記錄執行失敗的 DDL，紀錄僅作候選證據，需與採集到的結構變化相互印證。MySQL 與 StarRocks 未綁定稽核表時，歸因狀態均為 `unsupported`，原因明確提示「未綁定稽核表」。
 
-2026-11-01 的 DDL 實機驗證仍有邊界：SQL Server 示範實例時區偏移為 0，本地時間轉換 UTC 與跨日光節約時間未實機驗證；Oracle 使用自建統一稽核原則（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 `AUDIT_VIEWER`，無紀錄且無原則的 `not_enabled` 分支未實機驗證；StarRocks FE 時區為 UTC，非 UTC 換算未實機驗證，AuditLoader 剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，詳情見[引擎核驗紀錄](docs/engines/README.md)與 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
+2026-11-01 的 DDL 實機驗證仍有邊界：SQL Server 示範實例時區偏移為 0，本地時間轉換 UTC 與跨日光節約時間未實機驗證；Oracle 使用自建統一稽核原則（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 `AUDIT_VIEWER`，無紀錄且無原則的 `not_enabled` 分支未實機驗證；StarRocks FE 時區為 UTC，非 UTC 換算未實機驗證，AuditLoader 剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配。TiDB 借用 MySQL 方言，問數在歷史讀唯讀交易中執行（讀取約 1 秒前的資料），DDL 作業記錄不含執行使用者，暫不支援變更歸因。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，或協定與 SQL 相容已支援引擎的資料庫，詳情見[引擎核驗紀錄](docs/engines/README.md)與 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
 
 ## 快速開始
 

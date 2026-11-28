@@ -2955,3 +2955,12 @@ msgstr "Insufficient permissions. The collection account lacks permission to rea
 
 msgid "TLS 连接失败：请检查证书与 TLS 配置"
 msgstr "The TLS connection failed. Check the certificate and TLS configuration."
+
+msgid "TiDB 视图 {name} 未读取到定义（需要 SHOW VIEW 权限）；列级血缘不可用"
+msgstr "No definition was read for TiDB view {name} (SHOW VIEW is required); column-level lineage is unavailable"
+
+msgid "TiDB 的 DDL 作业记录不含执行用户，暂不支持 DDL 归因"
+msgstr "TiDB DDL job records do not include the executing user, so DDL attribution is not supported yet"
+
+msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW），在历史读只读事务中执行（读取约 1 秒前的数据）；单条查询内存上限映射到 tidb_mem_quota_query；TiDB 没有可读的集群 ID，不做实例变化检测；TIDB_TABLE_ID 在 TRUNCATE 后会变，表与视图按名称对应；DDL 作业记录不含执行用户，暂不支持 DDL 归因；2026-11-28 已实机验证 TiDB v8.5.4"
+msgstr "The collection account needs metadata visibility and SHOW VIEW. Ask uses a dedicated read-only account (SELECT and SHOW VIEW) and runs inside a stale-read read-only transaction (reading data as of about one second ago). The per-query memory limit maps to tidb_mem_quota_query. TiDB exposes no readable cluster ID, so instance changes are not detected. TIDB_TABLE_ID changes after TRUNCATE, so tables and views are matched by name. DDL job records do not include the executing user, so DDL attribution is not supported yet. Verified on TiDB v8.5.4 on 2026-11-28"

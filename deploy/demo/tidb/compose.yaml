@@ -1,0 +1,27 @@
+# TiDB 适配器联调环境（独立 Compose 项目 avelis-tidb，与共享演示环境 avelis-demo 的容器、网络、数据卷完全隔离）。
+#
+#   tidb     TiDB v8.5.4 单机（unistore 存储，不挂数据卷：重建即清空，由测试重新建库、建表、建账号）。
+#            root 无口令，只监听本机；联调测试用 root 建库，并临时创建采集账号与只读问数账号（口令由测试随机生成）。
+#   meta-pg  只给这组联调用的元数据库（库名以 _test 结尾，测试会清空它），不连共享演示环境的元数据库。
+#
+# 启动（口令只放在环境变量里，不写进仓库）：
+#   TIDB_META_PG_PASSWORD=… docker compose -f deploy/demo/tidb/compose.yaml up -d
+# 用完即停：docker compose -f deploy/demo/tidb/compose.yaml down
+# 联调测试见 backend/tests/metadb/test_tidb_collect.py。
+name: avelis-tidb
+
+services:
+  tidb:
+    image: pingcap/tidb:v8.5.4@sha256:e986dadd59937fbfcbdfe7fd084421cc65988da8b795f75194b05a0292635ead
+    ports:
+      - "127.0.0.1:${TIDB_PORT:-24000}:4000"
+    mem_limit: 1g
+
+  meta-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: avelis_tidb_test
+      POSTGRES_USER: avelis
+      POSTGRES_PASSWORD: ${TIDB_META_PG_PASSWORD:?set TIDB_META_PG_PASSWORD}
+    ports:
+      - "127.0.0.1:${TIDB_META_PG_PORT:-26432}:5432"

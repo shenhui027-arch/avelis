@@ -9,6 +9,8 @@
 | SQL Server 2022 Developer | [默认跟踪与写盘滞后](sqlserver.md)、[ADR 0004](../decisions/0004-engine-adapters.md)：元数据、视图血缘、问数与执行前核对已有 M7 实机核验；默认跟踪 DDL 归因于 2026-11-01 实机验证。需要启用默认跟踪并授予读取权限，无需绑定审计表；采用 10 秒写盘滞后容差，近期窗口无候选时保留歧义。缺少历史模式名时只列候选或保留未匹配。演示实例时区偏移为 0，本地时间换 UTC 与跨夏令时未实机验证。 |
 | Oracle 23ai Free | [ADR 0004](../decisions/0004-engine-adapters.md)：元数据、视图血缘、问数与执行前核对已有 M7 实机核验；统一审计 DDL 归因于 2026-11-01 实机验证，使用自建策略（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）与 `AUDIT_VIEWER`。无需绑定审计表；无记录且无策略的 `not_enabled` 分支未实机验证。 |
 
+| TiDB 8.5.4 | [tidb.md](tidb.md)：2026-11-28 实机核验，借用 `mysql` 方言；问数在历史读只读事务中执行，内存上限映射到 `tidb_mem_quota_query`；不做 DDL 归因与实例变化检测。 |
+
 PostgreSQL、ClickHouse、SQL Server、Oracle、Doris、Hive 的核验结论记录在 [ADR 0004](../decisions/0004-engine-adapters.md) 中。
 
 以上 2026-11-01 的实机结论来自演示环境真实实例验证；具体版本与未覆盖边界按表中记录，不推及其他版本或生产环境。MySQL 与 StarRocks 均须显式绑定 `ddl_audit_table`；留空表示没有审计来源，归因状态为 `unsupported`，原因明确说明“未绑定审计表”。

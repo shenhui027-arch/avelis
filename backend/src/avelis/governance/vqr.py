@@ -36,6 +36,7 @@ _DIALECT_ALIASES = {
     "postgresql+psycopg": "postgres",
     "starrocks": "mysql",
     "doris": "mysql",
+    "tidb": "mysql",
     "sqlserver": "tsql",
     "mssql": "tsql",
 }

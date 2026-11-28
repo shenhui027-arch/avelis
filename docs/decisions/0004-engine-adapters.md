@@ -3,10 +3,13 @@
 - 状态：已采纳
 - 日期：2026-10-29
 - 实机验证补充：2026-11-01，MySQL 8.4.10、SQL Server 2022、Oracle 23ai Free、StarRocks 3.5.14 + AuditLoader 4.2.2。
+- 范围扩展：2026-11-28，允许借用兼容方言（TiDB 8.5.4 借用 `mysql`）。
 
 ## 背景
 
 Avelis 首期面向 StarRocks。用户明确后续要适配多种数据库的血缘，并要求后端控制耦合度，借鉴成熟的数据治理与血缘产品。范围限定为 **SQLGlot 支持的引擎**（用户决定，2026-10-29）：Oracle、PostgreSQL、Hive、Doris、MySQL、SQL Server、ClickHouse。DB2 因 SQLGlot 没有对应方言而不在范围内。
+
+2026-11-28 用户同意扩展范围：SQLGlot 没有独立方言、但协议与 SQL 兼容某个已支持引擎的数据库，可以借用该引擎的方言接入，例如 TiDB 借用 `mysql`（OceanBase MySQL 模式、Greenplum 等同理）。借用方言的引擎仍按本 ADR 逐项实机联调，方言里兼容不了的写法记为已知局限，不在 Avelis 里写针对方言的绕行。没有方言、也不兼容已支持引擎的数据库（如 DB2）仍不在范围内。
 
 M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处：
 
@@ -75,6 +78,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；统一审计归因于 2026-11-01 实机验证；无记录且无策略的 `not_enabled` 分支未实机验证，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 | Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
+| TiDB | 8.5.4 | 元数据、视图血缘、问数、执行前核对 | 借用 `mysql` 方言；见下与 [TiDB 实机核验](../engines/tidb.md)；不做 DDL 归因与实例变化检测 |
 
 ### MySQL
 
@@ -184,13 +188,19 @@ MySQL 8.4.10 适配器的视图血缘、问数、执行前核对与可选 DDL �
   - 采集服务构造解析用 schema 时只取类型名第一个括号之前的部分，嵌套类型被截断成错的类型（如 `struct<a:decimal(10,2),b:int>` 变成 `STRUCT<A:DECIMAL`）。改为逐层去掉长度 / 精度参数、保留嵌套结构与后缀，对其他引擎的类型逐一核对过不变差。
   - SQLGlot 版本号随之变化（`PARSER_VERSION` 变化），已采集的视图会在下次采集时按新版本重新解析，这是既有机制。
 
+**TiDB**（2026-11-28，真实实例联调：`pingcap/tidb:v8.5.4` 单机 unistore，独立 Compose 项目 `avelis-tidb`，见 `deploy/demo/tidb/compose.yaml`；联调测试 `backend/tests/metadb/test_tidb_collect.py`）：
+
+- 走 MySQL 协议，`TiDBConnector` 继承 MySQL 连接器，只覆盖会话限制、只读事务、实例身份、错误归类与物理身份五个钩子；方言借用 `mysql`，资产名同 MySQL（`def.库.表`）。
+- 逐项实测的差异与取舍见 [TiDB 实机核验](../engines/tidb.md)。
+
 ## 规划中的引擎（未登记，未验证）
 
-只考虑 SQLGlot 有方言的引擎；新引擎的前提是 SQLGlot 支持它的方言。
+只考虑 SQLGlot 有方言、或协议与 SQL 兼容已支持引擎的数据库。按 2026-11-28 商定的顺序推进；云数仓（Snowflake、BigQuery、Redshift、Databricks）需要云账号才能实机联调，暂不排期。
 
 | 引擎 | SQLGlot 方言 | 资产名映射 | 需要实测的要点 |
 |---|---|---|---|
-| PostgreSQL | `postgres` | db.schema.table | `pg_views` / `information_schema.views` 的定义是否已全限定；`search_path` 对解析的影响 |
+| Trino / Presto | `trino` / `presto` | catalog.schema.table | 多个 Catalog 的元数据可见性；视图定义原文；查询超时、内存与只读控制；跨 Catalog 血缘与已采集数据源的对应 |
+| Spark SQL（Thrift Server） | `spark` | catalog.db.table | 与 Hive 元数据库的重叠；视图定义；问数的作业资源与超时 |
 
 ## 后果
 

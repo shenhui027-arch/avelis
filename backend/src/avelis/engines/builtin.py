@@ -1,7 +1,8 @@
 """内置引擎适配器。只登记在真实环境联调过的引擎与能力。
 
 已登记：StarRocks 3.5、MySQL 8、PostgreSQL 18、ClickHouse 26.8、SQL Server 2022、Oracle 23ai、Doris 4.1、
-Hive 4.1（元数据与视图血缘）。只考虑 SQLGlot 支持的方言（ADR 0004）：
+Hive 4.1（元数据与视图血缘）、TiDB 8.5。只考虑 SQLGlot 支持的方言（ADR 0004）；没有独立方言、
+协议与 SQL 兼容某个已支持引擎的数据库（如 TiDB 兼容 MySQL）借用该方言：
 每个按同样的形状提供连接器、SQLGlot 方言与能力声明，联调通过后再登记。
 """
 
@@ -20,6 +21,7 @@ from avelis.connectors.oracle import OracleConnector
 from avelis.connectors.postgres import PostgresConnector
 from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
+from avelis.connectors.tidb import TiDBConnector
 from avelis.connectors.tls import TLS_MODES
 from avelis.engines.base import (
     DDL_AUDIT,
@@ -242,6 +244,24 @@ HIVE = Engine(
     "不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据",
 )
 
+TIDB = Engine(
+    kind="tidb",
+    label="TiDB",
+    script_separators=("DELIMITER",),
+    # MySQL 协议与 SQL：借用 MySQL 方言；information_schema 中的 Catalog 恒为 def，查询只写 库.表
+    sql=SqlDialect(name="mysql", default_catalog="def", catalog_in_sql=False),
+    name_levels=("database", "table"),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=TiDBConnector,
+    querier=TiDBConnector,
+    default_port=4000,
+    options=(OptionField("databases", "采集的库", required=True), *TLS_OPTIONS),
+    note="采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（SELECT 与 SHOW VIEW），"
+    "在历史读只读事务中执行（读取约 1 秒前的数据）；单条查询内存上限映射到 tidb_mem_quota_query；"
+    "TiDB 没有可读的集群 ID，不做实例变化检测；TIDB_TABLE_ID 在 TRUNCATE 后会变，表与视图按名称对应；"
+    "DDL 作业记录不含执行用户，暂不支持 DDL 归因；2026-11-28 已实机验证 TiDB v8.5.4",
+)
+
 FAKE = Engine(
     kind="fake",
     label="测试适配器",
@@ -255,4 +275,4 @@ FAKE = Engine(
     note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, TIDB, FAKE)

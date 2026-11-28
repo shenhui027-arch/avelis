@@ -275,6 +275,14 @@ PROFILES: dict[str, ExploreProfile] = {
         functions={**_TRANSLATED, exp.DateAdd: ("日期", 3, 3), exp.TimestampDiff: ("日期", 3, 3)},
         settings={"max_execution_time": "按统一截止时间"},
     ),
+    "tidb": ExploreProfile(
+        "tidb",
+        "2",
+        "mysql",
+        False,
+        functions={**_TRANSLATED, exp.DateAdd: ("日期", 3, 3), exp.TimestampDiff: ("日期", 3, 3)},
+        settings={"max_execution_time": "按统一截止时间", "tidb_mem_quota_query": 2 * 1024**3},
+    ),
     "postgres": ExploreProfile(
         "postgres",
         "2",

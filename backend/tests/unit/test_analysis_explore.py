@@ -45,6 +45,7 @@ ENGINES = {
     "sqlserver": resolver("master", None),
     "oracle": resolver("FREEPDB1", None),
     "hive": resolver("hive", None),
+    "tidb": resolver("def", None),
 }
 
 
@@ -59,7 +60,7 @@ def rejected(engine, sql):
     return e.value
 
 
-def test_all_eight_connectors_have_profiles():
+def test_all_connectors_have_profiles():
     expected_catalog_in_sql = {
         "starrocks": True,
         "doris": True,
@@ -69,6 +70,7 @@ def test_all_eight_connectors_have_profiles():
         "sqlserver": True,
         "oracle": False,
         "hive": False,
+        "tidb": False,
     }
     assert set(PROFILES) == set(expected_catalog_in_sql)
     for kind, catalog_in_sql in expected_catalog_in_sql.items():
@@ -412,7 +414,7 @@ def test_every_standard_function_has_a_translation_test():
 
 @pytest.mark.parametrize(
     "engine",
-    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive"],
+    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive", "tidb"],
 )
 def test_all_eight_dialects_translate_standard_and_window_functions(engine):
     sql = (
