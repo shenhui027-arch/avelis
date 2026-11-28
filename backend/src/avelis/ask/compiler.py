@@ -20,6 +20,7 @@ from avelis.governance.metric_sql import BASE_ALIAS, column_ref, literal, parse_
 from avelis.governance.metrics import encoded_time_type
 from avelis.i18n import Msg
 from avelis.lineage.sql import SqlDialect
+from avelis.sql_guard import banned_constructs
 
 FORBIDDEN = (
     exp.Insert,
@@ -334,6 +335,7 @@ def validate_sql(
     for node in root.walk():
         if isinstance(node, FORBIDDEN):
             reasons.append(f"包含禁止的语法 {node.key.upper()}")
+    reasons += [f"包含禁止的写法 {name}" for name in banned_constructs(root)]
     limit = root.args.get("limit")  # LIMIT n、TOP n 或 FETCH FIRST n ROWS ONLY（Oracle）
     if limit is None:
         reasons.append("缺少 LIMIT")

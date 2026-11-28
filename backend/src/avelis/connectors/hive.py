@@ -17,22 +17,46 @@
 - 物理身份：HiveServer2 不暴露表 ID，表、视图都按名称对应；实例身份只有版本与地址，不给 instance_id。
 - 认证：NONE（SASL PLAIN，服务端不校验口令；未填账号时以 avelis 作会话用户）、NOSASL、LDAP（账号 + 口令）。
   Kerberos（GSSAPI）需要系统 Kerberos 库、KDC 与 keytab，未支持。只支持 binary 传输模式，不支持 http 模式。
-- 不支持问数执行：Hive 查询要起计算作业，超时、资源限制与错误归类没有联调，不声明 query 能力。
+- 问数执行（2026-11-28 在 Hive 4.1 + Tez 上联调）：
+  - HiveServer2 没有只读会话或只读事务，匿名账号也能写入；只读依赖 Avelis 的单条 SELECT 校验，
+    以及查询账号在 Hive 授权（SQL 标准授权或 Ranger）中只有 SELECT 权限。
+  - 超时由 Avelis 控制：异步提交后轮询，到截止时间调用 cancel_operation 取消。服务端 hive.query.timeout.seconds
+    只作兜底，设为截止时间再加 BACKSTOP_SECONDS：impyla 的 Thrift 定义来自 Impala，没有 Hive 的
+    TIMEDOUT_STATE（8），服务端超时会以 KeyError(8) 抛出，所以不能依赖它先触发。
+  - 行数上限用 fetchmany(max_rows + 1)；Hive 没有每查询内存上限，不映射 mem_limit_bytes。
+  - 业务时区经会话参数 hive.local.time.zone 设置。
+  - 关闭向量化执行（hive.vectorized.execution.enabled=false）：Hive 4.1 向量化执行下，窗口函数与日期列上的
+    TRUNC 同在一条查询里时，TRUNC 结果错成 1970-01-01（2026-11-28 实测，关闭后正确）。宁可慢，不给错数。
+- 执行前核对：对指定对象重跑采集时的 DESCRIBE FORMATTED / SHOW CREATE TABLE，列与定义的提取与采集完全一致。
+- 数据新鲜度：分区表取按第一个分区列倒序的最新分区（SHOW PARTITIONS … ORDER BY … DESC LIMIT 1），
+  读它的 transient_lastDdlTime；非分区表读表参数 transient_lastDdlTime。回填旧分区不计入。
 """
 
 from __future__ import annotations
 
 import re
+import time
+from contextlib import closing, suppress
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import unquote
 
 import sqlglot
 from impala.dbapi import connect
 from impala.error import Error as ImpylaError
 from sqlglot import exp
 
-from avelis.connectors.base import ObservedAsset, ObservedColumn, Snapshot
+from avelis.connectors.base import (
+    ObservedAsset,
+    ObservedColumn,
+    QueryError,
+    QueryResult,
+    Snapshot,
+    checked_timezone,
+)
 from avelis.connectors.tls import impyla_ssl_kwargs, parse_tls_options
+from avelis.i18n import gettext
 
 CATALOG = "hive"
 IDENT = re.compile(r"^[A-Za-z0-9_]+$")
@@ -49,6 +73,12 @@ KINDS = {
 # SHOW CREATE TABLE 对普通视图的输出：CREATE VIEW `库`.`视图` AS <展开文本>
 CREATE_VIEW = re.compile(r"^\s*CREATE\s+VIEW\s+(?:`(?:[^`]|``)+`|\w+)(?:\s*\.\s*(?:`(?:[^`]|``)+`|\w+))?\s+AS\s+", re.I)
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "'": "'", "\\": "\\"}
+
+
+BACKSTOP_SECONDS = 30  # 服务端兜底超时比 Avelis 的截止时间多出的秒数
+POLL_SECONDS = 0.25  # 异步执行时轮询状态的间隔
+# 每次问数都带的会话参数；关闭向量化执行的原因见模块说明“问数执行”
+SESSION_SETTINGS = {"hive.vectorized.execution.enabled": "false"}
 
 
 def _checked(names: list[str], label: str) -> list[str]:
@@ -78,7 +108,7 @@ class Described:
     columns: list[tuple[str, str, str | None]] = field(default_factory=list)  # 名称、类型、注释
     partition_columns: list[tuple[str, str, str | None]] = field(default_factory=list)
     info: dict[str, str] = field(default_factory=dict)  # Detailed Table Information、Storage Information 中的“键: 值”
-    parameters: dict[str, str] = field(default_factory=dict)  # Table Parameters
+    parameters: dict[str, str] = field(default_factory=dict)  # Table Parameters 或 Partition Parameters
     primary_key: list[str] = field(default_factory=list)
     not_null: set[str] = field(default_factory=set)
     expanded_query: str | None = None  # 视图 / 物化视图小节的展开文本（多行时续行在第三列）
@@ -97,7 +127,8 @@ def parse_described(rows: list[tuple]) -> Described:
 
     按 “# 小节” 切分：开头（Hive 2/3 带 “# col_name” 表头，4.x 没有）是普通列；“# Partition Information” 是分区列；
     “# Detailed Table Information”、“# Storage Information” 是 “键: 值” 行，其中 “Table Parameters:” 后跟
-    ('', 参数名, 参数值) 行；“# Primary Key”、“# Not Null Constraints” 等约束小节的 “Column Name:” 行给出列名。
+    ('', 参数名, 参数值) 行；“# Detailed Partition Information” 的 “Partition Parameters:” 同理。
+    “# Primary Key”、“# Not Null Constraints” 等约束小节的 “Column Name:” 行给出列名。
     """
     out = Described()
     section = "columns"
@@ -128,7 +159,7 @@ def parse_described(rows: list[tuple]) -> Described:
             if name:
                 target = out.columns if section == "columns" else out.partition_columns
                 target.append((name, _cell(second), _cell(third) or None))
-        elif section in ("detailed table information", "storage information"):
+        elif section in ("detailed table information", "detailed partition information", "storage information"):
             if name:
                 key = name.rstrip(":").strip()
                 if second is None and third is None:
@@ -136,7 +167,7 @@ def parse_described(rows: list[tuple]) -> Described:
                 else:
                     out.info[key] = _cell(second)
                     group = None
-            elif group == "Table Parameters" and _cell(second):
+            elif group in ("Table Parameters", "Partition Parameters") and _cell(second):
                 out.parameters[_cell(second)] = _unescape(_cell(third))
         elif name.rstrip(":").strip() == "Column Name":
             if section == "primary key":
@@ -165,6 +196,15 @@ def view_query(create_statement: str | None) -> str | None:
     if isinstance(statement, exp.Create) and isinstance(statement.expression, exp.Query):
         return statement.expression.sql(dialect="hive")
     return text
+
+
+def _definition(cur, db: str, name: str, kind: str | None, described: Described) -> str | None:
+    if kind == "view":
+        cur.execute(f"SHOW CREATE TABLE {_quote(db)}.{_quote(name)}")
+        return view_query("\n".join("" if r[0] is None else str(r[0]) for r in cur.fetchall()))
+    if kind == "materialized_view":
+        return described.expanded_query
+    return None
 
 
 def observed(db: str, name: str, described: Described, definition: str | None) -> ObservedAsset:
@@ -284,12 +324,7 @@ class HiveConnector:
                     # 读不到某张表的结构时整次采集失败：跳过会被当成“已删除”，产生错误的变更
                     described = parse_described(self._rows(cur, f"DESCRIBE FORMATTED {_quote(db)}.{_quote(name)}"))
                     kind = KINDS.get(described.table_type)
-                    definition = None
-                    if kind == "view":
-                        lines = self._rows(cur, f"SHOW CREATE TABLE {_quote(db)}.{_quote(name)}")
-                        definition = view_query("\n".join("" if r[0] is None else str(r[0]) for r in lines))
-                    elif kind == "materialized_view":
-                        definition = described.expanded_query
+                    definition = _definition(cur, db, name, kind, described)
                     if kind in ("view", "materialized_view") and definition is None:
                         warnings.append(f"视图 {db}.{name} 未读到定义")
                     if kind is None:
@@ -301,10 +336,166 @@ class HiveConnector:
             conn.close()
         return Snapshot(server_identity=identity, assets=assets, warnings=warnings)
 
+    # --- 问数执行与执行前核对 -------------------------------------------------------
+
+    def execute_select(
+        self, sql: str, *, timeout_seconds: int, mem_limit_bytes: int, max_rows: int, timezone: str | None = None
+    ) -> QueryResult:
+        """执行调用层已校验的一条 SELECT：异步提交、到截止时间取消、fetchmany 截断。见模块说明“问数执行”。"""
+        if timeout_seconds <= 0:
+            raise QueryError("timeout", None, gettext("超时值必须为正数，未执行"))
+        if max_rows < 0:
+            raise QueryError("other", None, gettext("查询行数上限不能为负数，未执行"))
+        backstop = timeout_seconds + BACKSTOP_SECONDS
+        configuration = {"hive.query.timeout.seconds": str(backstop), **SESSION_SETTINGS}
+        if timezone:
+            configuration["hive.local.time.zone"] = checked_timezone(timezone)
+
+        conn = cur = None
+        try:
+            conn = self._connect(timeout=backstop)
+            cur = conn.cursor()
+            cur.execute_async(sql, configuration=configuration)
+            deadline = time.monotonic() + timeout_seconds
+            while cur.is_executing():
+                if time.monotonic() >= deadline:
+                    cur.cancel_operation()
+                    raise QueryError("timeout", None, gettext("查询超过 {seconds} 秒，已取消", seconds=timeout_seconds))
+                time.sleep(POLL_SECONDS)
+            columns = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(max_rows + 1)
+            return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
+        except ImpylaError as exc:
+            raise self._query_error(exc) from exc
+        finally:
+            for resource in (cur, conn):
+                if resource is not None:
+                    with suppress(Exception):
+                        resource.close()
+
+    def execute_explore(
+        self,
+        sql: str,
+        *,
+        timeout_seconds: int,
+        max_rows: int,
+        mem_limit_bytes: int = 0,
+        timezone: str | None = None,
+    ) -> QueryResult:
+        """执行校验后重新生成的探索查询：与 execute_select 相同的取消、截断与时区处理。"""
+        return self.execute_select(
+            sql, timeout_seconds=timeout_seconds, mem_limit_bytes=mem_limit_bytes, max_rows=max_rows, timezone=timezone
+        )
+
+    def describe_objects(
+        self, objects: list[tuple[str, str]], *, timeout_seconds: int | None = None
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        """执行前核对当前列与视图定义：与 snapshot 同样的 DESCRIBE FORMATTED / SHOW CREATE TABLE 与提取函数。"""
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            raise QueryError("timeout", None, gettext("超时值必须为正数，未执行"))
+        out: dict[tuple[str, str], dict[str, Any]] = {
+            key: {"columns": [], "definition": None, "physical_id": None} for key in objects
+        }
+        if not out:
+            return out
+        try:
+            with closing(self._connect(timeout=timeout_seconds or 60)) as conn, closing(conn.cursor()) as cur:
+                for (input_db, input_name), result in out.items():
+                    db, name = input_db.lower(), input_name.lower()
+                    if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
+                        continue
+                    try:
+                        rows = self._rows(cur, f"DESCRIBE FORMATTED {_quote(db)}.{_quote(name)}")
+                    except ImpylaError as exc:
+                        error = self._query_error(exc)
+                        if error.db_errno == 10001 or "table not found" in error.message.lower():
+                            continue
+                        raise error from exc
+                    described = parse_described(rows)
+                    definition = _definition(cur, db, name, KINDS.get(described.table_type), described)
+                    asset = observed(db, name, described, definition)
+                    result["columns"] = [[c.name, c.data_type] for c in asset.columns]
+                    result["definition"] = asset.definition
+        except ImpylaError as exc:
+            raise self._query_error(exc) from exc
+        return out
+
+    def freshness(self, tables: list[tuple[str, str]]) -> dict[str, Any]:
+        """数据新鲜度：键为 “库.表”（按传入写法）。
+
+        值为 UTC ISO 时间字符串（如 2026-11-28T09:07:44+00:00），读不到时为 None。
+        """
+        if not tables:
+            return {}
+        out: dict[str, Any] = {}
+        with closing(self._connect()) as conn, closing(conn.cursor()) as cur:
+            for input_db, input_name in tables:
+                db, name = input_db.lower(), input_name.lower()
+                if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
+                    continue
+                key = f"{input_db}.{input_name}"
+                out[key] = None
+                table = f"{_quote(db)}.{_quote(name)}"
+                describe_sql = f"DESCRIBE FORMATTED {table}"
+                try:
+                    described = parse_described(self._rows(cur, describe_sql))
+                    if described.partition_columns:
+                        column = _quote(described.partition_columns[0][0].replace("`", "``"))
+                        cur.execute(f"SHOW PARTITIONS {table} ORDER BY {column} DESC LIMIT 1")
+                        partition = cur.fetchone()
+                        if not partition:
+                            continue
+                        spec = partition_spec_sql(partition[0])
+                        described = parse_described(self._rows(cur, f"{describe_sql} PARTITION ({spec})"))
+                except ImpylaError:
+                    continue
+                try:
+                    seconds = int(described.parameters.get("transient_lastDdlTime", ""))
+                except ValueError:
+                    continue
+                out[key] = datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+        return out
+
+    @staticmethod
+    def _query_error(exc: Exception) -> QueryError:
+        """把 HiveServer2 报错归一化。
+
+        原文用 _first_line 去掉 Query ID 后缀；db_errno 取 [Error NNNNN] 中的数字，没有时为 None。
+        """
+        message = _first_line(exc)
+        match = re.search(r"\[Error (\d+)\]", message, re.I)
+        errno = int(match.group(1)) if match else None
+        text = message.lower()
+        if errno in (10001, 10002, 10004) or any(
+            phrase in text for phrase in ("table not found", "invalid column reference", "invalid table alias")
+        ):
+            code = "invalid_object"
+        elif any(
+            phrase in text for phrase in ("hiveaccesscontrolexception", "permission denied", "authorization failed")
+        ):
+            code = "permission"
+        elif "timed out" in text or "timeout" in text:
+            code = "timeout"
+        else:
+            code = "other"
+        return QueryError(code, errno, message)
+
     @staticmethod
     def _rows(cur, sql: str) -> list[tuple]:
         cur.execute(sql)
         return list(cur.fetchall())
+
+
+def partition_spec_sql(spec: str) -> str:
+    """SHOW PARTITIONS 的分区说明（a=1/b=x，值按 Hive 路径转义）→ PARTITION 子句内容 `a`='1', `b`='x'。"""
+    parts = []
+    for part in spec.split("/"):
+        name, sep, value = part.partition("=")
+        if not sep or not IDENT.fullmatch(name):
+            raise ValueError(f"Hive 分区说明不合法：{part!r}")
+        value = unquote(value).replace("\\", "\\\\").replace("'", "\\'")
+        parts.append(f"{_quote(name)}='{value}'")
+    return ", ".join(parts)
 
 
 def _first_line(exc: Exception) -> str:

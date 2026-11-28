@@ -75,7 +75,7 @@ def catalog_world(factory):
         visible, hidden = domains[visible_code], domains[hidden_code]
         session.add(DomainMember(user_id=steward, domain_id=visible, role="viewer"))
         query_ds = Datasource(name=f"{prefix}_query", kind="postgres", host="offline", port=1)
-        metadata_ds = Datasource(name=f"{prefix}_metadata", kind="hive", host="offline", port=1)
+        metadata_ds = Datasource(name=f"{prefix}_metadata", kind="fake", host="offline", port=1)
         session.add_all((query_ds, metadata_ds))
         session.flush()
         assets = {}

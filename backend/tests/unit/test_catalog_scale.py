@@ -154,7 +154,7 @@ def test_asset_ids_intersect_visibility_filters_and_pagination(catalog):
 
 def test_asset_queryable_filters_registered_capabilities_in_sql(catalog, monkeypatch):
     session = catalog.session
-    session.add(Datasource(id="metadata_only", name="仅采集", kind="hive", host="offline", port=1))
+    session.add(Datasource(id="metadata_only", name="仅采集", kind="fake", host="offline", port=1))
     add_asset(session, "no_query").datasource_id = "metadata_only"
     add_asset(session, "no_query_hidden", domain="hidden").datasource_id = "metadata_only"
     session.commit()

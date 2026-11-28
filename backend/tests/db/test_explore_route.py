@@ -38,7 +38,7 @@ def world(factory):
             ),
             "unsup": Datasource(
                 name=f"未支持探索{tag}",
-                kind="hive",
+                kind="fake",  # 测试适配器不支持问数执行（Hive 自 2026-11-28 起已支持）
                 host="h",
                 port=1,
                 options={},
@@ -66,7 +66,7 @@ def world(factory):
         asset("pg", "storedb", "trade", "orders")  # 与 StarRocks 同名的 库.表
         asset("sr", "default_catalog", "secret", "salary", domain=other)
         asset("off", "offdb", "closed", "t")
-        asset("unsup", "hive", "legacy", "t")
+        asset("unsup", "default_catalog", "legacy", "t")
         ids = {k: v.id for k, v in sources.items()}
     with session_scope() as s:
         user = s.get(User, member)

@@ -27,6 +27,7 @@ from sqlglot.optimizer.scope import Scope, build_scope
 from sqlglot.schema import MappingSchema
 
 from avelis.analysis.measures import CONSTANTS
+from avelis.sql_guard import BANNED_FUNCTIONS, BANNED_NODES, function_name
 
 SQLGLOT_VERSION = sqlglot.__version__
 MAX_SQL_LENGTH = 5000
@@ -37,35 +38,7 @@ MAX_ORDER_KEYS = 10
 MAX_JOINS = 4
 # 不改变量纲的常量：中性的 0（条件聚合的 ELSE 0 等）、1，以及换算倍数
 ALLOWED_CONSTANTS = CONSTANTS
-# 原来禁止清单里的函数：作为额外一道防线，名字出现在任何函数节点上都拒绝
-BANNED_FUNCTIONS = {
-    "sleep",
-    "pg_sleep",
-    "pg_sleep_for",
-    "pg_sleep_until",
-    "benchmark",
-    "load_file",
-    "pg_read_file",
-    "pg_read_binary_file",
-    "pg_ls_dir",
-    "lo_import",
-    "lo_export",
-    "dblink",
-    "url",
-    "file",
-    "files",
-    "s3",
-    "hdfs",
-    "remote",
-    "mysql",
-    "jdbc",
-    "generate_series",
-    "copy",
-    "pg_terminate_backend",
-    "pg_cancel_backend",
-    "set_config",
-    "current_setting",
-}
+# 禁止的函数与写法（共用清单，见 avelis.sql_guard）：作为额外一道防线，名字出现在任何函数节点上都拒绝
 
 AGGREGATES = {exp.Sum: "SUM", exp.Count: "COUNT", exp.Avg: "AVG", exp.Min: "MIN", exp.Max: "MAX"}
 # Avelis 标准 SQL 的源方言：sqlglot 上游要求明确源方言，默认方言 "" 不在支持范围
@@ -327,8 +300,14 @@ PROFILES: dict[str, ExploreProfile] = {
         "2",
         "hive",
         False,
-        functions=dict(_TRANSLATED),
-        settings={},
+        # Hive 没有按周 / 按天截断：SQLGlot 生成 DATE_ADD(NEXT_DAY(x, 'MO'), -7) 与 TO_DATE(x)，再解析为下面三种节点
+        functions={
+            **_TRANSLATED,
+            exp.TsOrDsAdd: ("日期", 3, 3),  # 值、天数、单位 DAY
+            exp.NextDay: ("日期", 2, 2),
+            exp.TsOrDsToDate: ("日期", 1, 1),
+        },
+        settings={"hive.query.timeout.seconds": "按统一截止时间（Avelis 到期取消，服务端兜底）"},
     ),
 }
 
@@ -453,7 +432,7 @@ def _check_syntax(
 ) -> None:
     allowed_cast = TARGET_CAST_TYPES if is_target else CAST_TYPES
     var_parents = (
-        (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff, exp.WeekStart)
+        (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff, exp.WeekStart, exp.TsOrDsAdd)
         if is_target
         else (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.WeekStart)
     )
@@ -462,9 +441,9 @@ def _check_syntax(
             raise ExploreRejected("syntax", "comment", "不允许注释（包括 hint 与执行注释）")
         if isinstance(node, exp.Star) and isinstance(node.parent, exp.Count):  # COUNT(*)
             continue
-        name = (node.sql_name() if isinstance(node, exp.Func) else "").lower()
-        if name in BANNED_FUNCTIONS or (isinstance(node, exp.Anonymous) and str(node.this).lower() in BANNED_FUNCTIONS):
-            raise ExploreRejected("syntax", "banned_function", f"函数 {name or node.this} 不允许使用")
+        banned = function_name(node)
+        if banned in BANNED_FUNCTIONS or isinstance(node, BANNED_NODES):
+            raise ExploreRejected("syntax", "banned_function", f"函数 {banned or node.key.upper()} 不允许使用")
         kind = type(node)
         if isinstance(node, exp.If) and isinstance(node.parent, exp.Case):  # CASE 的 WHEN 分支
             continue
