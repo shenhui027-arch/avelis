@@ -204,7 +204,7 @@ def set_params(session: Session, actor: User, batch: ImportBatch, params: dict[s
         params={**options.get("params", {}), **params},
         model_assist=options.get("model_assist"),
         sql_functions=options.get("sql_functions"),
-        notes=["补充参数后整批重新解析"],
+        notes=["补充参数后整批重新解析" if params else "整批重新解析"],
         force=True,
     )
     audit.record(

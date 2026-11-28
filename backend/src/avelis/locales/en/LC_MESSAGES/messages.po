@@ -2922,3 +2922,12 @@ msgstr "Not signed in or session expired"
 
 msgid "需要管理员权限"
 msgstr "Administrator permission required"
+
+msgid "一次只能加入 1 到 {limit} 个库或模式"
+msgstr "Add between 1 and {limit} databases or schemas at a time"
+
+msgid "库或模式名 {name} 不符合采集器的命名规则"
+msgstr "Database or schema name {name} does not follow the collector's naming rules"
+
+msgid "该数据源不支持配置采集范围"
+msgstr "This data source does not support a collection scope"

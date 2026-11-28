@@ -231,8 +231,11 @@ type Stats = {
   pending_candidates?: number; replaced_edges?: number; invalidated_decisions?: number; inherited_decisions?: number; suggested_sql_functions?: string[];
 };
 type Progress = { phase?: string; files_total?: number; files_done?: number; statements_done?: number; current_file?: string | null };
-// database / in_scope / addable 由后端按数据源当前采集范围补充（读取来源才有 in_scope 与 addable）
-type Unmatched = { ref: string; role: string; count: number; statement_ids: string[]; database?: string | null; in_scope?: boolean; addable?: boolean };
+// database / in_scope / addable / external_catalog / invalid_name 由后端按数据源当前采集范围补充（读取来源才有）
+type Unmatched = {
+  ref: string; role: string; count: number; statement_ids: string[];
+  database?: string | null; in_scope?: boolean; addable?: boolean; external_catalog?: boolean; invalid_name?: boolean;
+};
 type ResultTab = "statements" | "candidates" | "tables" | "files" | "payload";
 
 function BatchContent({ b }: { b: Batch }) {
@@ -560,12 +563,35 @@ const occurrences = (item: Unmatched) => item.count;
 function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
   items: Unmatched[]; datasourceId: string; batchId: string; onShow: (ref: string) => void;
 }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const roles = useRoles();
   const canEdit = roles.has("admin") || roles.has("steward");
   const [message, setMessage] = useMessage();
   const [addingDbs, setAddingDbs] = useState<Set<string>>(() => new Set());
   const addingRef = useRef(new Set<string>());
+  const [reparsing, setReparsing] = useState(false);
+  const reparsingRef = useRef(false);
+
+  async function reparse() {
+    if (reparsingRef.current) return;
+    reparsingRef.current = true;
+    setReparsing(true);
+    setMessage(null);
+    try {
+      const next = await unwrap(api.PUT("/api/imports/{batch_id}/params", {
+        params: { path: { batch_id: batchId } },
+        body: { params: {} },
+      }));
+      qc.invalidateQueries({ queryKey: ["imports"] });
+      navigate(`/lineage/import/${next.id}`);
+    } catch (e) {
+      setMessage({ ok: false, text: errorText(e) });
+    } finally {
+      reparsingRef.current = false;
+      setReparsing(false);
+    }
+  }
 
   async function addScope(database: string) {
     const key = database.toLowerCase();
@@ -581,7 +607,7 @@ function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
       setMessage({
         ok: true,
         text: out.added.length
-          ? t("已加入 {{names}}，正在采集，完成后重新解析本批次即可对上", { names: out.added.join(", ") })
+          ? t("已加入 {{names}}，正在采集；采集完成后点“重新解析本批次”即可对上", { names: out.added.join(", ") })
           : t("已在采集范围内"),
       });
       // 查询键与 api/hooks.ts 的 useImport / useDatasources 一致，刷新当前批次的范围状态与数据源列表
@@ -604,22 +630,36 @@ function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
   if (!items.length) return <Empty text={t("语句中的表都对上了已采集资产或本批次产生的表")} compact />;
   // 读取来源没对上是血缘缺口，排在前面；写入目标多是尚未建表的设计时目标
   const sorted = [...items].sort((a, b) => Number(a.role === "target") - Number(b.role === "target") || b.count - a.count);
+  const hasSource = sorted.some((item) => item.role === "source");
   // 同一库下可能有多张未匹配表，按钮按库去重避免重复展示与重复提交
   const seenDbs = new Set<string>();
   return <>
-    <p className="av-caption av-import-tables-hint">{t("既不是已采集资产、也不是本批次建出的表。读取来源请先采集，或检查库名与默认库。")}</p>
+    <div className="av-import-tables-hint">
+      <p className="av-caption">{t("既不是已采集资产、也不是本批次建出的表。读取来源请先采集，或检查库名与默认库。")}</p>
+      {canEdit && hasSource ? <button type="button" className="av-btn av-btn--secondary av-btn--sm" disabled={reparsing}
+        aria-busy={reparsing || undefined} onClick={() => void reparse()}>
+        {reparsing ? t("重新解析中…") : t("重新解析本批次")}</button> : null}
+    </div>
     <Banner message={message} />
     <div className="av-list">{sorted.map((item) => {
-      const db = item.role === "source" ? item.database?.trim() || null : null;
-      const reason = db
-        ? item.addable
-          ? t("库 {{database}} 不在采集范围", { database: db })
-          : item.in_scope
-            ? t("库 {{database}} 已在采集范围，请检查表名或默认库", { database: db })
-            : ""
-        : "";
+      const isSource = item.role === "source";
+      const db = isSource ? item.database?.trim() || null : null;
+      const blocked = Boolean(item.external_catalog || item.invalid_name);
+      const reason = !isSource
+        ? ""
+        : item.external_catalog
+          ? t("外部 Catalog 的表，请在数据源的 Catalog 配置里加入采集")
+          : item.invalid_name
+            ? t("库名 {{database}} 不符合采集器的命名规则，不能自动加入", { database: db ?? item.database ?? "" })
+            : db
+              ? item.addable
+                ? t("库 {{database}} 不在采集范围", { database: db })
+                : item.in_scope
+                  ? t("库 {{database}} 已在采集范围，请检查表名或默认库", { database: db })
+                  : ""
+              : "";
       const dbKey = db ? db.toLowerCase() : "";
-      const showAdd = Boolean(canEdit && db && item.addable && !seenDbs.has(dbKey));
+      const showAdd = Boolean(canEdit && db && !blocked && item.addable && !seenDbs.has(dbKey));
       if (showAdd) seenDbs.add(dbKey);
       const adding = dbKey !== "" && addingDbs.has(dbKey);
       return <div key={`${item.ref}:${item.role}`} className="av-row av-import-table">

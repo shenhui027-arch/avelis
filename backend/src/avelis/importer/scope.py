@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import re
+import sys
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -19,6 +21,7 @@ from avelis.models import Datasource, User
 SCOPE_KEYS = ("databases", "schemas")
 # 一次最多加入的库 / 模式数，防止误操作把整批未匹配都加进来
 MAX_ADD = 20
+_DEFAULT_IDENT = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def scope_key(engine: Any) -> str | None:
@@ -37,6 +40,14 @@ def ref_database(ref: str) -> str | None:
     return database if database.strip() else None
 
 
+def valid_name(engine: Any, name: str) -> bool:
+    """用采集器的标识符规则检查库 / 模式名，Oracle 按保存时的大写形式检查。"""
+    collector = getattr(engine, "collector", None)
+    module = sys.modules.get(getattr(collector, "__module__", ""))
+    ident = getattr(module, "IDENT", _DEFAULT_IDENT)
+    return ident.fullmatch(name.upper() if engine.kind == "oracle" else name) is not None
+
+
 def _configured_names(datasource: Datasource, key: str) -> list[str]:
     names = (datasource.options or {}).get(key)
     # 兼容以字符串保存的范围，新增时按采集器要求写成列表。
@@ -48,26 +59,43 @@ def _configured_names(datasource: Datasource, key: str) -> list[str]:
 def annotate_unmatched(items: list[dict], datasource: Datasource, engine: Any) -> list[dict]:
     """给未匹配条目补充范围信息，返回新列表（不修改入参）：每条加 `database`（ref_database 的结果）；
     role == "source" 的条目再加 `in_scope`（库在当前范围内，不区分大小写）
-    与 `addable`（引擎有范围键、库名非空且不在范围内）。
+    与 `addable`（引擎有范围键、库名合法且可加入范围），并按需标出 `external_catalog` 或 `invalid_name`。
     role == "target"（写入目标，多是尚未建表的设计时目标）只加 database。"""
     key = scope_key(engine)
     configured = _configured_names(datasource, key) if key is not None else []
     known = {name.casefold() for name in configured if isinstance(name, str)}
+    dialect_for = getattr(engine, "dialect_for", None)
+    dialect = dialect_for(datasource.options) if dialect_for is not None else None
+    default_catalog = getattr(dialect, "default_catalog", None)
     annotated = []
     for item in items:
-        database = ref_database(item["ref"])
+        ref = item["ref"]
+        database = ref_database(ref)
         entry = {**item, "database": database}
         if item["role"] == "source":
-            in_scope = database is not None and database.casefold() in known
+            parts = ref.split(".")
+            external_catalog = (
+                len(parts) == 3
+                and default_catalog is not None
+                and parts[0].strip().strip('`"[]').casefold() != default_catalog.casefold()
+            )
+            invalid_name = database is not None and not valid_name(engine, database)
+            in_scope = not external_catalog and database is not None and database.casefold() in known
             entry["in_scope"] = in_scope
-            entry["addable"] = key is not None and database is not None and not in_scope
+            entry["addable"] = (
+                key is not None and database is not None and not (in_scope or external_catalog or invalid_name)
+            )
+            if external_catalog:
+                entry["external_catalog"] = True
+            if invalid_name:
+                entry["invalid_name"] = True
         annotated.append(entry)
     return annotated
 
 
 def add_to_scope(session: Session, user: User, datasource: Datasource, engine: Any, names: list[str]) -> list[str]:
     """把库 / 模式加入数据源采集范围，返回实际新增的名字（按传入顺序去重，已在范围内的跳过，比较不区分大小写）。
-    - 引擎没有范围键时抛 ValueError；names 为空、超过 MAX_ADD 或含空白名时抛 ValueError。
+    - 引擎没有范围键时抛 ValueError；names 为空、超过 MAX_ADD 或含不合法的库 / 模式名时抛 ValueError。
     - Oracle（engine.kind == "oracle"）的模式名按大写保存，其余原样保存。
     - 写回时给 datasource.options 赋一个新的 dict（JSON 列需要整体替换才会被识别为变更）。
     - 有新增时记审计：audit.record(session, user, "datasource.scope_add", "datasource", datasource.id,
@@ -78,13 +106,13 @@ def add_to_scope(session: Session, user: User, datasource: Datasource, engine: A
         raise ValueError(Msg("该数据源不支持配置采集范围"))
     if not 1 <= len(names) <= MAX_ADD:
         raise ValueError(Msg("一次只能加入 1 到 {limit} 个库或模式", limit=MAX_ADD))
-    if any(not name.strip() for name in names):
-        raise ValueError(Msg("库或模式名不能为空"))
 
     configured = _configured_names(datasource, key)
     known = {name.casefold() for name in configured if isinstance(name, str)}
     added = []
     for name in names:
+        if not valid_name(engine, name):
+            raise ValueError(Msg("库或模式名 {name} 不符合采集器的命名规则", name=name))
         stored = name.upper() if engine.kind == "oracle" else name
         folded = stored.casefold()
         if folded in known:

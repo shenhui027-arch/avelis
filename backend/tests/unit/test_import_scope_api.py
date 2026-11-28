@@ -1,6 +1,7 @@
 """用内存元数据库验证采集范围接口、任务入队和批次结果接线。"""
 
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, Request
@@ -11,11 +12,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from avelis.api import datasources
+from avelis.api import datasources, imports
 from avelis.api.deps import current_user, get_session
 from avelis.db import Base
 from avelis.governance.errors import GovernanceError
-from avelis.importer.batch import batch_view
+from avelis.importer import batch
+from avelis.importer.archive import ImportFile
 from avelis.models import AuditEvent, Datasource, ImportBatch, Job, User, UserRole
 
 DS_ID = "ds-1"
@@ -36,9 +38,14 @@ def scope_api(monkeypatch):
         for column in copied.columns:
             if isinstance(column.type, JSONB):
                 column.type = JSON()
+        for index in copied.indexes:
+            if index.name == "ix_import_job_current_source":
+                # 同一来源可以保留多个历史版本，唯一约束只作用于当前版本。
+                index.dialect_options["sqlite"]["where"] = index.dialect_options["postgresql"]["where"]
     metadata.create_all(engine)
     app = FastAPI()
     app.include_router(datasources.router)
+    app.include_router(imports.router)
 
     @app.exception_handler(GovernanceError)
     async def governance_error(_: Request, exc: GovernanceError):
@@ -90,6 +97,21 @@ def test_scope_add_returns_404_for_missing_datasource(scope_api):
 def test_scope_add_rejects_invalid_names(scope_api, names):
     client, _, _, _ = scope_api
     assert client.post(SCOPE_URL, json={"names": names}).status_code == 422
+
+
+def test_scope_add_rejects_invalid_collector_name_without_side_effects(scope_api):
+    client, session, _, _ = scope_api
+    ds = session.get(Datasource, DS_ID)
+    original = ds.options.copy()
+
+    response = client.post(SCOPE_URL, json={"names": ["ods", "bad-schema"]})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "库或模式名 bad-schema 不符合采集器的命名规则"
+    assert session.scalars(select(AuditEvent)).all() == []
+    assert session.scalars(select(Job)).all() == []
+    session.refresh(ds)
+    assert ds.options == original
 
 
 def test_scope_add_rejects_engine_without_scope_key(scope_api):
@@ -151,15 +173,64 @@ def test_batch_view_annotates_unmatched_using_current_scope(scope_api):
     session.add(imported)
     session.commit()
 
-    assert batch_view(session, imported)["unmatched_tables"] == [
+    assert batch.batch_view(session, imported)["unmatched_tables"] == [
         {**source, "database": "ods", "in_scope": False, "addable": True},
         {**target, "database": "dw"},
     ]
     response = client.post(SCOPE_URL, json={"names": ["ODS"]})
     assert response.status_code == 200, response.text
     session.expire_all()
-    assert batch_view(session, imported)["unmatched_tables"] == [
+    assert batch.batch_view(session, imported)["unmatched_tables"] == [
         {**source, "database": "ods", "in_scope": True, "addable": False},
         {**target, "database": "dw"},
     ]
     assert imported.stats["unmatched_tables"] == [source, target]
+
+
+def test_batch_view_marks_external_catalog_and_invalid_collector_name(scope_api):
+    _, session, user, _ = scope_api
+    ds = session.get(Datasource, DS_ID)
+    ds.kind = "starrocks"
+    ds.options = {"databases": ["ods"]}
+    external = {"ref": "jdbc_catalog.ods.events", "role": "source", "count": 1, "statement_ids": ["s1"]}
+    invalid = {"ref": "default_catalog.bad db.events", "role": "source", "count": 1, "statement_ids": ["s1"]}
+    internal = {"ref": "DEFAULT_CATALOG.ods-log.events", "role": "source", "count": 1, "statement_ids": ["s1"]}
+    imported = ImportBatch(
+        datasource_id=DS_ID,
+        status="done",
+        created_by=user.id,
+        stats={"unmatched_tables": [external, invalid, internal]},
+    )
+    session.add(imported)
+    session.commit()
+
+    assert batch.batch_view(session, imported)["unmatched_tables"] == [
+        {**external, "database": "ods", "in_scope": False, "addable": False, "external_catalog": True},
+        {**invalid, "database": "bad db", "in_scope": False, "addable": False, "invalid_name": True},
+        {**internal, "database": "ods-log", "in_scope": False, "addable": True},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("params", "note"),
+    [({}, "整批重新解析"), ({"schema": "reporting"}, "补充参数后整批重新解析")],
+)
+def test_params_reparse_note_describes_submitted_changes(scope_api, monkeypatch, params, note):
+    client, session, user, _ = scope_api
+    settings = SimpleNamespace(import_max_bytes=1024, import_max_batch_bytes=1024)
+    monkeypatch.setattr(batch, "get_settings", lambda: settings)
+    imported, _ = batch.create_batch(
+        session,
+        user,
+        datasource_id=DS_ID,
+        files=[ImportFile("source.sql", "SELECT id FROM public.events", "sql")],
+        params={"schema": "public"},
+    )
+    imported.status = "done"
+    session.commit()
+
+    response = client.put(f"/api/imports/{imported.id}/params", json={"params": params})
+
+    assert response.status_code == 202, response.text
+    assert response.json()["notes"] == [note]
+    assert response.json()["params"] == {"schema": "public", **params}
