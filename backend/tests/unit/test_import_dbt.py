@@ -149,3 +149,23 @@ def test_rejects_non_manifest(text):
 def test_rejects_manifest_without_compiled_sql():
     with pytest.raises(Invalid, match="请先运行 dbt compile"):
         dbt.manifest_to_sql(manifest(node("model.p.a", code=None, relation_name="dw.a")))
+
+
+def test_models_follow_manifest_dependencies_before_unique_id():
+    """上游模型先生成：解析按顺序进行，上游的字段要先进入表结构，下游的 SELECT * 才能展开。"""
+    report = node("model.p.a_report", relation_name="dw.a_report", code="select * from dw.z_stage")
+    report["depends_on"] = {"nodes": ["model.p.m_inline"]}
+    inline = node("model.p.m_inline", materialized="ephemeral", relation_name=None)
+    inline["depends_on"] = {"nodes": ["model.p.z_stage", "source.p.raw.events"]}
+    stage = node("model.p.z_stage", relation_name="dw.z_stage", code="select id from raw.events")
+    out = dbt.manifest_to_sql(manifest(report, inline, stage))
+    assert out.sql.index("dw.z_stage AS") < out.sql.index("dw.a_report AS")  # 经过 ephemeral 的间接依赖也保持先后
+
+
+def test_dependency_cycle_falls_back_to_unique_id_order():
+    a = node("model.p.a", relation_name="dw.a")
+    b = node("model.p.b", relation_name="dw.b")
+    a["depends_on"] = {"nodes": ["model.p.b"]}
+    b["depends_on"] = {"nodes": ["model.p.a"]}
+    out = dbt.manifest_to_sql(manifest(a, b))
+    assert out.sql.index("dw.a AS") < out.sql.index("dw.b AS")

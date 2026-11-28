@@ -7,6 +7,7 @@ manifest 里每个模型都有编译后的 SQL（compiled_code，旧版本叫 co
 
 from __future__ import annotations
 
+import heapq
 import json
 from dataclasses import dataclass, field
 
@@ -30,10 +31,39 @@ def is_manifest_name(filename: str) -> bool:
     return filename.replace("\\", "/").rsplit("/", 1)[-1].lower() == MANIFEST_NAME
 
 
+def _dependency_order(nodes: dict) -> list[str]:
+    """按 depends_on.nodes 拓扑排序全部节点，同层按 unique_id；有环时剩余节点按 unique_id 追加。
+
+    导入按顺序解析，上游模型的 CREATE 先解析，它的字段才进入后续语句可用的表结构（SELECT * 才能展开）；
+    在全部节点上排序，经过 ephemeral 的间接依赖也能保持先后。"""
+    deps: dict[str, set[str]] = {}
+    for unique_id, node in nodes.items():
+        depends = node.get("depends_on") if isinstance(node, dict) else None
+        listed = depends.get("nodes") if isinstance(depends, dict) else None
+        deps[unique_id] = {d for d in listed or [] if isinstance(d, str) and d in nodes and d != unique_id}
+    waiting = {unique_id: len(parents) for unique_id, parents in deps.items()}
+    children: dict[str, list[str]] = {unique_id: [] for unique_id in nodes}
+    for unique_id, parents in deps.items():
+        for parent in parents:
+            children[parent].append(unique_id)
+    ready = [unique_id for unique_id, count in waiting.items() if count == 0]
+    heapq.heapify(ready)
+    order: list[str] = []
+    while ready:
+        unique_id = heapq.heappop(ready)
+        order.append(unique_id)
+        for child in children[unique_id]:
+            waiting[child] -= 1
+            if waiting[child] == 0:
+                heapq.heappush(ready, child)
+    placed = set(order)
+    return order + sorted(unique_id for unique_id in nodes if unique_id not in placed)
+
+
 def manifest_to_sql(text: str) -> DbtConversion:
     """把 manifest.json 文本转成 SQL。规则：
     - JSON 解析失败，或 `metadata.dbt_schema_version` 不含 "manifest"，抛 Invalid("不是有效的 dbt manifest.json")。
-    - 按 unique_id 排序遍历 `nodes`，只处理 resource_type ∈ CONVERTED_TYPES 的节点：
+    - 按依赖顺序（_dependency_order，同层按 unique_id）遍历 `nodes`，只处理 resource_type ∈ CONVERTED_TYPES 的节点：
       - `config.materialized == "ephemeral"` 跳过（它已作为 CTE 内联进下游模型的编译 SQL），计数；
       - 编译 SQL 取 `compiled_code`，没有再取 `compiled_sql`；都没有时跳过并计数；
       - 目标取 `relation_name`；为空时用 database、schema、alias（没有 alias 用 name）中非空的部分以 "." 连接；
@@ -60,7 +90,8 @@ def manifest_to_sql(text: str) -> DbtConversion:
 
     statements: list[str] = []
     ephemeral = uncompiled = 0
-    for unique_id, node in sorted(nodes.items()):
+    for unique_id in _dependency_order(nodes):
+        node = nodes[unique_id]
         if not isinstance(node, dict) or node.get("resource_type") not in CONVERTED_TYPES:
             continue
         config = node.get("config")
