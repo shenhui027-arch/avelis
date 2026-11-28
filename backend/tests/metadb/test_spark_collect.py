@@ -289,6 +289,14 @@ def test_renamed_columns_uppercase_names_and_recreated_context(sp):
     assert ("right_id", f"spark_catalog.{DB}.shops", "shop_id") in paired_edges
     assert ("total", f"spark_catalog.{DB}.sales", "amount") in paired_edges
     assert grain is not None and grain.columns == ["left_id", "right_id"]
+    # 上游表变化 → 视图重新解析、视图自己的版本不变：旧的解析粒度要被替换，不能并存
+    _execute(sp, f"ALTER TABLE {DB}.sales ADD COLUMNS (note STRING)")
+    run_collection(sp["ds"], trigger="manual")
+    with session_scope() as s:
+        active = s.scalars(
+            select(Grain).where(Grain.asset_id == paired.id, Grain.origin == "parsed", Grain.superseded_at.is_(None))
+        ).all()
+        assert [g.columns for g in active] == [["left_id", "right_id"]]
     before = definition.canonical_hash
     _execute(
         sp,

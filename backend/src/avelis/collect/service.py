@@ -729,6 +729,13 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
             )
             .values(status="superseded", superseded_at=now)
         )
+        # 解析得到的粒度随解析结果一起替换：视图元数据没变、只是重新解析（如解析器版本升级）时，资产版本不变，
+        # 不能靠版本切换让旧的解析粒度失效
+        session.execute(
+            update(Grain)
+            .where(Grain.asset_id == asset.id, Grain.origin == "parsed", Grain.superseded_at.is_(None))
+            .values(superseded_at=now)
+        )
 
         def source_id(table: str) -> str | None:
             parts = tuple(table.split("."))
