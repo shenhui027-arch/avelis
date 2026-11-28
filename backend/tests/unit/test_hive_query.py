@@ -23,7 +23,10 @@ TABLE_NOT_FOUND = (
 class AsyncCursor:
     """脚本化的 impyla 游标：execute_async 之后 is_executing 依次返回 running 里的值。"""
 
-    def __init__(self, *, running=(False,), rows=(), description=(("total",),), fail=None, responses=None):
+    def __init__(
+        self, *, running=(False,), rows=(), description=(("total",),), fail=None, responses=None, finish_error=None
+    ):
+        self.finish_error = finish_error
         self.running = list(running)
         self.rows = list(rows)
         self.description = list(description)
@@ -45,6 +48,10 @@ class AsyncCursor:
 
     def cancel_operation(self):
         self.cancelled = True
+
+    def _wait_to_finish(self):
+        if self.finish_error is not None:
+            raise self.finish_error
 
     def fetchmany(self, count):
         self.fetch_counts.append(count)
@@ -71,9 +78,10 @@ class AsyncCursor:
 
 class Connection:
     def __init__(self, cursor):
-        self._cursor, self.closed, self.timeouts = cursor, False, []
+        self._cursor, self.closed, self.timeouts, self.users = cursor, False, [], []
 
-    def cursor(self):
+    def cursor(self, user=None):
+        self.users.append(user)
         return self._cursor
 
     def close(self):
@@ -292,3 +300,27 @@ def test_partition_spec_sql(spec, sql):
 def test_partition_spec_sql_rejects_bad_column_names():
     with pytest.raises(ValueError):
         partition_spec_sql("a b=1")
+
+
+def test_runtime_failure_keeps_the_database_error(monkeypatch):
+    # 编译通过、后台执行失败：is_executing() 只返回 False，原始报错要从终态里取回，不能被取结果元数据的报错盖掉
+    failure = HiveServer2Error("FAILED: Execution Error, return code 2 from org.apache.hadoop.hive.ql.exec.tez.TezTask")
+    cursor = AsyncCursor(running=[False], finish_error=failure)
+    c, _ = connector(monkeypatch, cursor)
+    with pytest.raises(QueryError) as caught:
+        c.execute_select("SELECT 1", timeout_seconds=5, mem_limit_bytes=0, max_rows=10)
+    assert "TezTask" in caught.value.message and cursor.fetch_counts == []
+
+
+def test_sessions_open_as_the_configured_user(monkeypatch):
+    cursor = AsyncCursor(responses={"DESCRIBE FORMATTED `store`.`sales`": SALES})
+    conn = Connection(cursor)
+    c = HiveConnector("hs2", 10000, "", "", {"databases": ["store"], "auth": "NOSASL"})
+    monkeypatch.setattr(c, "_connect", lambda timeout=60: conn)
+    c.execute_select("SELECT 1", timeout_seconds=5, mem_limit_bytes=0, max_rows=10)
+    c.describe_objects([("store", "sales")])
+    assert conn.users == ["avelis", "avelis"]
+    ldap = HiveConnector("hs2", 10000, "ro_user", "pw", {"databases": ["store"], "auth": "LDAP"})
+    monkeypatch.setattr(ldap, "_connect", lambda timeout=60: conn)
+    ldap.execute_select("SELECT 1", timeout_seconds=5, mem_limit_bytes=0, max_rows=10)
+    assert conn.users[-1] == "ro_user"

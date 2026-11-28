@@ -207,7 +207,9 @@ def _definition(cur, db: str, name: str, kind: str | None, described: Described)
     return None
 
 
-def observed(db: str, name: str, described: Described, definition: str | None) -> ObservedAsset:
+def observed(
+    db: str, name: str, described: Described, definition: str | None, *, catalog: str = CATALOG
+) -> ObservedAsset:
     """一张表 / 视图的观察结果。分区列排在普通列之后；只有 NOT NULL 约束的列不可空。"""
     table_type = described.table_type
     kind = KINDS.get(table_type, "table")
@@ -238,7 +240,7 @@ def observed(db: str, name: str, described: Described, definition: str | None) -
     if described.primary_key:
         properties["declared_primary_key"] = described.primary_key  # DISABLE NOVALIDATE：不校验，不作粒度依据
     return ObservedAsset(
-        catalog=CATALOG,
+        catalog=catalog,
         db=db,
         name=name,
         kind=kind,
@@ -254,9 +256,12 @@ def observed(db: str, name: str, described: Described, definition: str | None) -
 
 
 class HiveConnector:
+    """HiveServer2 协议连接器。同协议的引擎（Spark Thrift Server）继承本类，只覆盖下面标明“子类可覆盖”的钩子。"""
+
     kind = "hive"
     dialect = "hive"
     is_test_adapter = False
+    catalog = CATALOG  # 资产名的固定 Catalog 段
 
     def __init__(self, host: str, port: int, user: str, password: str, options: dict[str, Any] | None = None):
         self.options = options or {}
@@ -279,12 +284,16 @@ class HiveConnector:
     def _connect(self, timeout: int = 60):
         return connect(**self._conn_args, **self._ssl_kwargs, timeout=timeout)
 
+    def _cursor(self, conn):
+        """会话用户显式传给 cursor：impyla 的 cursor() 默认用操作系统用户名开会话，NOSASL 时服务端就以它为会话用户。"""
+        return conn.cursor(user=self._conn_args["user"])
+
     # --- 采集 ---------------------------------------------------------------------
 
     def server_identity(self) -> dict[str, Any]:
         conn = self._connect()
         try:
-            return self._server_identity(conn.cursor())
+            return self._server_identity(self._cursor(conn))
         except ImpylaError as exc:
             raise RuntimeError(_first_line(exc)) from exc
         finally:
@@ -307,7 +316,7 @@ class HiveConnector:
         assets: list[ObservedAsset] = []
         conn = self._connect(timeout=120)
         try:
-            cur = conn.cursor()
+            cur = self._cursor(conn)
             identity = self._server_identity(cur)
             existing = {str(r[0]).lower() for r in self._rows(cur, "SHOW DATABASES")}
             # 配置的库看不到时整次采集失败（与读不到表结构一致）：Hive 授权插件会按权限过滤 SHOW DATABASES，
@@ -319,17 +328,16 @@ class HiveConnector:
                     "（不存在或采集账号无权限），本次采集不更新目录"
                 )
             for db in databases:
-                for (name,) in self._rows(cur, f"SHOW TABLES IN {_quote(db)}"):
-                    name = str(name)
+                for name in self._table_names(cur, db):
                     # 读不到某张表的结构时整次采集失败：跳过会被当成“已删除”，产生错误的变更
-                    described = parse_described(self._rows(cur, f"DESCRIBE FORMATTED {_quote(db)}.{_quote(name)}"))
+                    described = self._describe(self._rows(cur, f"DESCRIBE FORMATTED {_quote(db)}.{_quote(name)}"))
                     kind = KINDS.get(described.table_type)
-                    definition = _definition(cur, db, name, kind, described)
+                    definition = self._definition(cur, db, name, kind, described)
                     if kind in ("view", "materialized_view") and definition is None:
                         warnings.append(f"视图 {db}.{name} 未读到定义")
                     if kind is None:
                         warnings.append(f"{db}.{name} 的类型 {described.table_type or '未知'} 按普通表采集")
-                    assets.append(observed(db, name, described, definition))
+                    assets.append(self._observed(db, name, described, definition))
         except ImpylaError as exc:
             raise RuntimeError(_first_line(exc)) from exc
         finally:
@@ -347,21 +355,24 @@ class HiveConnector:
         if max_rows < 0:
             raise QueryError("other", None, gettext("查询行数上限不能为负数，未执行"))
         backstop = timeout_seconds + BACKSTOP_SECONDS
-        configuration = {"hive.query.timeout.seconds": str(backstop), **SESSION_SETTINGS}
         if timezone:
-            configuration["hive.local.time.zone"] = checked_timezone(timezone)
+            checked_timezone(timezone)
 
         conn = cur = None
         try:
             conn = self._connect(timeout=backstop)
-            cur = conn.cursor()
-            cur.execute_async(sql, configuration=configuration)
+            cur = self._cursor(conn)
+            # 截止时间从提交前算起：HiveServer2 关闭异步编译时，execute_async 会等编译完才返回
             deadline = time.monotonic() + timeout_seconds
+            configuration = self._session(cur, backstop=backstop, timezone=timezone)
+            cur.execute_async(sql, configuration=configuration)
             while cur.is_executing():
                 if time.monotonic() >= deadline:
                     cur.cancel_operation()
                     raise QueryError("timeout", None, gettext("查询超过 {seconds} 秒，已取消", seconds=timeout_seconds))
                 time.sleep(POLL_SECONDS)
+            # is_executing() 对 ERROR_STATE 只返回 False、不带报错：用 impyla 同步执行同样的收尾取回数据库原始报错
+            cur._wait_to_finish()
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
             return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
@@ -399,7 +410,7 @@ class HiveConnector:
         if not out:
             return out
         try:
-            with closing(self._connect(timeout=timeout_seconds or 60)) as conn, closing(conn.cursor()) as cur:
+            with closing(self._connect(timeout=timeout_seconds or 60)) as conn, closing(self._cursor(conn)) as cur:
                 for (input_db, input_name), result in out.items():
                     db, name = input_db.lower(), input_name.lower()
                     if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
@@ -408,12 +419,12 @@ class HiveConnector:
                         rows = self._rows(cur, f"DESCRIBE FORMATTED {_quote(db)}.{_quote(name)}")
                     except ImpylaError as exc:
                         error = self._query_error(exc)
-                        if error.db_errno == 10001 or "table not found" in error.message.lower():
+                        if self._missing_object(error):
                             continue
                         raise error from exc
-                    described = parse_described(rows)
-                    definition = _definition(cur, db, name, KINDS.get(described.table_type), described)
-                    asset = observed(db, name, described, definition)
+                    described = self._describe(rows)
+                    definition = self._definition(cur, db, name, KINDS.get(described.table_type), described)
+                    asset = self._observed(db, name, described, definition)
                     result["columns"] = [[c.name, c.data_type] for c in asset.columns]
                     result["definition"] = asset.definition
         except ImpylaError as exc:
@@ -428,7 +439,7 @@ class HiveConnector:
         if not tables:
             return {}
         out: dict[str, Any] = {}
-        with closing(self._connect()) as conn, closing(conn.cursor()) as cur:
+        with closing(self._connect()) as conn, closing(self._cursor(conn)) as cur:
             for input_db, input_name in tables:
                 db, name = input_db.lower(), input_name.lower()
                 if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
@@ -438,15 +449,13 @@ class HiveConnector:
                 table = f"{_quote(db)}.{_quote(name)}"
                 describe_sql = f"DESCRIBE FORMATTED {table}"
                 try:
-                    described = parse_described(self._rows(cur, describe_sql))
+                    described = self._describe(self._rows(cur, describe_sql))
                     if described.partition_columns:
-                        column = _quote(described.partition_columns[0][0].replace("`", "``"))
-                        cur.execute(f"SHOW PARTITIONS {table} ORDER BY {column} DESC LIMIT 1")
-                        partition = cur.fetchone()
+                        partition = self._latest_partition(cur, table, described)
                         if not partition:
                             continue
-                        spec = partition_spec_sql(partition[0])
-                        described = parse_described(self._rows(cur, f"{describe_sql} PARTITION ({spec})"))
+                        spec = partition_spec_sql(partition)
+                        described = self._describe(self._rows(cur, f"{describe_sql} PARTITION ({spec})"))
                 except ImpylaError:
                     continue
                 try:
@@ -455,6 +464,44 @@ class HiveConnector:
                     continue
                 out[key] = datetime.fromtimestamp(seconds, timezone.utc).isoformat()
         return out
+
+    # --- 子类可覆盖的钩子 -------------------------------------------------------------
+
+    def _session(self, cur, *, backstop: int, timezone: str | None) -> dict[str, str]:
+        """子类可覆盖：本次查询的会话参数（作为 execute_async 的 configuration）。时区已由调用方校验。"""
+        configuration = {"hive.query.timeout.seconds": str(backstop), **SESSION_SETTINGS}
+        if timezone:
+            configuration["hive.local.time.zone"] = timezone
+        return configuration
+
+    def _table_names(self, cur, db: str) -> list[str]:
+        """子类可覆盖：库里的表与视图名。Hive 的 SHOW TABLES 只有一列表名。"""
+        return [str(row[0]) for row in self._rows(cur, f"SHOW TABLES IN {_quote(db)}")]
+
+    @staticmethod
+    def _describe(rows: list[tuple]) -> Described:
+        """子类可覆盖：解析 DESCRIBE FORMATTED 的输出。"""
+        return parse_described(rows)
+
+    def _definition(self, cur, db: str, name: str, kind: str | None, described: Described) -> str | None:
+        """子类可覆盖：视图 / 物化视图的定义。"""
+        return _definition(cur, db, name, kind, described)
+
+    def _observed(self, db: str, name: str, described: Described, definition: str | None) -> ObservedAsset:
+        """子类可覆盖：一张表 / 视图的观察结果。"""
+        return observed(db, name, described, definition, catalog=self.catalog)
+
+    def _latest_partition(self, cur, table: str, described: Described) -> str | None:
+        """子类可覆盖：按第一个分区列倒序的最新分区说明（如 dt=2026-11-02），没有分区时为 None。"""
+        column = _quote(described.partition_columns[0][0].replace("`", "``"))
+        cur.execute(f"SHOW PARTITIONS {table} ORDER BY {column} DESC LIMIT 1")
+        row = cur.fetchone()
+        return str(row[0]) if row else None
+
+    @staticmethod
+    def _missing_object(error: QueryError) -> bool:
+        """子类可覆盖：执行前核对时，这个错误是否表示对象不存在。"""
+        return error.db_errno == 10001 or "table not found" in error.message.lower()
 
     @staticmethod
     def _query_error(exc: Exception) -> QueryError:

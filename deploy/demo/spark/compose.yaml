@@ -1,0 +1,43 @@
+# Spark SQL 适配器联调环境（独立 Compose 项目 avelis-spark，与共享演示环境 avelis-demo 的容器、网络、数据卷完全隔离）。
+#
+#   spark    Spark 4.0.1 Thrift Server（HiveServer2 协议，local[2]，内嵌 Derby 元数据库，不挂数据卷：重建即清空，
+#            由测试重新建库建表）。未开启认证（NONE），联调用 avelis。
+#   meta-pg  只给这组联调用的元数据库（库名以 _test 结尾，测试会清空它），不连共享演示环境的元数据库。
+#
+# 启动（口令只放在环境变量里，不写进仓库）：
+#   SPARK_META_PG_PASSWORD=… docker compose -f deploy/demo/spark/compose.yaml up -d
+# 用完即停：docker compose -f deploy/demo/spark/compose.yaml down
+# 联调测试见 backend/tests/metadb/test_spark_collect.py。
+name: avelis-spark
+
+services:
+  spark:
+    image: apache/spark:4.0.1@sha256:acfe7e06e95dd13aa32ee03c464766900d52fba15f58e421f8e1213ec041bb94
+    working_dir: /opt/spark/work-dir
+    command:
+      - /opt/spark/bin/spark-submit
+      - --class
+      - org.apache.spark.sql.hive.thriftserver.HiveThriftServer2
+      - --master
+      - local[2]
+      - --conf
+      - spark.sql.warehouse.dir=/opt/spark/work-dir/warehouse
+      - --conf
+      - spark.driver.memory=1g
+      - --hiveconf
+      - hive.server2.thrift.port=10000
+      - --hiveconf
+      - hive.server2.thrift.bind.host=0.0.0.0
+      - spark-internal
+    ports:
+      - "127.0.0.1:${SPARK_PORT:-21000}:10000"
+    mem_limit: 2g
+
+  meta-pg:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: avelis_spark_test
+      POSTGRES_USER: avelis
+      POSTGRES_PASSWORD: ${SPARK_META_PG_PASSWORD:?set SPARK_META_PG_PASSWORD}
+    ports:
+      - "127.0.0.1:${SPARK_META_PG_PORT:-22432}:5432"

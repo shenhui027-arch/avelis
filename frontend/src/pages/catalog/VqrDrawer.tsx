@@ -32,6 +32,7 @@ const DIALECTS = [
   { value: "hive", label: "Hive" },
   { value: "tidb", label: "TiDB" },
   { value: "trino", label: "Trino" },
+  { value: "spark", label: "Spark SQL" },
 ];
 
 const splitList = (raw: string, byNewline = false) =>

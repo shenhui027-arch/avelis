@@ -19,6 +19,8 @@ from avelis.connectors.hive import HiveConnector
 from avelis.connectors.mysql import MySQLMetaConnector
 from avelis.connectors.oracle import OracleConnector
 from avelis.connectors.postgres import PostgresConnector
+from avelis.connectors.spark import CATALOG as SPARK_CATALOG
+from avelis.connectors.spark import SparkConnector
 from avelis.connectors.sqlserver import SqlServerConnector
 from avelis.connectors.starrocks import INTERNAL_CATALOG, StarRocksConnector
 from avelis.connectors.tidb import TiDBConnector
@@ -299,6 +301,39 @@ TRINO = Engine(
     "物化视图未联调，按普通表采集；不报告数据新鲜度；2026-11-28 已实机验证 Trino 482",
 )
 
+SPARK = Engine(
+    kind="spark",
+    label="Spark SQL",
+    # 库.表 两级；资产名补固定 Catalog 段 spark_catalog，生成的 SQL 不写 Catalog 段
+    # Spark 不区分大小写、元数据存为小写：解析前按 Spark 规则折叠未加引号的标识符，视图里写的 SALES 才能对上 sales
+    sql=SqlDialect(
+        name="spark", default_catalog=SPARK_CATALOG, catalog_in_sql=False, normalize=fold_identifiers("spark")
+    ),
+    name_levels=("database", "table"),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
+    collector=SparkConnector,
+    querier=SparkConnector,
+    default_port=10000,
+    options=(
+        OptionField("databases", "采集的库", required=True),
+        OptionField(
+            "auth",
+            "认证方式",
+            type="choice",
+            choices=HIVE_AUTH_MODES,
+            default="NONE",
+            hint="NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持",
+        ),
+        *TLS_OPTIONS,
+    ),
+    credential_free=("auth", ("NONE", "NOSASL")),
+    note="经 Spark Thrift Server（HiveServer2 协议，binary 传输）采集元数据；视图定义取 Spark 保存的原文，"
+    "按建视图时的当前库补全库名后解析；问数用专用查询账号，Spark 没有只读会话，"
+    "只读依赖 SQL 校验与只有 SELECT 权限的账号；"
+    "超时由 Avelis 到期取消（最多晚约 5 秒），没有每查询内存上限；数据新鲜度取最新分区的写入时间；"
+    "不暴露表 ID，表与视图按名称对应；2026-11-28 已实机验证 Spark 4.0.1",
+)
+
 FAKE = Engine(
     kind="fake",
     label="测试适配器",
@@ -312,4 +347,4 @@ FAKE = Engine(
     note="仅用于单元测试，结果会标记为测试数据",
 )
 
-BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, TIDB, TRINO, FAKE)
+BUILTIN = (STARROCKS, MYSQL, POSTGRES, CLICKHOUSE, SQLSERVER, ORACLE, DORIS, HIVE, TIDB, TRINO, SPARK, FAKE)
