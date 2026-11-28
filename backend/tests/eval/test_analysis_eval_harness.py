@@ -64,7 +64,7 @@ def _uid() -> str:
 
 def test_a1_candidate_limit_and_understand_prompts(monkeypatch):
     """A1: >30 指标时 candidate_metrics 上限 15，UNDERSTAND_PROMPT 保留维度筛选词，重理解附带可见目录。"""
-    assert "渠道/品类/区域/城市/门店" in agent.UNDERSTAND_PROMPT
+    assert "渠道/品类/区域/城市/网点" in agent.UNDERSTAND_PROMPT
     assert "优先精确语义匹配" in agent.UNDERSTAND_PROMPT
 
     cards = [
