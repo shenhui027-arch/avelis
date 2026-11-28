@@ -6,7 +6,59 @@
 
 from __future__ import annotations
 
+from avelis.i18n import gettext
+
 ERROR_KINDS = ("unreachable", "timeout", "auth", "permission", "tls", "unknown")
+
+_RULES = (
+    ("tls", ("ssl", "tls", "certificate", "x509")),
+    (
+        "auth",
+        (
+            "access denied for user",
+            "password authentication failed",
+            "login failed",
+            "authentication failed",
+            "ora-01017",
+            "invalid username/password",
+            "wrong password",
+            "code: 516",
+        ),
+    ),
+    (
+        "permission",
+        (
+            "permission denied",
+            "command denied",
+            "insufficient privilege",
+            "ora-01031",
+            "not authorized",
+            "access denied",
+        ),
+    ),
+    ("timeout", ("timed out", "timeout", "连接超时")),
+    (
+        "unreachable",
+        (
+            "can't connect",
+            "could not connect",
+            "connection refused",
+            "network is unreachable",
+            "no route to host",
+            "name or service not known",
+            "nodename nor servname",
+            "getaddrinfo",
+            "unknown host",
+            "could not translate host name",
+            "ora-12541",
+            "ora-12514",
+            "tns:",
+            "connection reset",
+            "errno 101",
+            "errno 111",
+        ),
+    ),
+)
 
 
 def classify(raw: str | None) -> str | None:
@@ -22,8 +74,13 @@ def classify(raw: str | None) -> str | None:
        "could not translate host name"、"ora-12541"、"ora-12514"、"tns:"、"connection reset"、"errno 101"、"errno 111"
     6. 以上都不中：unknown
     """
-    # TODO(codex): 按上面的规则实现
-    raise NotImplementedError
+    if raw is None or not raw.strip():
+        return None
+    normalized = raw.lower()
+    for kind, keywords in _RULES:
+        if any(keyword in normalized for keyword in keywords):
+            return kind
+    return "unknown"
 
 
 def explain(raw: str | None) -> str | None:
@@ -34,5 +91,15 @@ def explain(raw: str | None) -> str | None:
     - permission：权限不足：采集账号缺少读取元数据的权限
     - tls：TLS 连接失败：请检查证书与 TLS 配置
     """
-    # TODO(codex): 实现（gettext 来自 avelis.i18n，文案需补英文与繁体译文）
-    raise NotImplementedError
+    match classify(raw):
+        case "unreachable":
+            return gettext("无法连接到数据库：请检查地址、端口和网络是否可达")
+        case "timeout":
+            return gettext("连接数据库超时：请检查网络，或稍后重试")
+        case "auth":
+            return gettext("账号或口令错误：请检查采集账号")
+        case "permission":
+            return gettext("权限不足：采集账号缺少读取元数据的权限")
+        case "tls":
+            return gettext("TLS 连接失败：请检查证书与 TLS 配置")
+    return None
