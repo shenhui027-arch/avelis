@@ -95,7 +95,9 @@ STANDARD_FUNCTIONS: dict[type, tuple[str, int, int]] = {
 WINDOW_FUNCTIONS = (exp.RowNumber, exp.Rank, exp.DenseRank, exp.Lag, exp.Lead)
 WINDOW_ALLOWED_INNER = (*WINDOW_FUNCTIONS, exp.Sum, exp.Count, exp.Avg, exp.Min, exp.Max)
 DATE_UNITS = {"DAY", "WEEK", "MONTH", "QUARTER", "YEAR"}  # 日期截断与 INTERVAL 允许的单位
-ORACLE_TRUNC_FORMATS = {"DAY": "DD", "WEEK": "IW", "MONTH": "MM", "QUARTER": "Q", "YEAR": "YYYY"}
+# Oracle TRUNC 的格式模型（SQLGlot 会把 DATE_TRUNC 生成为 Oracle 不认的 TIMESTAMP_TRUNC，故自行生成 TRUNC）；
+# 取 SQLGlot 解析后再生成保持不变的写法（MONTH、YEAR 与 MM、YYYY 在 Oracle 中等价），重新生成的 SQL 才能通过复核
+ORACLE_TRUNC_FORMATS = {"DAY": "DD", "WEEK": "IW", "MONTH": "MONTH", "QUARTER": "Q", "YEAR": "YEAR"}
 # 结构节点的允许清单（函数另外按档案核对）
 STRUCTURE = {
     exp.Select,
@@ -443,9 +445,9 @@ def _check_syntax(
 ) -> None:
     allowed_cast = TARGET_CAST_TYPES if is_target else CAST_TYPES
     var_parents = (
-        (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff)
+        (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff, exp.WeekStart)
         if is_target
-        else (exp.Interval, exp.DateTrunc, exp.TimestampTrunc)
+        else (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.WeekStart)
     )
     for node in ast.walk():
         if node.comments:
@@ -457,6 +459,13 @@ def _check_syntax(
             raise ExploreRejected("syntax", "banned_function", f"函数 {name or node.this} 不允许使用")
         kind = type(node)
         if isinstance(node, exp.If) and isinstance(node.parent, exp.Case):  # CASE 的 WHEN 分支
+            continue
+        # 按周截断的单位：SQLGlot 把 Oracle TRUNC(…, 'IW') 解析成 unit = WEEK_START(MONDAY)，只在截断的单位位置上允许
+        if (
+            isinstance(node, exp.WeekStart)
+            and node.arg_key == "unit"
+            and isinstance(node.parent, (exp.DateTrunc, exp.TimestampTrunc))
+        ):
             continue
         if is_target and dialect == "oracle" and isinstance(node, (exp.Fetch, exp.LimitOptions)):
             if node.args.get("with_ties") or node.args.get("percent"):
@@ -508,12 +517,8 @@ def _check_syntax(
                     "syntax", "window_requires_over", f"窗口函数 {node.sql_name()} 必须配合 OVER (...) 使用"
                 )
             if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
-                valid_units = (
-                    set(ORACLE_TRUNC_FORMATS.values())
-                    if (is_target and dialect == "oracle" and isinstance(node, exp.DateTrunc))
-                    else DATE_UNITS
-                )
-                if _unit(node) not in valid_units:
+                # SQLGlot 把 Oracle TRUNC 的格式模型（DD、IW、Q 等）解析成标准单位，各方言统一按 DATE_UNITS 核对
+                if _unit(node) not in DATE_UNITS:
                     raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
             if isinstance(node, (exp.DateAdd, exp.TimestampDiff)) and _unit(node) not in DATE_UNITS:
                 raise ExploreRejected("syntax", "date_unit", f"日期单位只能是 {'、'.join(sorted(DATE_UNITS))}")
