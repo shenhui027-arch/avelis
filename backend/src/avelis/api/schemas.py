@@ -917,6 +917,7 @@ class ImportFileOut(Out):
     supersedes: str | None = None
     superseded_by: str | None = None
     language: str
+    source_type: str | None = None
     status: str
     statement_count: int = 0
     stats: Json = Field(default_factory=dict)

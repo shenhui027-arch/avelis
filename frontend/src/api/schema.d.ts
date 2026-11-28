@@ -6109,6 +6109,8 @@ export interface components {
             superseded_by?: string | null;
             /** Language */
             language: string;
+            /** Source Type */
+            source_type?: string | null;
             /** Status */
             status: string;
             /**

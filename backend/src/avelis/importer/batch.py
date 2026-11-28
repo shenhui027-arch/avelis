@@ -1288,6 +1288,8 @@ def batch_view(session: Session, batch: ImportBatch) -> dict[str, Any]:
                 "stats": f.stats,
                 "superseded_by": f.superseded_by,
                 "language": f.language,
+                # dbt manifest 存成生成的 SQL（language 为 sql），界面按 source_type 显示来源类型
+                "source_type": f.source_type,
                 "status": batch.status if (f.stats or {}).get("staged") else f.status,
                 "statements": (f.stats or {}).get("statements", {}),
                 "statement_count": sum((f.stats or {}).get("statements", {}).values()),
