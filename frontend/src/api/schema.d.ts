@@ -7417,6 +7417,10 @@ export interface components {
             };
             /** Error */
             error?: string | null;
+            /** Error Kind */
+            error_kind?: string | null;
+            /** Error Message */
+            error_message?: string | null;
             /** Snapshot Hash */
             snapshot_hash?: string | null;
         } & {
@@ -7988,6 +7992,10 @@ export interface components {
             } | null;
             /** Error */
             error?: string | null;
+            /** Error Kind */
+            error_kind?: string | null;
+            /** Error Message */
+            error_message?: string | null;
         } & {
             [key: string]: unknown;
         };
