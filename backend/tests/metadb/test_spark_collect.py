@@ -29,6 +29,7 @@ from avelis.models import (
     ColumnVersion,
     Datasource,
     Definition,
+    Grain,
     LineageEdge,
     ParseResult,
 )
@@ -252,6 +253,10 @@ def test_renamed_columns_uppercase_names_and_recreated_context(sp):
         f"CREATE TABLE IF NOT EXISTS {DB}_alt.shops (shop_id BIGINT, city STRING) USING parquet",
         f"USE {DB}",
         "CREATE OR REPLACE VIEW renamed (id_renamed, city_renamed) AS SELECT SHOP_ID, CITY FROM SHOPS",
+        # 声明的列名 + 重名的输出列 + 分组：采集按位置对应列名，粒度照常推导
+        "CREATE OR REPLACE VIEW paired (left_id, right_id, total) AS "
+        "SELECT s.shop_id, h.shop_id, SUM(s.amount) AS amount_sum "
+        "FROM sales s JOIN shops h ON h.shop_id = s.shop_id GROUP BY s.shop_id, h.shop_id",
     )
     run_collection(sp["ds"], trigger="manual")
     view, view_v = _assets(sp["ds"])[f"spark_catalog.{DB}.renamed"]
@@ -267,6 +272,23 @@ def test_renamed_columns_uppercase_names_and_recreated_context(sp):
         }
     assert ("id_renamed", f"spark_catalog.{DB}.shops", "shop_id", True) in edges
     assert ("city_renamed", f"spark_catalog.{DB}.shops", "city", True) in edges
+    paired, paired_v = _assets(sp["ds"])[f"spark_catalog.{DB}.paired"]
+    with session_scope() as s:
+        paired_edges = {
+            (e.target_column, e.source_ref, e.source_column)
+            for e in s.scalars(
+                select(LineageEdge).where(
+                    LineageEdge.target_asset_id == paired.id,
+                    LineageEdge.status == "active",
+                    LineageEdge.target_column.is_not(None),
+                )
+            )
+        }
+        grain = s.scalar(select(Grain).where(Grain.asset_version_id == paired_v.id))
+    assert ("left_id", f"spark_catalog.{DB}.sales", "shop_id") in paired_edges
+    assert ("right_id", f"spark_catalog.{DB}.shops", "shop_id") in paired_edges
+    assert ("total", f"spark_catalog.{DB}.sales", "amount") in paired_edges
+    assert grain is not None and grain.columns == ["left_id", "right_id"]
     before = definition.canonical_hash
     _execute(
         sp,
@@ -278,4 +300,9 @@ def test_renamed_columns_uppercase_names_and_recreated_context(sp):
     with session_scope() as s:
         after = s.scalar(select(Definition.canonical_hash).where(Definition.asset_version_id == view_v2.id))
     assert view_v2.id != view_v.id and after != before  # 文本相同、解析上下文不同：产生新版本
-    _execute(sp, f"DROP VIEW IF EXISTS {DB}.renamed", f"DROP DATABASE IF EXISTS {DB}_alt CASCADE")
+    _execute(
+        sp,
+        f"DROP VIEW IF EXISTS {DB}.renamed",
+        f"DROP VIEW IF EXISTS {DB}.paired",
+        f"DROP DATABASE IF EXISTS {DB}_alt CASCADE",
+    )

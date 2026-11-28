@@ -2982,5 +2982,5 @@ msgstr "一個資料來源對應一個 Catalog；採集只讀中繼資料，檢�
 msgid "NONE 只传账号名（服务端未开启认证时）；PASSWORD 需账号与口令，且必须走 HTTPS"
 msgstr "NONE 只傳帳號名（伺服器未開啟驗證時）；PASSWORD 需帳號與密碼，且必須走 HTTPS"
 
-msgid "经 Spark Thrift Server（HiveServer2 协议，binary 传输）采集元数据；视图定义取 Spark 保存的原文，不写库名的表按建视图时的当前库解析；问数用专用查询账号，Spark 没有只读会话，只读依赖 SQL 校验与只有 SELECT 权限的账号；超时由 Avelis 到期取消（最多晚约 5 秒），没有每查询内存上限；数据新鲜度取最新分区的写入时间；不暴露表 ID，表与视图按名称对应；2026-11-28 已实机验证 Spark 4.0.1"
-msgstr "經 Spark Thrift Server（HiveServer2 協定，binary 傳輸）採集中繼資料；檢視表定義取 Spark 儲存的原文，不寫庫名的表按建立檢視表時的目前庫解析；問數用專用查詢帳號，Spark 沒有唯讀工作階段，唯讀依賴 SQL 校驗與只有 SELECT 權限的帳號；逾時由 Avelis 到期取消（最多晚約 5 秒），沒有每查詢記憶體上限；資料新鮮度取最新分割區的寫入時間；不公開表 ID，表與檢視表按名稱對應；2026-11-28 已實機驗證 Spark 4.0.1"
+msgid "经 Spark Thrift Server（HiveServer2 协议，binary 传输）采集元数据；视图定义取 Spark 保存的原文，按建视图时的当前库补全库名后解析；问数用专用查询账号，Spark 没有只读会话，只读依赖 SQL 校验与只有 SELECT 权限的账号；超时由 Avelis 到期取消（最多晚约 5 秒），没有每查询内存上限；数据新鲜度取最新分区的写入时间；不暴露表 ID，表与视图按名称对应；2026-11-28 已实机验证 Spark 4.0.1"
+msgstr "經 Spark Thrift Server（HiveServer2 協定，binary 傳輸）採集中繼資料；檢視表定義取 Spark 儲存的原文，按建立檢視表時的目前庫補全庫名後解析；問數用專用查詢帳號，Spark 沒有唯讀工作階段，唯讀依賴 SQL 校驗與只有 SELECT 權限的帳號；逾時由 Avelis 到期取消（最多晚約 5 秒），沒有每查詢記憶體上限；資料新鮮度取最新分割區的寫入時間；不公開表 ID，表與檢視表按名稱對應；2026-11-28 已實機驗證 Spark 4.0.1"

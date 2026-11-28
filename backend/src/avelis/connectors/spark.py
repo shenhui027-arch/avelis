@@ -12,8 +12,8 @@
   - Table Properties、Partition Parameters 写成 “[k=v, k2=v2]”。
 - 视图定义：Spark 保存原文（View Text），不展开库名，也不含 CREATE VIEW v (列, …) 里声明的列名。不写库名的表按
   “View Catalog and Namespace”里建视图时的当前库解析，不一定是视图所在的库。适配器因此像 Hive 的展开文本那样补全：
-  按建视图时的当前库补全表的库名（CTE 不动），并按位置把输出列名对齐到视图的列；记下的定义因此自足，
-  建视图时的当前库或声明的列名变化都会体现在定义的指纹与执行前核对里。补全失败（SQLGlot 解析不了）时保留原文。
+  按建视图时的当前库补全表的库名（CTE 不动），记下的定义因此自足，建视图时的当前库变化会体现在定义的指纹与
+  执行前核对里；声明的列名由采集按位置对应到视图的列（对所有引擎都成立）。补全失败（SQLGlot 解析不了）时保留原文。
   建视图时的 Catalog 与库另记在资产属性 view_context 里，只作说明。
 - 问数执行：会话参数经 execute_async 的 configuration 传入无效，改为先执行 SET：
   - spark.sql.session.timeZone 设业务时区；
@@ -32,7 +32,6 @@ from __future__ import annotations
 import re
 
 import sqlglot
-from sqlglot import exp
 from sqlglot.errors import ParseError, TokenError
 from sqlglot.optimizer.qualify_tables import qualify_tables
 
@@ -127,11 +126,12 @@ def parse_spark_described(rows: list[tuple]) -> Described:
     return out
 
 
-def spark_view_definition(view_text: str | None, namespace: str | None, columns: list[str]) -> str | None:
-    """把 Spark 保存的视图原文补全成自足的定义：表补上建视图时的当前库，输出列名按位置对齐视图的列。
+def spark_view_definition(view_text: str | None, namespace: str | None) -> str | None:
+    """把 Spark 保存的视图原文补全成自足的定义：不写库名的表补上建视图时的当前库（CTE 不动）。
 
-    namespace 取 “View Catalog and Namespace”（如 spark_catalog.default），最后一段是库；columns 是视图的列名。
-    投影含 * 或列数对不上时不改列名；解析失败时返回原文。
+    namespace 取 “View Catalog and Namespace”（如 spark_catalog.default），最后一段是库。只补库名，不改查询的其余部分：
+    CREATE VIEW v (列, …) 声明的列名由采集按位置对应到视图的列（见 collect.service._view_column_names）。
+    解析失败时返回原文。
     """
     if not view_text:
         return view_text
@@ -142,36 +142,7 @@ def spark_view_definition(view_text: str | None, namespace: str | None, columns:
     db = (namespace or "").strip().rpartition(".")[2]
     if db:
         tree = qualify_tables(tree, db=db, dialect="spark")
-    head = tree
-    while isinstance(head, exp.SetOperation):
-        head = head.this
-    if isinstance(head, exp.Select) and columns and len(head.expressions) == len(columns):
-        projections = head.expressions
-        if not any(
-            isinstance(p, exp.Star) or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star)) for p in projections
-        ):
-            if any(p.alias_or_name != name for p, name in zip(projections, columns, strict=True)):
-                return _with_declared_names(tree, projections, columns)
     return tree.sql(dialect="spark")
-
-
-def _with_declared_names(tree: exp.Expression, projections: list[exp.Expression], columns: list[str]) -> str:
-    """原查询原样作子查询，外层按位置换成视图声明的列名：不改原查询里的别名，ORDER BY 等对别名的引用照常有效。
-    原查询里没有名字的投影（如未加别名的表达式）先补一个内部别名，外层才能引用。"""
-    inner_names = []
-    for i, projection in enumerate(projections):
-        name = projection.alias_or_name
-        if not (isinstance(projection, (exp.Alias, exp.Column)) and name):
-            name = f"_avelis_col{i + 1}"
-            projection.replace(exp.alias_(projection.copy(), exp.to_identifier(name)))
-        inner_names.append(name)
-    outer = exp.select(
-        *(
-            exp.alias_(exp.column(inner, table="_avelis_view"), exp.to_identifier(declared))
-            for inner, declared in zip(inner_names, columns, strict=True)
-        )
-    ).from_(exp.Subquery(this=tree, alias=exp.TableAlias(this=exp.to_identifier("_avelis_view"))))
-    return outer.sql(dialect="spark")
 
 
 class SparkConnector(HiveConnector):
@@ -200,11 +171,7 @@ class SparkConnector(HiveConnector):
         """视图定义取 View Text，按建视图时的当前库与视图的列补全（见模块说明）；表没有定义。"""
         if kind != "view":
             return None
-        return spark_view_definition(
-            described.expanded_query,
-            described.info.get("View Catalog and Namespace"),
-            [name for name, _, _ in described.columns],
-        )
+        return spark_view_definition(described.expanded_query, described.info.get("View Catalog and Namespace"))
 
     def _observed(self, db: str, name: str, described: Described, definition: str | None) -> ObservedAsset:
         """在 Hive 的观察结果上补 Spark 的属性：provider，以及视图的 view_context（建视图时的当前 Catalog 与库）。"""

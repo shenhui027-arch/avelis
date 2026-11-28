@@ -28,7 +28,7 @@ from avelis.db import session_scope, utcnow
 from avelis.engines import collect_connector, dialect_of, engine_of
 from avelis.engines.base import VIEW_LINEAGE
 from avelis.lineage.fingerprint import GraphState, compute_fingerprints
-from avelis.lineage.sql import PARSER_VERSION, SqlDialect, canonical_hash_of, parse_query
+from avelis.lineage.sql import PARSER_VERSION, ParsedQuery, SqlDialect, canonical_hash_of, parse_query
 from avelis.models import (
     Asset,
     AssetColumn,
@@ -632,6 +632,32 @@ def _view_rename_candidates(
 # --- 解析 -------------------------------------------------------------------------
 
 
+def _view_column_names(session: Session, asset: Asset, parsed: ParsedQuery) -> list[str]:
+    """视图的列就是查询的输出列、按位置一一对应：输出列名与采集到的视图列名不同时（如 CREATE VIEW v (a, b) AS …
+    声明了列名，而保存的查询里没有），按位置用采集到的列名。列数对不上（如残留 *）时照旧用输出列名。"""
+    output = [c.name for c in parsed.columns]
+    declared = list(
+        session.scalars(
+            select(ColumnVersion.name)
+            .where(ColumnVersion.asset_version_id == asset.current_version_id)
+            .order_by(ColumnVersion.ordinal)
+        )
+    )
+    return declared if len(declared) == len(output) else output
+
+
+def _renamed_outputs(parsed: ParsedQuery, names: list[str]) -> list[str]:
+    """分组键（按输出列名记）换成视图的列名：同名的输出列按出现顺序依次对应（如 a.id、b.id 两列都叫 id）。"""
+    unused: dict[str, list[int]] = {}
+    for i, column in enumerate(parsed.columns):
+        unused.setdefault(column.name, []).append(i)
+    out = []
+    for name in parsed.group_outputs or []:
+        positions = unused.get(name)
+        out.append(names[positions.pop(0)] if positions else name)
+    return out
+
+
 def build_schema(session: Session, datasource_id: str) -> dict:
     schema: dict = {}
     rows = session.execute(
@@ -717,7 +743,8 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
             parts = tuple(table.split("."))
             return index.get(parts) if len(parts) == 3 else None
 
-        for column in parsed.columns:
+        names = _view_column_names(session, asset, parsed)
+        for column, target_name in zip(parsed.columns, names, strict=True):
             for src in column.sources:
                 session.add(
                     LineageEdge(
@@ -725,7 +752,7 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
                         parse_result_id=result.id,
                         target_asset_id=asset.id,
                         target_asset_version_id=asset.current_version_id,
-                        target_column=column.name,
+                        target_column=target_name,
                         source_asset_id=source_id(src.ref.table),
                         source_ref=src.ref.table,
                         source_column=src.ref.column,
@@ -766,7 +793,7 @@ def _parse_definitions(session: Session, ds: Datasource, ctx: RunContext) -> Non
                 )
             )
         if parsed.group_outputs or parsed.distinct:
-            columns = parsed.group_outputs if parsed.group_outputs else [c.name for c in parsed.columns]
+            columns = _renamed_outputs(parsed, names) if parsed.group_outputs else list(names)
             session.add(
                 Grain(
                     asset_id=asset.id,
