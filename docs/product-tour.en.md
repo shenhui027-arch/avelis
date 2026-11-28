@@ -83,9 +83,62 @@ Q&A and analysis pick relevant skills from the ones you have enabled. You can al
 
 ## Lineage
 
-Table-level and column-level lineage graph: filter by business domain, search for tables, and show join paths or columns. When a table is selected, the inspector on the right shows its grain, upstream tables and parsed column-level edges, join paths with their review status, and influencing conditions.
+### Canvas
+
+Table- and column-level lineage graph: filter by business domain, search for tables, switch between “Tables only” and “Show columns”, and show the join paths maintained in governance. Solid lines carry values from upstream to downstream; dashed lines in the warning color are influencing conditions such as filters, join keys and grouping (they decide which rows take part, but no value is copied to the output); dotted lines link an external table to the real table behind it (“Same table”); dashed placeholder nodes are tables that appear in imported code but have not been collected yet.
+
+**Interaction rule**: clicking a table or column only selects and highlights it; queries such as direction, depth and ends only are started from the trace bar at the top left of the canvas.
 
 ![Lineage](images/en/lineage.png)
+
+### Selection and tracing
+
+Selecting a table or column lights up every upstream and downstream path along the data flow, and the inspector on the right shows its grain, upstream and downstream tables, join paths and influencing conditions. A trace bar appears at the top left of the canvas:
+
+| Control | Effect |
+|---|---|
+| Upstream / Both / Downstream | Trace direction; “Both” is the union of the two directions |
+| Depth | All depths, or only 1, 2, 3 or 5 levels; the bar also shows how many levels can actually be reached |
+| Ends only | Keeps only the starting point, the furthest upstream sources and the final destinations; the tables in between collapse into one line labelled with the number of levels |
+
+Tracing follows only the data flow (direct, computed, aggregated, table-level and “Same table”). Filters, join keys and grouping stay visible on the graph but do not take part, so a path contains only real data sources.
+
+![Ends only: the 6 final destinations of orders, with the levels in between collapsed](images/en/lineage-trace.png)
+
+### Edge badges
+
+Lines that carry a computation, an aggregation or an influencing condition have a badge in the middle; hover over it to see each column mapping and its expression:
+
+| Badge | Meaning |
+|---|---|
+| `Σ` Aggregated | Many rows summarised into one value, such as `SUM(x) … GROUP BY …` |
+| `ƒ` Computed | A one-to-one computation, such as `price * qty` |
+| `⊳` Filter | A column used in a `WHERE` condition |
+| `⋈` Join key | A column in a join condition between two tables |
+| `▦` Group by | A column in `GROUP BY` |
+
+Lines that pass values through unchanged have no badge. When there are more than 120 lines, badges appear only on the selected path to keep the canvas readable.
+
+### Table view
+
+Switch the toolbar to “Table” to see every column-level relation as a table, one row per relation, with source table, source column, target table, target column, relation, expression and origin. You can search, filter by relation, sort by clicking a header, and page through 100 rows at a time. With a table or column selected you can limit the table to the selected path (for a column, only that column's mappings). “Export CSV” exports all filtered and sorted rows. Clicking a table or column name takes you back to it on the graph.
+
+![Table view: search, filter by relation and export CSV](images/en/lineage-table.png)
+
+### Import
+
+“Import” uploads SQL, Python and Shell scripts and parses design-time lineage from them; fragments the parser cannot handle become model-suggested candidates that are written to lineage once confirmed.
+
+### FAQ and known limitations
+
+| Question | Answer |
+|---|---|
+| Why is a line missing from the traced path? | It carries only filter, join key or grouping relations: it affects which rows take part, but it is not a data source, so it does not take part in tracing |
+| What are the dashed placeholder tables? | Tables that appear in imported code but have not been collected from any data source yet; their columns come only from import parsing, and they have no asset dossier |
+| Why does an external table link to a table in another database? | An external table (such as a StarRocks JDBC catalog table) and the real table behind it are the “Same table”; tracing continues through the matching column names |
+| Can dynamically built SQL be parsed? | SQL assembled at run time cannot be parsed statically; import lists it under “Unrecognized fragments”, and the model can suggest candidates for you to confirm |
+| Which databases have lineage? | Only engines supported by SQLGlot; see “Supported databases” in the README for each engine's capabilities. Apache Hive collects metadata and view lineage only |
+| Very large lineage | The graph loads the whole connected component of the selected scope at once. With many tables the canvas zooms out only as far as table names stay readable; narrow it down with search, domain filters and “Ends only”. Incremental collection and search for 10k-table catalogs are on the roadmap |
 
 ## Catalog
 

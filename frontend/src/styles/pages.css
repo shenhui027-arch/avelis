@@ -148,6 +148,14 @@
 .av-flow__dots circle { fill: var(--text-tertiary); opacity: .6; }
 .av-flow__dots.is-path circle { fill: var(--flow); opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .av-flow__dots { display: none; } }
+/* 边类型徽章：画布上由 EdgeLabelRenderer 绝对定位并接收指针事件，图例内退回行内流 */
+.av-edge-badge { position: absolute; top: 0; left: 0; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: var(--space-5); height: var(--space-5); padding: 0 var(--space-1); border: 1px solid var(--line-default); border-radius: var(--radius-full); background: var(--bg-overlay); font: var(--type-mono); font-weight: 500; line-height: 1; white-space: nowrap; pointer-events: all; user-select: none; }
+.av-edge-badge--legend { position: static; pointer-events: auto; }
+.av-edge-badge.is-path { border-color: var(--flow); }
+.av-edge-badge.is-dim { opacity: .35; }
+.av-edge-badge__kind { display: inline-block; line-height: 1; }
+.av-edge-badge__kind--aggregated, .av-edge-badge__kind--computed { color: var(--flow); }
+.av-edge-badge__kind--filter, .av-edge-badge__kind--join_key, .av-edge-badge__kind--group_by { color: var(--warn); }
 .av-lineage__zoom { bottom: var(--space-4); right: var(--space-4); gap: var(--space-1); }
 .av-lineage__zoom .av-btn:not(.av-btn--icon) { min-width: calc(var(--space-8) * 2); }
 /* 追溯工具条：浮在画布左上角，与底部图例 / 缩放互不遮挡 */

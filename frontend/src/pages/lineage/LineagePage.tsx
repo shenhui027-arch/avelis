@@ -4,7 +4,7 @@
 // 外部表与真实表是“同一张表”（点线 + 链条标记），导入的设计时表为虚线占位节点。点击列高亮列级路径。
 import dagre from "@dagrejs/dagre";
 import {
-  BaseEdge, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore,
+  BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, useStore,
   type Edge, type EdgeProps, type Node, type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -20,6 +20,7 @@ import {
 import { useOverlay } from "../../components/overlay";
 import { t } from "../../i18n";
 import { EdgeTable } from "./EdgeTable";
+import { BADGE_ORDER, BADGE_SYMBOL, badgeTip, edgeBadge, type BadgeKind, type EdgeBadge } from "./edgeBadges";
 import { buildFlowIndex, endsGraph, trace, TRACE_RELATION, type Direction, type TraceResult } from "./trace";
 
 type GNode = Graph["nodes"][number];
@@ -114,6 +115,13 @@ type FlowData = {
   ambient: boolean;
   labelDx?: number;
   labelDy?: number;
+  /** 边类型徽章（计算 / 聚合 / 过滤 / 关联键 / 分组）；null 表示这条边不加徽章 */
+  badge?: EdgeBadge | null;
+};
+
+// 徽章种类对应 RELATION_LABEL 的关系键，复用统一的读屏与图例译文
+const BADGE_RELATION: Record<BadgeKind, string> = {
+  aggregated: "value_aggregated", computed: "value_computed", filter: "filter", join_key: "join_key", group_by: "group_by",
 };
 
 function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, label, labelStyle,
@@ -121,10 +129,12 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const d = data!;
   const dots = d.onPath ? [0, 0.8] : [];
+  const midX = labelX + (d.labelDx ?? 0);
+  const midY = labelY + (d.labelDy ?? 0);
   return (
     <>
       {d.onPath ? <path d={path} className="av-flow__glow" /> : null}
-      <BaseEdge id={id} path={path} label={label} labelX={labelX + (d.labelDx ?? 0)} labelY={labelY + (d.labelDy ?? 0)}
+      <BaseEdge id={id} path={path} label={label} labelX={midX} labelY={midY}
         labelStyle={labelStyle} labelBgStyle={labelBgStyle} labelBgPadding={[6, 3]} labelBgBorderRadius={4}
         className={`av-flow av-flow--${d.tone}${d.design ? " is-design" : ""}${d.onPath ? " is-path" : ""}${d.dim ? " is-dim" : ""}`}
         />
@@ -135,6 +145,24 @@ function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
           </circle>
         ))}
       </g> : null}
+      {/* 全局 data-tip 只作用于 HTML 元素，徽章经 EdgeLabelRenderer 挂到 HTML 层 */}
+      {d.badge && !label ? (
+        <EdgeLabelRenderer>
+          <div
+            className={`av-edge-badge nodrag nopan${d.onPath ? " is-path" : ""}${d.dim ? " is-dim" : ""}`}
+            style={{ transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px)` }}
+            role="img"
+            aria-label={d.badge.kinds.map((kind) => RELATION_LABEL[BADGE_RELATION[kind]]).join(t("、"))}
+            data-tip={badgeTip(d.badge, t("（影响）").trim(), (count) => t("还有 {{count}} 条", { count }))}
+          >
+            {d.badge.kinds.map((kind) => (
+              <span key={kind} className={`av-edge-badge__kind av-edge-badge__kind--${kind}`} aria-hidden="true">
+                {BADGE_SYMBOL[kind]}
+              </span>
+            ))}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }
@@ -311,16 +339,19 @@ function Canvas() {
         ? Math.min(...e.columns.map((c) => Number(c.attributes?.hops ?? 1)))
         : 1;
       const value = isTrace || e.relations.some((r) => VALUE.has(r));
+      // 徽章：边不多时全部显示，边多时只在选中路径上显示，避免画布拥挤
+      const badge = isTrace ? null : edgeBadge(e.columns);
       const designTime = !isTrace && e.origins.every((o) => o !== "parsed" && o !== "manual");
       const key = `${e.source}->${e.target}`;
       const onPath = isTrace || path.edgeKeys.has(key);
       builtEdges.push({
         id: key, source: e.source, target: e.target, type: "flow",
         // 直接相连（1 层）时中间没有折叠任何表，不加标签
-        label: isTrace ? (hops > 1 ? t("经 {{count}} 层", { count: hops }) : undefined) : !value && e.relations.includes("join_key") ? t("关联") : undefined,
+        label: isTrace && hops > 1 ? t("经 {{count}} 层", { count: hops }) : undefined,
         labelStyle: { fill: isTrace ? "var(--flow)" : "var(--warn)", fontSize: 11, fontFamily: "var(--font-mono)" },
         labelBgStyle: { fill: "var(--bg-overlay)" },
-        data: { tone: value ? "value" : "influence", design: designTime, onPath, dim: hasPath && !onPath, ambient },
+        data: { tone: value ? "value" : "influence", design: designTime, onPath, dim: hasPath && !onPath, ambient,
+          badge: badge && (ambient || onPath) ? badge : null },
       });
     }
     for (const l of g.identity_links) {
@@ -462,6 +493,14 @@ function Canvas() {
               <div className="av-lineage__legend-items">
                 <Legend tone="value" label={t("取值")} />
                 <Legend tone="influence" label={t("过滤 / 关联 / 分组")} />
+                {BADGE_ORDER.map((kind) => (
+                  <span key={kind} className="av-caption av-lineage__legend-item">
+                    <span className="av-edge-badge av-edge-badge--legend" aria-hidden="true">
+                      <span className={`av-edge-badge__kind av-edge-badge__kind--${kind}`}>{BADGE_SYMBOL[kind]}</span>
+                    </span>
+                    {RELATION_LABEL[BADGE_RELATION[kind]]}
+                  </span>
+                ))}
                 <Legend tone="identity" label={t("同一张表")} />
                 <Legend tone="join" label={t("关联路径（治理）")} />
                 <Legend tone="design" label={t("导入（设计时）")} />
