@@ -2375,5 +2375,15 @@
   "去向 {{count}}_one": "{{count}} target",
   "去向 {{count}}_other": "{{count}} targets",
   "还有 {{count}} 条_one": "{{count}} more",
-  "还有 {{count}} 条_other": "{{count}} more"
+  "还有 {{count}} 条_other": "{{count}} more",
+  "库 {{database}} 不在采集范围": "Database {{database}} is not in collection scope",
+  "库 {{database}} 已在采集范围，请检查表名或默认库": "Database {{database}} is already in collection scope; check the table name or default database",
+  "外部 Catalog 的表，请在数据源的 Catalog 配置里加入采集": "Table in an external catalog; add it to collection in the data source's catalog settings",
+  "库名 {{database}} 不符合采集器的命名规则，不能自动加入": "Database name {{database}} does not match the collector's naming rules and cannot be added automatically",
+  "加入采集范围并采集": "Add to scope and collect",
+  "加入中…": "Adding…",
+  "已加入 {{names}}，正在采集；采集完成后点“重新解析本批次”即可对上": "Added {{names}}; collecting now. Click “Re-parse this batch” once collection finishes to match",
+  "已在采集范围内": "Already in collection scope",
+  "重新解析本批次": "Re-parse this batch",
+  "重新解析中…": "Re-parsing…"
 }

@@ -23,6 +23,7 @@ from avelis.engines import CredentialMissing, collect_connector, engine_of, engi
 from avelis.engines.base import QUERY, UnsupportedEngine
 from avelis.governance import access
 from avelis.i18n import Msg, gettext, translate
+from avelis.importer.scope import add_to_scope
 from avelis.models import (
     Asset,
     ChangeSet,
@@ -407,6 +408,28 @@ def collect(
         raise HTTPException(502, Msg("采集失败：{error}", error=exc)) from exc
     session.expire_all()
     return run_view(session.get(CollectionRun, run_id))
+
+
+@router.post("/datasources/{datasource_id}/scope", response_model=S.ScopeAddOut)
+def add_scope(
+    datasource_id: str, body: S.ScopeAddIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    """把导入血缘里未匹配的读取来源所在的库 / 模式加入采集范围，有新增时立即排队采集。"""
+    access.require_role(session, user, "steward")
+    # 采集范围整体写回 JSON，串行读取可避免并发添加互相覆盖。
+    ds = session.get(Datasource, datasource_id, with_for_update=True)
+    if ds is None:
+        raise HTTPException(404, Msg("数据源不存在"))
+    try:
+        added = add_to_scope(session, user, ds, engine_of(ds), body.names)
+    except ValueError as exc:
+        raise HTTPException(422, exc.args[0]) from None
+    job_id = None
+    if added:
+        # 采集任务使用独立事务，入队前须提交新范围。
+        session.commit()
+        job_id = jobs.enqueue("collect", {"datasource_id": datasource_id, "trigger": "manual"}, user.id)
+    return {"added": added, "job_id": job_id}
 
 
 @router.get("/datasources/{datasource_id}/runs", response_model=list[S.RunOut])
