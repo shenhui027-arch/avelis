@@ -266,6 +266,14 @@ PROFILES: dict[str, ExploreProfile] = {
         functions=dict(_TRANSLATED),
         settings={"query_max_run_time": "按统一截止时间", "query_max_memory": 2 * 1024**3},
     ),
+    "spark": ExploreProfile(
+        "spark",
+        "2",
+        "spark",
+        False,
+        functions=dict(_TRANSLATED),
+        settings={"spark.sql.thriftServer.queryTimeout": "按统一截止时间（Avelis 到期取消，服务端兜底）"},
+    ),
     "postgres": ExploreProfile(
         "postgres",
         "2",
@@ -439,6 +447,9 @@ def _check_syntax(
     dialect: str = STANDARD_DIALECT,
 ) -> None:
     allowed_cast = TARGET_CAST_TYPES if is_target else CAST_TYPES
+    if is_target and dialect == "spark":
+        # Spark 的 TIMESTAMP 带会话时区语义，SQLGlot 解析为 TIMESTAMPTZ；会话时区已设为业务时区
+        allowed_cast = allowed_cast | {exp.DataType.Type.TIMESTAMPTZ}
     var_parents = (
         (exp.Interval, exp.DateTrunc, exp.TimestampTrunc, exp.DateAdd, exp.TimestampDiff, exp.WeekStart, exp.TsOrDsAdd)
         if is_target
@@ -470,7 +481,7 @@ def _check_syntax(
                 if cnt is not None and not (isinstance(cnt, exp.Literal) and cnt.is_int):
                     raise ExploreRejected("syntax", "limit", "FETCH 行数只能是整数")
             continue
-        if is_target and dialect == "hive" and isinstance(node, exp.TryCast):
+        if is_target and dialect in ("hive", "spark") and isinstance(node, exp.TryCast):
             to = node.args.get("to")
             if not isinstance(to, exp.DataType) or to.this not in allowed_cast:
                 raise ExploreRejected(
@@ -1147,8 +1158,9 @@ def _adapt_target_dialect(tree: exp.Expression, dialect: str) -> None:
                 raise ExploreRejected("regenerate", "date_unit", "Oracle 不支持该日期截断单位")
             node.replace(exp.Anonymous(this="TRUNC", expressions=[node.this, exp.Literal.string(fmt)]))
         _intervals_in_days_and_months(tree)
-    elif dialect == "trino":
-        # Trino 的 INTERVAL 没有 WEEK、QUARTER 单位：与 Oracle 一样改写成天、月，生成的 SQL 仍是“列 ± INTERVAL”
+    elif dialect in ("trino", "hive", "spark"):
+        # 这些方言的 INTERVAL 没有 QUARTER 单位（Trino 也没有 WEEK；Trino 482 报 TYPE_NOT_FOUND，Spark 4.0.1 报
+        # INVALID_TYPED_LITERAL）：与 Oracle 一样改写成天、月，生成的 SQL 仍是“列 ± INTERVAL”
         _intervals_in_days_and_months(tree)
     elif dialect == "mysql":
         for node in list(tree.find_all(exp.TimestampTrunc)):

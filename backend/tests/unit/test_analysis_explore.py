@@ -45,6 +45,7 @@ ENGINES = {
     "sqlserver": resolver("master", None),
     "oracle": resolver("FREEPDB1", None),
     "hive": resolver("hive", None),
+    "spark": resolver("spark_catalog", None),
     "tidb": resolver("def", None),
     "trino": resolver("memory", None),
 }
@@ -71,6 +72,7 @@ def test_all_connectors_have_profiles():
         "sqlserver": True,
         "oracle": False,
         "hive": False,
+        "spark": False,
         "tidb": False,
         "trino": True,
     }
@@ -416,7 +418,7 @@ def test_every_standard_function_has_a_translation_test():
 
 @pytest.mark.parametrize(
     "engine",
-    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive", "tidb", "trino"],
+    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive", "tidb", "trino", "spark"],
 )
 def test_all_eight_dialects_translate_standard_and_window_functions(engine):
     sql = (
