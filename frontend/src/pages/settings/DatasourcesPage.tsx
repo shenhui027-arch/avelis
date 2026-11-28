@@ -43,7 +43,12 @@ function engineOptions(engine?: Schemas["EngineOut"]): EngineOption[] | undefine
   return raw.map((option) => ({ ...option, choices: option.choices ?? [], default: option.default ?? "" }));
 }
 
-/** 当前配置下采集账号是否可不填（如 Hive 认证方式 NONE）。 */
+/** 账号与密码是否填得完整：免口令的认证方式下可只填账号（作会话用户）或都不填；否则要么都填、要么都不填。 */
+function credentialPairOk(user: string, password: string, optional: boolean): boolean {
+  return optional ? !(password && !user.trim()) : Boolean(user.trim()) === Boolean(password);
+}
+
+/** 当前配置下采集与查询账号是否可不填（如 Hive 认证方式 NONE）。 */
 function credentialOptional(engine: Schemas["EngineOut"] | undefined, value: (key: string) => string): boolean {
   const free = engine?.credential_free;
   return !!free && free.values.includes(value(free.option));
@@ -493,21 +498,24 @@ function DatasourceCredential({ ds, purpose, onClose, onSaved }: {
   const [username, setUsername] = useState(ds.credentials.find((c) => c.purpose === purpose)?.username ?? "");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useMessage();
+  // 免口令的认证方式（如 Hive / Spark / Trino 的 NONE）下可只改账号（作会话用户），不要求密码
+  const optional = credentialOptional(ds.engine, (key) => optionText(ds.options[key] ?? "") || optionDefault(ds.engine, key));
+  const ready = !!username.trim() && (optional || !!password);
   const save = useAction(() => unwrap(api.PUT("/api/datasources/{datasource_id}/credentials/{purpose}", {
     params: { path: { datasource_id: ds.id, purpose } }, body: { username: username.trim(), password },
   })), ["datasources"]);
   return <Drawer title={t("更换{{v1}}凭据", { v1: purpose === "collect" ? t("采集") : t("只读查询") })} onClose={onClose} footer={<>
     <button type="button" className="av-btn av-btn--secondary" onClick={onClose}>{t("取消")}</button>
-    <button type="submit" form="datasource-credential-form" className="av-btn av-btn--primary" disabled={!username.trim() || !password || save.isPending}>{save.isPending ? t("保存中…") : t("保存")}</button>
+    <button type="submit" form="datasource-credential-form" className="av-btn av-btn--primary" disabled={!ready || save.isPending}>{save.isPending ? t("保存中…") : t("保存")}</button>
   </>}>
     <p className="av-datasources__form-context">{ds.name} · <span className="av-mono">{ds.host}:{ds.port}</span></p>
     <form id="datasource-credential-form" className="av-datasources__form" aria-busy={save.isPending} onSubmit={(e) => {
       e.preventDefault();
-      if (!username.trim() || !password || save.isPending) return;
+      if (!ready || save.isPending) return;
       save.mutate(undefined, { onSuccess: onSaved, onError: (error) => setMessage({ ok: false, text: errorText(error) }) });
     }}>
       <label className="av-field"><span className="av-label">{t("账号")}</span><input className="av-input av-mono" required maxLength={128} autoComplete="off" autoFocus disabled={save.isPending} value={username} onChange={(e) => setUsername(e.target.value)} /></label>
-      <label className="av-field"><span className="av-label">{t("新密码")}</span><input className="av-input" required maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      <label className="av-field"><span className="av-label">{optional ? t("新密码（可不填）") : t("新密码")}</span><input className="av-input" required={!optional} maxLength={512} type="password" autoComplete="new-password" disabled={save.isPending} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       <Banner message={message} />
     </form>
   </Drawer>;
@@ -525,8 +533,8 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
   const collectOptional = credentialOptional(engine, (key) => configuration[key] || optionDefault(engine, key));
   const valid = engines.isSuccess && !!engine && options !== undefined && !!form.name.trim() && !!form.host.trim() && validPort(port)
     && options.every((option) => !option.required || optionValue(option, configuration[option.key] ?? "").length > 0)
-    && (Boolean(form.collectUser.trim()) === Boolean(form.collectPassword))
-    && (!canQuery || (Boolean(form.queryUser.trim()) === Boolean(form.queryPassword)));
+    && credentialPairOk(form.collectUser, form.collectPassword, collectOptional)
+    && (!canQuery || credentialPairOk(form.queryUser, form.queryPassword, collectOptional));
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: e.target.value });
   const create = useAction(() => unwrap(api.POST("/api/datasources", {
     body: {
@@ -579,12 +587,12 @@ function AddDatasource({ onClose, onCreated }: { onClose: () => void; onCreated:
             <label className="av-field"><span className="av-label">{t("采集账号")}</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.collectUser} onChange={set("collectUser")} /></label>
             <label className="av-field"><span className="av-label">{t("密码")}</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.collectPassword} onChange={set("collectPassword")} /></label>
           </div></fieldset>
-          {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>{t("只读查询凭据")}</legend><div className="av-datasources__field-pair">
+          {canQuery ? <fieldset className="av-datasources__credential-fields"><legend>{collectOptional ? t("只读查询凭据（可不填）") : t("只读查询凭据")}</legend><div className="av-datasources__field-pair">
             <label className="av-field"><span className="av-label">{t("查询账号")}</span><input className="av-input av-mono" maxLength={128} autoComplete="off" value={form.queryUser} onChange={set("queryUser")} /></label>
             <label className="av-field"><span className="av-label">{t("密码")}</span><input className="av-input" maxLength={512} type="password" autoComplete="new-password" value={form.queryPassword} onChange={set("queryPassword")} /></label>
           </div></fieldset> : null}
-          {Boolean(form.collectUser.trim()) !== Boolean(form.collectPassword) || (canQuery && Boolean(form.queryUser.trim()) !== Boolean(form.queryPassword))
-            ? <span className="av-help av-help--danger" role="status">{t("账号和密码需一起填写")}</span> : null}
+          {!credentialPairOk(form.collectUser, form.collectPassword, collectOptional) || (canQuery && !credentialPairOk(form.queryUser, form.queryPassword, collectOptional))
+            ? <span className="av-help av-help--danger" role="status">{collectOptional ? t("填写密码时也要填写账号") : t("账号和密码需一起填写")}</span> : null}
         </fieldset>
         <Banner message={message} />
       </form>}
