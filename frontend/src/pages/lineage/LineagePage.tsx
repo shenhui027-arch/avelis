@@ -20,6 +20,7 @@ import {
 import { useOverlay } from "../../components/overlay";
 import { t } from "../../i18n";
 import { EdgeTable } from "./EdgeTable";
+import { HealthPanel } from "./HealthPanel";
 import { BADGE_ORDER, BADGE_SYMBOL, badgeTip, edgeBadge, type BadgeKind, type EdgeBadge } from "./edgeBadges";
 import { buildFlowIndex, endsGraph, trace, TRACE_RELATION, type Direction, type TraceResult } from "./trace";
 
@@ -689,6 +690,8 @@ function Inspector({ node, graph, graphColumnNames, column, showColumns, onShowC
           </>
         )}
         <NodeJoins node={node} graph={graph} name={name} onPick={onPick} />
+        {/* 血缘体检：只对已采集的表（设计时表没有资产记录） */}
+        {node.kind !== "design_time" ? <HealthPanel key={node.id} assetId={node.id} onPickAsset={onPick} /> : null}
         {influenceGroups.length ? (
           <details className="av-fold av-lineage__influences">
             <summary>{t("影响条件")} <span className="av-caption">{t("{{count}} 项", { count: influences.length })}</span>

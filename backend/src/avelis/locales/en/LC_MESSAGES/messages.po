@@ -2403,6 +2403,9 @@ msgstr "Column “{column}” does not exist or has no source information"
 msgid "模型没有返回可用的说明，请稍后再试"
 msgstr "The model returned no usable description. Please try again later"
 
+msgid "模型没有返回可用的复核结论，请稍后再试"
+msgstr "The model returned no usable review verdict. Please try again later"
+
 msgid "这条说明刚被其他人更新，请刷新后再试"
 msgstr "This description was just updated by someone else. Refresh and try again"
 

@@ -194,6 +194,18 @@
 .av-lineage__grain-tag + .av-lineage__grain-tag { margin-top: var(--space-1); }
 .av-lineage__flow-item { display: flex; flex-direction: column; gap: calc(var(--space-1) / 2); overflow-wrap: anywhere; }
 .av-lineage__relation-tag { margin-left: auto; }
+/* 血缘体检折叠卡 */
+.av-lineage__health > summary > .av-pill, .av-lineage__health > summary > .av-status { margin-left: auto; }
+.av-lineage__health .av-query-error { flex-wrap: wrap; padding: 0; }
+.av-lineage__health-body { display: flex; flex-direction: column; gap: var(--space-3); }
+.av-lineage__health .av-chain__item :last-child { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+.av-lineage__health-subject, .av-lineage__health-link { flex: 1; min-width: 0; padding-top: calc(var(--space-1) / 2); overflow-wrap: anywhere; white-space: normal; }
+.av-lineage__health-link { padding: calc(var(--space-1) / 2) 0 0; border: 0; border-radius: var(--radius-xs); background: none; color: var(--text-primary); font: var(--type-mono); text-align: left; cursor: pointer; }
+.av-lineage__health-link:hover { color: var(--accent-text); text-decoration: underline; }
+.av-lineage__health-desc { white-space: pre-line; }
+.av-lineage__health-review { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--line-subtle); }
+.av-lineage__health-review > .av-banner, .av-lineage__health-items { align-self: stretch; }
+.av-lineage__health-summary { margin: 0; color: var(--text-primary); font: var(--type-body-compact); overflow-wrap: anywhere; }
 .av-lineage button:focus-visible, .av-lineage summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 @media (max-width: 1279px) {
   .av-lineage[data-inspector-open="true"] { grid-template-columns: minmax(0, 1fr); }

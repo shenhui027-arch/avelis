@@ -532,6 +532,41 @@ class GraphJoinOut(Out):
     status: Literal["approved", "pending"]
 
 
+class HealthFindingOut(Out):
+    code: Literal["missing_column", "uncollected_source", "definition_unparsed", "pending_candidates", "low_confidence"]
+    severity: Literal["danger", "warn", "info"]
+    asset_id: str | None = None
+    subject: str
+    detail: Json
+
+
+class LineageHealthOut(Out):
+    scope: Literal["asset", "all"]
+    findings: list[HealthFindingOut]
+    summary: dict[str, int]
+    truncated: bool = False
+
+
+class LineageHealthReviewIn(BaseModel):
+    asset_id: str
+
+
+class HealthReviewItemOut(Out):
+    code: str
+    subject: str
+    note: str
+
+
+class LineageHealthReviewOut(Out):
+    """模型复核结论；skipped 不为空时（policy：策略不允许发送代码；no_model：没有可用模型）其余字段为空。"""
+
+    verdict: Literal["ok", "suspect", "unknown"] | None = None
+    summary: str | None = None
+    items: list[HealthReviewItemOut] = Field(default_factory=list)
+    findings: LineageHealthOut | None = None
+    skipped: Literal["policy", "no_model"] | None = None
+
+
 class GraphOut(Out):
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]

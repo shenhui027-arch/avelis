@@ -3106,6 +3106,108 @@
     }
    }
   },
+  "/api/lineage/health": {
+   "get": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Lineage Health",
+    "description": "血缘体检（确定性规则）：给出 asset_id 时只看这张表的一跳邻域，否则看当前用户可见的全部血缘。",
+    "operationId": "lineage_health_api_lineage_health_get",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "asset_id",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Asset Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LineageHealthOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/lineage/health/review": {
+   "post": {
+    "tags": [
+     "目录与血缘"
+    ],
+    "summary": "Lineage Health Review",
+    "description": "让模型复核某张表的体检结果（只读）。",
+    "operationId": "lineage_health_review_api_lineage_health_review_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LineageHealthReviewIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LineageHealthReviewOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ]
+   }
+  },
   "/api/lineage/graph": {
    "get": {
     "tags": [
@@ -19587,6 +19689,83 @@
     "type": "object",
     "title": "HTTPValidationError"
    },
+   "HealthFindingOut": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "enum": [
+       "missing_column",
+       "uncollected_source",
+       "definition_unparsed",
+       "pending_candidates",
+       "low_confidence"
+      ],
+      "title": "Code"
+     },
+     "severity": {
+      "type": "string",
+      "enum": [
+       "danger",
+       "warn",
+       "info"
+      ],
+      "title": "Severity"
+     },
+     "asset_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asset Id"
+     },
+     "subject": {
+      "type": "string",
+      "title": "Subject"
+     },
+     "detail": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Detail"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "code",
+     "severity",
+     "subject",
+     "detail"
+    ],
+    "title": "HealthFindingOut"
+   },
+   "HealthReviewItemOut": {
+    "properties": {
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "subject": {
+      "type": "string",
+      "title": "Subject"
+     },
+     "note": {
+      "type": "string",
+      "title": "Note"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "code",
+     "subject",
+     "note"
+    ],
+    "title": "HealthReviewItemOut"
+   },
    "HistoryStatusOut": {
     "properties": {
      "retention_days": {
@@ -20487,6 +20666,125 @@
      "join_path_id"
     ],
     "title": "JoinStep"
+   },
+   "LineageHealthOut": {
+    "properties": {
+     "scope": {
+      "type": "string",
+      "enum": [
+       "asset",
+       "all"
+      ],
+      "title": "Scope"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/HealthFindingOut"
+      },
+      "type": "array",
+      "title": "Findings"
+     },
+     "summary": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Summary"
+     },
+     "truncated": {
+      "type": "boolean",
+      "title": "Truncated",
+      "default": false
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "scope",
+     "findings",
+     "summary"
+    ],
+    "title": "LineageHealthOut"
+   },
+   "LineageHealthReviewIn": {
+    "properties": {
+     "asset_id": {
+      "type": "string",
+      "title": "Asset Id"
+     }
+    },
+    "type": "object",
+    "required": [
+     "asset_id"
+    ],
+    "title": "LineageHealthReviewIn"
+   },
+   "LineageHealthReviewOut": {
+    "properties": {
+     "verdict": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "ok",
+         "suspect",
+         "unknown"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Verdict"
+     },
+     "summary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Summary"
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/HealthReviewItemOut"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "findings": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LineageHealthOut"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "skipped": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "policy",
+         "no_model"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Skipped"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "title": "LineageHealthReviewOut",
+    "description": "模型复核结论；skipped 不为空时（policy：策略不允许发送代码；no_model：没有可用模型）其余字段为空。"
    },
    "LineageNoteGenerateIn": {
     "properties": {
