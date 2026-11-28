@@ -9,7 +9,7 @@ import copy
 import logging
 import time
 from collections import Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import sqlglot
@@ -26,7 +26,7 @@ from avelis.db import new_id, session_scope, utcnow
 from avelis.engines import dialect_of, engine_of
 from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.i18n import Msg
-from avelis.importer import service
+from avelis.importer import dbt, service
 from avelis.importer.archive import FileDependencies, ImportFile, order_files
 from avelis.importer.extract import extract_python, extract_shell, substitute
 from avelis.importer.fold import FoldStatement, fold_writes
@@ -100,7 +100,12 @@ def create_batch(
     by_key = {j.source_key: j for j in current}
     by_hash = {j.content_hash: j for j in current}
     duplicate_ids, pending, file_order = [], [], {}
+    batch_notes = list(notes or [])
     for upload_order, file in enumerate(files):
+        if file.language == dbt.DBT_LANGUAGE:
+            conversion = dbt.manifest_to_sql(file.content)
+            file = replace(file, content=conversion.sql, language="sql", source_type=dbt.DBT_LANGUAGE)
+            batch_notes.extend(conversion.notes)
         if not file.content.strip():
             raise Invalid(Msg("文件 {name} 的导入内容为空", name=file.filename))
         digest = sha256_text(file.content)
@@ -128,7 +133,7 @@ def create_batch(
             "phase": "queued",
         },
         stats={"params_rewrite": force},
-        notes=list(notes or []),
+        notes=batch_notes,
         options={
             "params": dict(params or {}),
             "model_assist": {
@@ -152,7 +157,7 @@ def create_batch(
             revision=(previous.revision + 1) if previous else 1,
             filename=file.filename,
             language=file.language,
-            source_type=file.language,
+            source_type=file.source_type or file.language,
             dialect=dialect_of(ds).name,
             default_db=default_db,
             content_hash=digest,
@@ -193,7 +198,7 @@ def set_params(session: Session, actor: User, batch: ImportBatch, params: dict[s
     jobs.sort(key=lambda j: order.get(j.id, (j.stats or {}).get("upload_order", 0)))
     for job in jobs:
         content = session.scalar(select(ImportSource.content).where(ImportSource.job_id == job.id))
-        files.append(ImportFile(job.filename, content, job.language, job.source_key, len(content.encode("utf-8"))))
+        files.append(ImportFile(job.filename, content, job.language, job.source_key, source_type=job.source_type))
     options = batch.options or {}
     result, _ = create_batch(
         session,

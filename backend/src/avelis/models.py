@@ -819,7 +819,7 @@ class ImportJob(Base):
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     superseded_by: Mapped[str | None] = fk("import_job.id", nullable=True, index=False)
     datasource_id: Mapped[str] = fk("datasource.id", index=False)
-    source_type: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python | shell | code
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False)  # sql | python | shell | code | dbt
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     language: Mapped[str] = mapped_column(String(32), nullable=False)
     dialect: Mapped[str] = mapped_column(String(32), nullable=False)
