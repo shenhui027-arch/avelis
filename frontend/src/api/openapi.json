@@ -1620,6 +1620,64 @@
     }
    }
   },
+  "/api/datasources/{datasource_id}/scope": {
+   "post": {
+    "tags": [
+     "数据源与采集"
+    ],
+    "summary": "Add Scope",
+    "description": "把导入血缘里未匹配的读取来源所在的库 / 模式加入采集范围，有新增时立即排队采集。",
+    "operationId": "add_scope_api_datasources__datasource_id__scope_post",
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "parameters": [
+     {
+      "name": "datasource_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Datasource Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScopeAddIn"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ScopeAddOut"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/api/datasources/{datasource_id}/runs": {
    "get": {
     "tags": [
@@ -23543,6 +23601,53 @@
      "started_at"
     ],
     "title": "RunOut"
+   },
+   "ScopeAddIn": {
+    "properties": {
+     "names": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Names"
+     }
+    },
+    "type": "object",
+    "required": [
+     "names"
+    ],
+    "title": "ScopeAddIn",
+    "description": "要加入采集范围的库 / 模式名（1–20 个）。"
+   },
+   "ScopeAddOut": {
+    "properties": {
+     "added": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Added"
+     },
+     "job_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Job Id"
+     }
+    },
+    "additionalProperties": true,
+    "type": "object",
+    "required": [
+     "added"
+    ],
+    "title": "ScopeAddOut"
    },
    "SettingsBody": {
     "properties": {

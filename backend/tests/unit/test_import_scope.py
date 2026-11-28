@@ -54,8 +54,9 @@ def test_annotate_unmatched_marks_sources_against_current_scope():
 
 
 def test_annotate_unmatched_without_scope_key_is_never_addable():
-    out = scope.annotate_unmatched([{"ref": "ods.events", "role": "source", "count": 1, "statement_ids": []}],
-                                   datasource(), engine("endpoint"))
+    out = scope.annotate_unmatched(
+        [{"ref": "ods.events", "role": "source", "count": 1, "statement_ids": []}], datasource(), engine("endpoint")
+    )
     assert out[0]["in_scope"] is False and out[0]["addable"] is False
 
 
@@ -74,7 +75,7 @@ def test_add_to_scope_appends_missing_names_and_audits(audits):
     assert ds.options == {"databases": ["ec_trade", "ods", "dim"], "tls": {"mode": "verify"}}
     assert ds.options is not original  # 整体替换，JSON 列才会被识别为变更
     assert original == {"databases": ["ec_trade"], "tls": {"mode": "verify"}}
-    (args, kwargs), = audits
+    ((args, kwargs),) = audits
     assert args[2:] == ("datasource.scope_add", "datasource", "ds-1")
     assert kwargs == {"key": "databases", "added": ["ods", "dim"]}
 

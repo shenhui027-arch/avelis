@@ -230,7 +230,8 @@ type Stats = {
   pending_candidates?: number; replaced_edges?: number; invalidated_decisions?: number; inherited_decisions?: number; suggested_sql_functions?: string[];
 };
 type Progress = { phase?: string; files_total?: number; files_done?: number; statements_done?: number; current_file?: string | null };
-type Unmatched = { ref: string; role: string; count: number; statement_ids: string[] };
+// database / in_scope / addable 由后端按数据源当前采集范围补充（读取来源才有 in_scope 与 addable）
+type Unmatched = { ref: string; role: string; count: number; statement_ids: string[]; database?: string | null; in_scope?: boolean; addable?: boolean };
 type ResultTab = "statements" | "candidates" | "tables" | "files" | "payload";
 
 function BatchContent({ b }: { b: Batch }) {
@@ -285,7 +286,8 @@ function BatchContent({ b }: { b: Batch }) {
         {running && tab !== "files" ? <Empty text={t("解析完成后显示结果")} compact /> : <>
           {tab === "statements" ? <Statements b={b} version={version} query={query} onQuery={setQuery} onLocate={locate} /> : null}
           {tab === "candidates" ? <Candidates b={b} version={version} onLocate={locate} /> : null}
-          {tab === "tables" ? <UnmatchedTables items={unmatched} onShow={(ref) => { setQuery(ref.split(".").pop() ?? ref); setTab("statements"); }} /> : null}
+          {tab === "tables" ? <UnmatchedTables items={unmatched} datasourceId={b.datasource_id} batchId={b.id}
+            onShow={(ref) => { setQuery(ref.split(".").pop() ?? ref); setTab("statements"); }} /> : null}
           {tab === "payload" ? <Payload b={b} version={version} onLocate={locate} /> : null}
         </>}
         {tab === "files" ? <Files b={b} stats={stats} /> : null}
@@ -554,7 +556,18 @@ function EditEdge({ c, edit, onEdit, pending, onCancel, onReject, onSave }: {
 
 const occurrences = (item: Unmatched) => item.count;
 
-function UnmatchedTables({ items, onShow }: { items: Unmatched[]; onShow: (ref: string) => void }) {
+function UnmatchedTables({ items, datasourceId, batchId, onShow }: {
+  items: Unmatched[]; datasourceId: string; batchId: string; onShow: (ref: string) => void;
+}) {
+  // TODO(agy): 一键加入采集范围（接口 POST /api/datasources/{datasource_id}/scope，body { names }，返回 { added, job_id }）：
+  //  - 只有 admin / steward 能操作（useRoles()，与 DatasourcesPage 的 canEdit 同一判断）；其他人只看提示，不显示按钮。
+  //  - 读取来源每行在 meta 后补一段原因：addable → “库 {{database}} 不在采集范围”，并显示按钮“加入采集范围并采集”（.av-btn--secondary .av-btn--sm）；
+  //    in_scope → “库 {{database}} 已在采集范围，请检查表名或默认库”；没有库名（database 为空）→ 沿用现有提示。写入目标行不变。
+  //  - 同一个库可能对应多行：按钮按库去重，点击一次加入该库；请求期间该库的按钮 disabled 并显示“加入中…”。
+  //  - 成功后用 useMessage + Banner 提示：added 非空 → “已加入 {{names}}，正在采集，完成后重新解析本批次即可对上”；added 为空 → “已在采集范围内”；
+  //    并让 ["imports", batchId] 与数据源列表的查询失效（useQueryClient().invalidateQueries，查询键参照 api/hooks.ts 里 useImport / useDatasources 的写法）。
+  //  - 失败：Banner 显示接口返回的 detail（参照本文件里其他请求的错误处理写法）。
+  void datasourceId; void batchId;
   if (!items.length) return <Empty text={t("语句中的表都对上了已采集资产或本批次产生的表")} compact />;
   // 读取来源没对上是血缘缺口，排在前面；写入目标多是尚未建表的设计时目标
   const sorted = [...items].sort((a, b) => Number(a.role === "target") - Number(b.role === "target") || b.count - a.count);

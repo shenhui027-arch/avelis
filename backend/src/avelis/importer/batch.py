@@ -30,6 +30,7 @@ from avelis.importer import service
 from avelis.importer.archive import FileDependencies, ImportFile, order_files
 from avelis.importer.extract import extract_python, extract_shell, substitute
 from avelis.importer.fold import FoldStatement, fold_writes
+from avelis.importer.scope import annotate_unmatched
 from avelis.importer.split import split_sql
 from avelis.importer.statements import parse_statement
 from avelis.lineage.sql import SqlDialect, canonical_hash_of
@@ -1251,6 +1252,11 @@ def batch_view(session: Session, batch: ImportBatch) -> dict[str, Any]:
     files = list({j.id: j for j in files}.values())
     order = _file_order(batch)
     files.sort(key=lambda j: order.get(j.id, (j.stats or {}).get("upload_order", 0)))
+    unmatched = (batch.stats or {}).get("unmatched_tables", [])
+    if unmatched:
+        ds = session.get(Datasource, batch.datasource_id)
+        if ds is not None:
+            unmatched = annotate_unmatched(unmatched, ds, engine_of(ds))
     return {
         "id": batch.id,
         "datasource_id": batch.datasource_id,
@@ -1265,9 +1271,7 @@ def batch_view(session: Session, batch: ImportBatch) -> dict[str, Any]:
         "job_id": batch.job_id,
         "created_at": batch.created_at.isoformat(),
         "updated_at": batch.updated_at.isoformat(),
-        # TODO(codex): 用 importer.scope.annotate_unmatched 按数据源当前采集范围补 database / in_scope / addable
-        #   （需要本函数拿到 batch 的 Datasource 与 engine_of(ds)；数据源已删除时原样返回）
-        "unmatched_tables": (batch.stats or {}).get("unmatched_tables", []),
+        "unmatched_tables": unmatched,
         "files": [
             {
                 "id": f.id,

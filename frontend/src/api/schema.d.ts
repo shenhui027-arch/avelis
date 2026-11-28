@@ -616,6 +616,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/datasources/{datasource_id}/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Scope
+         * @description 把导入血缘里未匹配的读取来源所在的库 / 模式加入采集范围，有新增时立即排队采集。
+         */
+        post: operations["add_scope_api_datasources__datasource_id__scope_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/datasources/{datasource_id}/runs": {
         parameters: {
             query?: never;
@@ -7283,6 +7303,23 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * ScopeAddIn
+         * @description 要加入采集范围的库 / 模式名（1–20 个）。
+         */
+        ScopeAddIn: {
+            /** Names */
+            names: string[];
+        };
+        /** ScopeAddOut */
+        ScopeAddOut: {
+            /** Added */
+            added: string[];
+            /** Job Id */
+            job_id?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** SettingsBody */
         SettingsBody: {
             /** Assignments */
@@ -9527,6 +9564,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_scope_api_datasources__datasource_id__scope_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                datasource_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScopeAddIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScopeAddOut"];
                 };
             };
             /** @description Validation Error */
