@@ -605,3 +605,14 @@ def test_clickhouse_dialect_rewrites_frame_and_intervals():
     v = ok("clickhouse", sql)
     assert "lagInFrame(" in v.sql and "leadInFrame(" in v.sql
     assert "toIntervalDay(7)" in v.sql and "toIntervalWeek(1)" in v.sql
+
+
+def test_oracle_weekly_trunc_survives_regeneration():
+    import sqlglot
+
+    from avelis.analysis.explore import _unit
+
+    reparsed = sqlglot.parse_one("SELECT TRUNC(d, 'IW') FROM t", read="oracle").selects[0]
+    assert isinstance(reparsed.args["unit"], sqlglot.exp.WeekStart) and _unit(reparsed) == "WEEK"
+    v = ok("oracle", "SELECT DATE_TRUNC('week', event_date) AS wk FROM d1.facts")
+    assert "TRUNC(" in v.sql and "'IW'" in v.sql

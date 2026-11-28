@@ -200,7 +200,7 @@ requires-dist = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "reportlab", specifier = ">=4.2" },
     { name = "sqlalchemy", specifier = "==2.1.6" },
-    { name = "sqlglot", git = "https://github.com/shenhui027-arch/sqlglot?rev=8614b60bf11925e1c5f29fd61f3a552a02fc4976" },
+    { name = "sqlglot", git = "https://github.com/shenhui027-arch/sqlglot?rev=35c073d4822f1e9932b166e11e41c9d333885c15" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
@@ -1453,8 +1453,8 @@ wheels = [
 
 [[package]]
 name = "sqlglot"
-version = "30.26.1.dev15"
-source = { git = "https://github.com/shenhui027-arch/sqlglot?rev=8614b60bf11925e1c5f29fd61f3a552a02fc4976#8614b60bf11925e1c5f29fd61f3a552a02fc4976" }
+version = "30.26.1.dev375"
+source = { git = "https://github.com/shenhui027-arch/sqlglot?rev=35c073d4822f1e9932b166e11e41c9d333885c15#35c073d4822f1e9932b166e11e41c9d333885c15" }
 
 [[package]]
 name = "sse-starlette"

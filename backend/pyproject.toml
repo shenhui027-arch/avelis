@@ -46,9 +46,9 @@ dev = [
 ]
 
 [tool.uv.sources]
-# fork 分支 avelis-v30.27.0：v30.27.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861）+ MySQL RENAME TABLE（上游 PR 待提交）；
-# M4 复核（2026-11）：PyPI sqlglot==30.34.0 仍未合入 Hive UNIONTYPE 与 MySQL RENAME TABLE 结构化解析，继续锁定此提交
-sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "8614b60bf11925e1c5f29fd61f3a552a02fc4976" }
+# fork 分支 avelis-v30.35.0：v30.35.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861 已关闭未合入）+ MySQL RENAME TABLE（上游 PR 待提交）；
+# 2026-11-28 复核：上游 v30.35.0 仍未合入这两项，继续锁定 fork 提交
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "35c073d4822f1e9932b166e11e41c9d333885c15" }
 
 [build-system]
 requires = ["hatchling"]
