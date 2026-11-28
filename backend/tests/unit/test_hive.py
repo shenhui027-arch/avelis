@@ -347,7 +347,7 @@ class _FakeConnection:
         self._cursor = cursor
         self.closed = False
 
-    def cursor(self):
+    def cursor(self, user=None):
         return self._cursor
 
     def close(self):

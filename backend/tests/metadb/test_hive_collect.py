@@ -358,7 +358,7 @@ def test_invisible_database_fails_and_keeps_catalog(metadb, monkeypatch):
     from avelis.collect import service
 
     cursor = _ScriptedCursor()
-    connection = SimpleNamespace(cursor=lambda: cursor, close=lambda: None)
+    connection = SimpleNamespace(cursor=lambda user=None: cursor, close=lambda: None)
 
     def connector(session, ds):
         conn = HiveConnector(ds.host, ds.port, "", "", ds.options)

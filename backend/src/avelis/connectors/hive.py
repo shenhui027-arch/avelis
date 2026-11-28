@@ -284,12 +284,16 @@ class HiveConnector:
     def _connect(self, timeout: int = 60):
         return connect(**self._conn_args, **self._ssl_kwargs, timeout=timeout)
 
+    def _cursor(self, conn):
+        """会话用户显式传给 cursor：impyla 的 cursor() 默认用操作系统用户名开会话，NOSASL 时服务端就以它为会话用户。"""
+        return conn.cursor(user=self._conn_args["user"])
+
     # --- 采集 ---------------------------------------------------------------------
 
     def server_identity(self) -> dict[str, Any]:
         conn = self._connect()
         try:
-            return self._server_identity(conn.cursor())
+            return self._server_identity(self._cursor(conn))
         except ImpylaError as exc:
             raise RuntimeError(_first_line(exc)) from exc
         finally:
@@ -312,7 +316,7 @@ class HiveConnector:
         assets: list[ObservedAsset] = []
         conn = self._connect(timeout=120)
         try:
-            cur = conn.cursor()
+            cur = self._cursor(conn)
             identity = self._server_identity(cur)
             existing = {str(r[0]).lower() for r in self._rows(cur, "SHOW DATABASES")}
             # 配置的库看不到时整次采集失败（与读不到表结构一致）：Hive 授权插件会按权限过滤 SHOW DATABASES，
@@ -357,15 +361,18 @@ class HiveConnector:
         conn = cur = None
         try:
             conn = self._connect(timeout=backstop)
-            cur = conn.cursor()
+            cur = self._cursor(conn)
+            # 截止时间从提交前算起：HiveServer2 关闭异步编译时，execute_async 会等编译完才返回
+            deadline = time.monotonic() + timeout_seconds
             configuration = self._session(cur, backstop=backstop, timezone=timezone)
             cur.execute_async(sql, configuration=configuration)
-            deadline = time.monotonic() + timeout_seconds
             while cur.is_executing():
                 if time.monotonic() >= deadline:
                     cur.cancel_operation()
                     raise QueryError("timeout", None, gettext("查询超过 {seconds} 秒，已取消", seconds=timeout_seconds))
                 time.sleep(POLL_SECONDS)
+            # is_executing() 对 ERROR_STATE 只返回 False、不带报错：用 impyla 同步执行同样的收尾取回数据库原始报错
+            cur._wait_to_finish()
             columns = [d[0] for d in cur.description or []]
             rows = cur.fetchmany(max_rows + 1)
             return QueryResult(columns=columns, rows=[list(r) for r in rows[:max_rows]], truncated=len(rows) > max_rows)
@@ -403,7 +410,7 @@ class HiveConnector:
         if not out:
             return out
         try:
-            with closing(self._connect(timeout=timeout_seconds or 60)) as conn, closing(conn.cursor()) as cur:
+            with closing(self._connect(timeout=timeout_seconds or 60)) as conn, closing(self._cursor(conn)) as cur:
                 for (input_db, input_name), result in out.items():
                     db, name = input_db.lower(), input_name.lower()
                     if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
@@ -432,7 +439,7 @@ class HiveConnector:
         if not tables:
             return {}
         out: dict[str, Any] = {}
-        with closing(self._connect()) as conn, closing(conn.cursor()) as cur:
+        with closing(self._connect()) as conn, closing(self._cursor(conn)) as cur:
             for input_db, input_name in tables:
                 db, name = input_db.lower(), input_name.lower()
                 if not (IDENT.fullmatch(db) and IDENT.fullmatch(name)):
