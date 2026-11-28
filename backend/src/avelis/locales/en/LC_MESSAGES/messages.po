@@ -2967,3 +2967,12 @@ msgstr "The collection account needs metadata visibility and SHOW VIEW. Ask uses
 
 msgid "查询超过 {seconds} 秒，已取消"
 msgstr "The query exceeded {seconds} seconds and was cancelled"
+
+msgid "Trino 视图 {name} 未读取到定义；列级血缘不可用"
+msgstr "No definition was read for Trino view {name}; column-level lineage is unavailable"
+
+msgid "一个数据源对应一个 Catalog；采集只读元数据，视图定义取 information_schema.views 的规范化文本解析血缘，引用其他 Catalog 的表记为未采集来源；问数用专用查询账号，Trino 没有只读会话，只读依赖 SQL 校验与访问控制中只有 SELECT 的账号；超时与内存上限映射到会话属性 query_max_run_time、query_max_memory；不暴露主键与表 ID，表与视图按名称对应；物化视图未联调，按普通表采集；不报告数据新鲜度；2026-11-28 已实机验证 Trino 482"
+msgstr "One data source maps to one catalog. Collects metadata only; view lineage is parsed from the normalized text in information_schema.views, and tables in other catalogs are recorded as uncollected sources. Ask uses a dedicated query account; Trino has no read-only session, so read-only access relies on SQL validation and an account limited to SELECT by access control. Timeout and memory limits map to the session properties query_max_run_time and query_max_memory. Trino exposes no primary keys or table IDs, so tables and views are matched by name. Materialized views have not been verified and are collected as tables. Data freshness is not reported. Verified on Trino 482 on 2026-11-28"
+
+msgid "NONE 只传账号名（服务端未开启认证时）；PASSWORD 需账号与口令，且必须走 HTTPS"
+msgstr "NONE sends only the user name (when the server has no authentication); PASSWORD needs a user and password and must use HTTPS"

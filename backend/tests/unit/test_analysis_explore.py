@@ -46,6 +46,7 @@ ENGINES = {
     "oracle": resolver("FREEPDB1", None),
     "hive": resolver("hive", None),
     "tidb": resolver("def", None),
+    "trino": resolver("memory", None),
 }
 
 
@@ -71,6 +72,7 @@ def test_all_connectors_have_profiles():
         "oracle": False,
         "hive": False,
         "tidb": False,
+        "trino": True,
     }
     assert set(PROFILES) == set(expected_catalog_in_sql)
     for kind, catalog_in_sql in expected_catalog_in_sql.items():
@@ -414,7 +416,7 @@ def test_every_standard_function_has_a_translation_test():
 
 @pytest.mark.parametrize(
     "engine",
-    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive", "tidb"],
+    ["starrocks", "doris", "mysql", "postgres", "clickhouse", "sqlserver", "oracle", "hive", "tidb", "trino"],
 )
 def test_all_eight_dialects_translate_standard_and_window_functions(engine):
     sql = (

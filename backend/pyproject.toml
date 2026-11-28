@@ -34,6 +34,7 @@ dependencies = [
     "reportlab>=4.2",
     "json-repair>=0.50",
     "impyla>=0.24",
+    "trino>=0.340",
     "babel>=2.18.0",
     "jsonschema==4.25.1",
     "pyyaml==6.0.3",
@@ -48,8 +49,9 @@ dev = [
 [tool.uv.sources]
 # fork 分支 avelis-v30.35.0：v30.35.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861 已关闭未合入）+ MySQL RENAME TABLE（上游 PR 待提交）
 # + Hive 按周 / 按天截断（Hive 的 TRUNC 只认年 / 季 / 月，且没有 DATE_TRUNC；上游主题分支 fix/hive-date-trunc，PR 待提交）；
+# + Presto / Trino 的 QUARTER 间隔改写为 3 个月的倍数（Trino 没有 QUARTER 单位；上游主题分支 fix/presto-quarter-interval，PR 待提交）；
 # 2026-11-28 复核：上游 v30.35.0 仍未合入这两项，继续锁定 fork 提交
-sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "93a36d04712ae2e2330d7cbba462f583c3d92134" }
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "9c2ffe0127519ff1229e7f5a4c7954a4173a13a8" }
 
 [build-system]
 requires = ["hatchling"]

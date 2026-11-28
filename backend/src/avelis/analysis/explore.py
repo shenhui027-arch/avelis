@@ -258,6 +258,14 @@ PROFILES: dict[str, ExploreProfile] = {
         functions={**_TRANSLATED, exp.DateAdd: ("日期", 3, 3), exp.TimestampDiff: ("日期", 3, 3)},
         settings={"max_execution_time": "按统一截止时间", "tidb_mem_quota_query": 2 * 1024**3},
     ),
+    "trino": ExploreProfile(
+        "trino",
+        "2",
+        "trino",
+        True,
+        functions=dict(_TRANSLATED),
+        settings={"query_max_run_time": "按统一截止时间", "query_max_memory": 2 * 1024**3},
+    ),
     "postgres": ExploreProfile(
         "postgres",
         "2",
@@ -1099,6 +1107,20 @@ def _deps(node: exp.Expression, scope: Scope) -> set[str]:
 # --- 重新生成 ---------------------------------------------------------------------------
 
 
+def _intervals_in_days_and_months(tree: exp.Expression) -> None:
+    """把 WEEK、QUARTER 单位的 INTERVAL 改写成 7 天、3 个月的倍数（目标方言没有这两个单位时用）。"""
+    for iv in list(tree.find_all(exp.Interval)):
+        parts = _interval_parts(iv)
+        assert parts is not None
+        n, unit = parts
+        if unit == "WEEK":
+            n, unit = n * 7, "DAY"
+        elif unit == "QUARTER":
+            n, unit = n * 3, "MONTH"
+        iv.set("this", exp.Literal.string(str(n)))
+        iv.set("unit", exp.Var(this=unit))
+
+
 def _adapt_target_dialect(tree: exp.Expression, dialect: str) -> None:
     if dialect == "tsql":
         for node in list(tree.walk()):
@@ -1124,16 +1146,10 @@ def _adapt_target_dialect(tree: exp.Expression, dialect: str) -> None:
             if fmt is None:
                 raise ExploreRejected("regenerate", "date_unit", "Oracle 不支持该日期截断单位")
             node.replace(exp.Anonymous(this="TRUNC", expressions=[node.this, exp.Literal.string(fmt)]))
-        for iv in list(tree.find_all(exp.Interval)):
-            parts = _interval_parts(iv)
-            assert parts is not None
-            n, unit = parts
-            if unit == "WEEK":
-                n, unit = n * 7, "DAY"
-            elif unit == "QUARTER":
-                n, unit = n * 3, "MONTH"
-            iv.set("this", exp.Literal.string(str(n)))
-            iv.set("unit", exp.Var(this=unit))
+        _intervals_in_days_and_months(tree)
+    elif dialect == "trino":
+        # Trino 的 INTERVAL 没有 WEEK、QUARTER 单位：与 Oracle 一样改写成天、月，生成的 SQL 仍是“列 ± INTERVAL”
+        _intervals_in_days_and_months(tree)
     elif dialect == "mysql":
         for node in list(tree.find_all(exp.TimestampTrunc)):
             unit_var = exp.Var(this=_unit(node))

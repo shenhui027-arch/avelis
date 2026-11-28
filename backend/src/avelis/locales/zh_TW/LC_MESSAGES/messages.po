@@ -2972,3 +2972,12 @@ msgstr "採集帳號需中繼資料可見性與 SHOW VIEW；問數使用專用�
 
 msgid "查询超过 {seconds} 秒，已取消"
 msgstr "查詢超過 {seconds} 秒，已取消"
+
+msgid "Trino 视图 {name} 未读取到定义；列级血缘不可用"
+msgstr "Trino 檢視表 {name} 未讀取到定義；欄位級血緣無法使用"
+
+msgid "一个数据源对应一个 Catalog；采集只读元数据，视图定义取 information_schema.views 的规范化文本解析血缘，引用其他 Catalog 的表记为未采集来源；问数用专用查询账号，Trino 没有只读会话，只读依赖 SQL 校验与访问控制中只有 SELECT 的账号；超时与内存上限映射到会话属性 query_max_run_time、query_max_memory；不暴露主键与表 ID，表与视图按名称对应；物化视图未联调，按普通表采集；不报告数据新鲜度；2026-11-28 已实机验证 Trino 482"
+msgstr "一個資料來源對應一個 Catalog；採集只讀中繼資料，檢視表定義取 information_schema.views 的正規化文字解析血緣，引用其他 Catalog 的表記為未採集來源；問數用專用查詢帳號，Trino 沒有唯讀工作階段，唯讀依賴 SQL 校驗與存取控制中只有 SELECT 的帳號；逾時與記憶體上限對應到工作階段屬性 query_max_run_time、query_max_memory；不公開主鍵與表 ID，表與檢視表按名稱對應；具體化檢視表未聯調，按一般表採集；不報告資料新鮮度；2026-11-28 已實機驗證 Trino 482"
+
+msgid "NONE 只传账号名（服务端未开启认证时）；PASSWORD 需账号与口令，且必须走 HTTPS"
+msgstr "NONE 只傳帳號名（伺服器未開啟驗證時）；PASSWORD 需帳號與密碼，且必須走 HTTPS"
