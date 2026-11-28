@@ -1013,6 +1013,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lineage/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lineage Health
+         * @description 血缘体检（确定性规则）：给出 asset_id 时只看这张表的一跳邻域，否则看当前用户可见的全部血缘。
+         */
+        get: operations["lineage_health_api_lineage_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lineage/health/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lineage Health Review
+         * @description 让模型复核某张表的体检结果（只读）。
+         */
+        post: operations["lineage_health_review_api_lineage_health_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lineage/graph": {
         parameters: {
             query?: never;
@@ -5895,6 +5935,40 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HealthFindingOut */
+        HealthFindingOut: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "missing_column" | "uncollected_source" | "definition_unparsed" | "pending_candidates" | "low_confidence";
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "danger" | "warn" | "info";
+            /** Asset Id */
+            asset_id?: string | null;
+            /** Subject */
+            subject: string;
+            /** Detail */
+            detail: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        /** HealthReviewItemOut */
+        HealthReviewItemOut: {
+            /** Code */
+            code: string;
+            /** Subject */
+            subject: string;
+            /** Note */
+            note: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** HistoryStatusOut */
         HistoryStatusOut: {
             /** Retention Days */
@@ -6246,6 +6320,49 @@ export interface components {
              * @default false
              */
             pre_aggregate?: boolean;
+        };
+        /** LineageHealthOut */
+        LineageHealthOut: {
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "asset" | "all";
+            /** Findings */
+            findings: components["schemas"]["HealthFindingOut"][];
+            /** Summary */
+            summary: {
+                [key: string]: number;
+            };
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated?: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LineageHealthReviewIn */
+        LineageHealthReviewIn: {
+            /** Asset Id */
+            asset_id: string;
+        };
+        /**
+         * LineageHealthReviewOut
+         * @description 模型复核结论；skipped 不为空时（policy：策略不允许发送代码；no_model：没有可用模型）其余字段为空。
+         */
+        LineageHealthReviewOut: {
+            /** Verdict */
+            verdict?: ("ok" | "suspect" | "unknown") | null;
+            /** Summary */
+            summary?: string | null;
+            /** Items */
+            items?: components["schemas"]["HealthReviewItemOut"][];
+            findings?: components["schemas"]["LineageHealthOut"] | null;
+            /** Skipped */
+            skipped?: ("policy" | "no_model") | null;
+        } & {
+            [key: string]: unknown;
         };
         /** LineageNoteGenerateIn */
         LineageNoteGenerateIn: {
@@ -10388,6 +10505,70 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lineage_health_api_lineage_health_get: {
+        parameters: {
+            query?: {
+                asset_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageHealthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lineage_health_review_api_lineage_health_review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineageHealthReviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageHealthReviewOut"];
                 };
             };
             /** @description Validation Error */

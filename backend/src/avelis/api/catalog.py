@@ -840,8 +840,9 @@ def lineage_health(
     asset_id: str | None = None, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
     """血缘体检（确定性规则）：给出 asset_id 时只看这张表的一跳邻域，否则看当前用户可见的全部血缘。"""
-    # TODO(codex): return governance.lineage_health.check(session, user, asset_id)
-    raise NotImplementedError
+    from avelis.governance import lineage_health as health
+
+    return health.check(session, user, asset_id)
 
 
 @router.post("/lineage/health/review", response_model=S.LineageHealthReviewOut)
@@ -849,8 +850,9 @@ def lineage_health_review(
     body: S.LineageHealthReviewIn, user: User = Depends(current_user), session: Session = Depends(get_session)
 ) -> dict:
     """让模型复核某张表的体检结果（只读）。"""
-    # TODO(codex): return governance.lineage_health.review(session, user, body.asset_id)
-    raise NotImplementedError
+    from avelis.governance import lineage_health as health
+
+    return health.review(session, user, body.asset_id)
 
 
 @router.get("/lineage/graph", response_model=S.GraphOut)
