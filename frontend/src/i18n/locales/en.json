@@ -2373,5 +2373,7 @@
   "来源 {{count}}_one": "{{count}} source",
   "来源 {{count}}_other": "{{count}} sources",
   "去向 {{count}}_one": "{{count}} target",
-  "去向 {{count}}_other": "{{count}} targets"
+  "去向 {{count}}_other": "{{count}} targets",
+  "还有 {{count}} 条_one": "{{count}} more",
+  "还有 {{count}} 条_other": "{{count}} more"
 }

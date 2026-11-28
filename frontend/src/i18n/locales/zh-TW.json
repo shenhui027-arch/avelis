@@ -2283,5 +2283,6 @@
   "上游 {{count}} 层": "上游 {{count}} 層",
   "下游 {{count}} 层": "下游 {{count}} 層",
   "来源 {{count}}": "來源 {{count}}",
-  "去向 {{count}}": "去向 {{count}}"
+  "去向 {{count}}": "去向 {{count}}",
+  "还有 {{count}} 条": "還有 {{count}} 條"
 }
