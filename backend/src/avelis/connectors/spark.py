@@ -150,10 +150,28 @@ def spark_view_definition(view_text: str | None, namespace: str | None, columns:
         if not any(
             isinstance(p, exp.Star) or (isinstance(p, exp.Column) and isinstance(p.this, exp.Star)) for p in projections
         ):
-            for projection, name in zip(projections, columns, strict=True):
-                if projection.alias_or_name != name:
-                    projection.replace(exp.alias_(projection.unalias().copy(), exp.to_identifier(name)))
+            if any(p.alias_or_name != name for p, name in zip(projections, columns, strict=True)):
+                return _with_declared_names(tree, projections, columns)
     return tree.sql(dialect="spark")
+
+
+def _with_declared_names(tree: exp.Expression, projections: list[exp.Expression], columns: list[str]) -> str:
+    """原查询原样作子查询，外层按位置换成视图声明的列名：不改原查询里的别名，ORDER BY 等对别名的引用照常有效。
+    原查询里没有名字的投影（如未加别名的表达式）先补一个内部别名，外层才能引用。"""
+    inner_names = []
+    for i, projection in enumerate(projections):
+        name = projection.alias_or_name
+        if not (isinstance(projection, (exp.Alias, exp.Column)) and name):
+            name = f"_avelis_col{i + 1}"
+            projection.replace(exp.alias_(projection.copy(), exp.to_identifier(name)))
+        inner_names.append(name)
+    outer = exp.select(
+        *(
+            exp.alias_(exp.column(inner, table="_avelis_view"), exp.to_identifier(declared))
+            for inner, declared in zip(inner_names, columns, strict=True)
+        )
+    ).from_(exp.Subquery(this=tree, alias=exp.TableAlias(this=exp.to_identifier("_avelis_view"))))
+    return outer.sql(dialect="spark")
 
 
 class SparkConnector(HiveConnector):

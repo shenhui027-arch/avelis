@@ -276,13 +276,13 @@ def test_view_text_parses_with_view_context_database():
 def test_view_definition_is_completed_with_namespace_and_view_columns():
     # 不写库名的表按建视图时的当前库补全；CTE 不动；输出列名按位置对齐视图声明的列
     assert spark_view_definition("SELECT id FROM t", "spark_catalog.reporting", ["renamed_id"]) == (
-        "SELECT id AS renamed_id FROM reporting.t AS t"
+        "SELECT _avelis_view.id AS renamed_id FROM (SELECT id FROM reporting.t AS t) AS _avelis_view"
     )
     assert spark_view_definition("WITH c AS (SELECT id FROM t) SELECT id FROM c", "spark_catalog.x", ["id"]) == (
         "WITH c AS (SELECT id FROM x.t AS t) SELECT id FROM c AS c"
     )
     assert spark_view_definition("SELECT a FROM x UNION ALL SELECT b FROM y", "spark_catalog.d", ["col"]) == (
-        "SELECT a AS col FROM d.x AS x UNION ALL SELECT b FROM d.y AS y"
+        "SELECT _avelis_view.a AS col FROM (SELECT a FROM d.x AS x UNION ALL SELECT b FROM d.y AS y) AS _avelis_view"
     )
     # 投影含 * 或列数对不上：不改列名；解析失败：保留原文
     assert spark_view_definition("SELECT * FROM t", "spark_catalog.d", ["a", "b"]) == "SELECT * FROM d.t AS t"
@@ -307,3 +307,19 @@ def test_renamed_view_column_gets_lineage_and_uppercase_tables_resolve():
         "renamed_id": {("spark_catalog.probe.sales", "id")},
         "amount": {("spark_catalog.probe.sales", "amt")},
     }
+
+
+def test_renaming_keeps_internal_alias_references_valid():
+    # 原查询的 ORDER BY 引用了别名 original_id：外层改名，原查询不动，解析照常得到列级血缘
+    sql = spark_view_definition(
+        "SELECT id AS original_id, SUM(amt) FROM sales GROUP BY id ORDER BY original_id",
+        "spark_catalog.probe",
+        ["renamed_id", "total"],
+    )
+    assert "ORDER BY original_id" in sql and "_avelis_col2" in sql
+    schema = {CATALOG: {"probe": {"sales": {"id": "int", "amt": "decimal(10,2)"}}}}
+    parsed = parse_query(sql, dialect=get_engine("spark").sql, schema=schema, default_db="probe")
+    assert parsed.status == "ok", parsed.reason
+    columns = {col.name: {(s.ref.column, s.relation) for s in col.sources} for col in parsed.columns}
+    assert columns["renamed_id"] == {("id", "value_direct")}
+    assert columns["total"] == {("amt", "value_aggregated")}
