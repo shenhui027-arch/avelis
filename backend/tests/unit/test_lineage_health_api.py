@@ -234,6 +234,40 @@ def test_uncollected_candidate_targets_only_for_import_readers(health_api):
     assert ids == {"candidate-current", "candidate-uncollected"}
 
 
+def test_unbound_import_sources_rebind_to_later_collected_assets(health_api):
+    _, session, user = health_api
+    for edge_id, source_ref, column in (
+        ("e-late", "c.dw.orders", "gone"),  # 导入后才采集到的可读来源
+        ("e-late-hidden", "c.dw.payroll", "salary"),  # 补绑到不可读资产 → 整条剔除
+        ("e-never", "c.dw.ghost", "x"),  # 仍未采集
+    ):
+        session.add(
+            LineageEdge(
+                id=edge_id,
+                source_asset_id=None,
+                source_ref=source_ref,
+                source_column=column,
+                target_asset_id="daily",
+                target_column="total",
+                relation="value_direct",
+                origin="import",
+            )
+        )
+    session.commit()
+
+    edges, assets, candidates = lineage_health.load_snapshot(session, user, None)
+    by_id = {edge.id: edge for edge in edges}
+    assert by_id["e-late"].source_asset_id == "orders"
+    assert "e-late-hidden" not in by_id
+    assert by_id["e-never"].source_asset_id is None
+
+    result = lineage_health.findings(edges, assets, candidates)
+    uncollected = {f["subject"] for f in result["findings"] if f["code"] == "uncollected_source"}
+    missing = {f["subject"] for f in result["findings"] if f["code"] == "missing_column"}
+    assert uncollected == {"c.dw.ghost"}
+    assert "c.dw.orders.gone" in missing
+
+
 def test_get_health_all_and_asset_scope(health_api):
     client, session, _ = health_api
     response = client.get(HEALTH_URL)
