@@ -249,7 +249,6 @@ def test_sample_values_goes_through_the_same_checks(monkeypatch):
 def test_sources_without_profile_or_switched_off(monkeypatch):
     box = make_box(monkeypatch=monkeypatch)
     for kind, allow, code in (
-        ("hive", True, "engine_unsupported"),
         ("fake", True, "engine_unsupported"),
         ("postgres", False, "exploration_disabled"),
     ):

@@ -17,6 +17,7 @@ from avelis.governance import access
 from avelis.governance.errors import Conflict, Forbidden, Invalid, NotFound
 from avelis.models import AnalysisRun, Answer, AuditEvent, Datasource, Domain, VerifiedQuery
 from avelis.retrieval_hybrid import SearchDocument, hybrid_rank
+from avelis.sql_guard import banned_constructs
 
 VALID_STATUSES = ("draft", "pending_review", "approved", "rejected", "archived")
 _DISALLOWED_NODES = (
@@ -66,6 +67,9 @@ def validate_vqr_sql(sql_text: str, dialect: str = "postgres") -> str:
     truncate_cls = getattr(exp, "TruncateTable", None)
     if truncate_cls is not None and stmt.find(truncate_cls) is not None:
         raise Invalid("验证查询 SQL 禁止包含 TRUNCATE 语句")
+    banned = banned_constructs(stmt)
+    if banned:
+        raise Invalid(f"验证查询 SQL 包含禁止的写法：{'、'.join(banned)}")
     return cleaned
 
 

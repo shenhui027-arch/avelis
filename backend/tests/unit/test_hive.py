@@ -271,7 +271,7 @@ def test_view_lineage_with_hive_dialect():
 
 def test_engine_declares_only_integrated_capabilities():
     engine = get_engine("hive")
-    assert engine.supports(VIEW_LINEAGE) and not engine.supports(QUERY) and engine.querier is None
+    assert engine.supports(VIEW_LINEAGE) and engine.supports(QUERY) and engine.querier is HiveConnector
     assert engine.default_port == 10000 and engine.name_levels == ("database", "table")
     d = engine.describe()
     auth = {o["key"]: o for o in d["options"]}["auth"]

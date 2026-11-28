@@ -7,15 +7,22 @@
 ### 新增
 
 - **TiDB 数据源**：新增 TiDB 引擎（2026-11-28 在 TiDB v8.5.4 上实机验证），借用 MySQL 方言，支持采集元数据、视图列级血缘、只读问数与执行前核对。单条查询内存上限映射到 `tidb_mem_quota_query`；TiDB 的只读事务只有空实现，问数的只读依赖 SQL 校验与只读问数账号（只授予 SELECT 与 SHOW VIEW）。表与视图按名称对应（`TIDB_TABLE_ID` 在 `TRUNCATE` 后会变）。
+- **Hive 问数**：Hive 数据源支持只读问数、探索查询与执行前核对（2026-11-28 在 Hive 4.1 + Tez 上实机验证）。查询到截止时间由 Avelis 取消；业务时区经 `hive.local.time.zone` 设置；为避免 Hive 4.1 向量化执行在窗口函数与日期截断同用时给出错误结果，查询会话关闭向量化执行。回答的数据新鲜度取最新分区的写入时间。
 
 ### 变更
 
 - SQL 解析库 SQLGlot 升级到 30.35.0（仍使用带 Hive `UNIONTYPE` 与 MySQL `RENAME TABLE` 修复的分支）。已采集的视图会在下次采集时按新版本重新解析。Oracle 探索查询的按月、按年截断改写为 `TRUNC(…, 'MONTH')`、`TRUNC(…, 'YEAR')`（与 `MM`、`YYYY` 等价）。
 
+### 修复
+
+- Hive 的按周、按天时间粒度生成了 Hive 不支持的 `TRUNC(x, 'WEEK')`、`DATE_TRUNC(…)`（结果为空或报错），改为 `DATE_ADD(NEXT_DAY(x, 'MO'), -7)` 与 `TO_DATE(x)`（SQLGlot 分支修复）。
+- 问数、探索查询与已核验查询统一拒绝能读写服务器文件或执行代码的写法，包括 Hive 的 `TRANSFORM … USING` 与 `reflect` / `java_method`，以及 `LOAD_FILE`、`SLEEP` 等函数；此前问数校验只检查语句类型。
+
 ### 已知局限
 
 - TiDB 的 DDL 作业记录不含执行用户，暂不支持变更归因；TiDB 没有可读的集群 ID，不做实例变化检测。
 - TiDB 引擎层没有会话只读（`READ ONLY` 只有空实现，历史读事务读不到刚变更的表结构），问数账号必须只授予 SELECT 与 SHOW VIEW。
+- Hive 没有只读会话，问数账号必须在 Hive 授权中只有 SELECT 权限；Hive 没有每查询内存上限。
 
 ## [1.1.1] - 2026-11-28
 

@@ -46,9 +46,10 @@ dev = [
 ]
 
 [tool.uv.sources]
-# fork 分支 avelis-v30.35.0：v30.35.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861 已关闭未合入）+ MySQL RENAME TABLE（上游 PR 待提交）；
+# fork 分支 avelis-v30.35.0：v30.35.0 + Hive UNIONTYPE（上游 tobymao/sqlglot#8861 已关闭未合入）+ MySQL RENAME TABLE（上游 PR 待提交）
+# + Hive 按周 / 按天截断（Hive 的 TRUNC 只认年 / 季 / 月，且没有 DATE_TRUNC；上游主题分支 fix/hive-date-trunc，PR 待提交）；
 # 2026-11-28 复核：上游 v30.35.0 仍未合入这两项，继续锁定 fork 提交
-sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "35c073d4822f1e9932b166e11e41c9d333885c15" }
+sqlglot = { git = "https://github.com/shenhui027-arch/sqlglot", rev = "93a36d04712ae2e2330d7cbba462f583c3d92134" }
 
 [build-system]
 requires = ["hatchling"]

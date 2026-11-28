@@ -77,7 +77,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | SQL Server | 2022 Developer | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；默认跟踪归因于 2026-11-01 实机验证；本地时间换 UTC 与跨夏令时未实机验证，见下 |
 | Oracle | 23ai Free | 元数据、视图血缘、问数、执行前核对、变更归因 | M7；统一审计归因于 2026-11-01 实机验证；无记录且无策略的 `not_enabled` 分支未实机验证，见下 |
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
-| Hive | 4.1.0 | 元数据、视图血缘 | 见下；不支持问数；认证 NONE / NOSASL / LDAP |
+| Hive | 4.1.0 + Tez | 元数据、视图血缘、问数、执行前核对 | 见下；问数于 2026-11-28 实机验证；认证 NONE / NOSASL / LDAP |
 | TiDB | 8.5.4 | 元数据、视图血缘、问数、执行前核对 | 借用 `mysql` 方言；见下与 [TiDB 实机核验](../engines/tidb.md)；不做 DDL 归因与实例变化检测 |
 
 ### MySQL
@@ -182,7 +182,15 @@ MySQL 8.4.10 适配器的视图血缘、问数、执行前核对与可选 DDL �
   - `LDAP`：账号与口令必填，口令错误时采集失败。
   - Kerberos（GSSAPI）未支持：需要系统 Kerberos 库、KDC 与 keytab，镜像里没有，也没有联调。只支持 binary 传输，不支持 http 传输。
   - 引擎层为此新增两项通用能力：配置项可以是 `choice`（固定可选值 + 默认值），以及 `credential_free`（某配置项取某些值时采集账号可不填）。前端按它们渲染，不按引擎写死。
-- **不支持问数执行**：Hive 查询要起计算作业，超时、资源限制、错误归类都没有联调，不声明 `query` 与 `live_check`。
+- **问数执行**（2026-11-28 在 Hive 4.1 + Tez 上实机验证，声明 `query` 与 `live_check`）：
+  - 只读：HiveServer2 没有只读会话或只读事务，匿名账号也能写入。只读依赖单条 SELECT 校验与只有 SELECT 权限的查询账号（Hive SQL 标准授权或 Ranger）。
+  - 超时：异步提交、轮询，到截止时间由 Avelis 调 `cancel_operation` 取消。服务端 `hive.query.timeout.seconds` 设为截止时间加 30 秒，只作兜底：impyla 的 Thrift 定义来自 Impala，没有 Hive 的 `TIMEDOUT_STATE`（8），服务端先超时会以 `KeyError(8)` 抛出。
+  - 行数上限用 `fetchmany`；没有每查询内存上限；业务时区经 `hive.local.time.zone` 设置。
+  - 关闭向量化执行：Hive 4.1 向量化执行下，窗口函数与日期列上的 `TRUNC` 同在一条查询里时，`TRUNC` 结果错成 1970-01-01，关闭后正确。
+  - 错误归类：`[Error 10001]` 等编译错误为 `invalid_object`，`HiveAccessControlException` 为 `permission`。
+  - 执行前核对与采集共用 `DESCRIBE FORMATTED` / `SHOW CREATE TABLE` 的提取；数据新鲜度取最新分区（按第一个分区列倒序）的 `transient_lastDdlTime`，非分区表取表参数，回填旧分区不计入。
+- **SQLGlot 的 Hive 日期截断**：Hive 的 `TRUNC` 只认年、季、月格式（其他返回 NULL），也没有 `DATE_TRUNC` 函数；SQLGlot 却生成 `TRUNC(x, 'WEEK')`、`DATE_TRUNC('WEEK', x)`。按约定在 fork 修复：按周生成 `DATE_ADD(NEXT_DAY(x, 'MO'), -7)`，按天生成 `TO_DATE(x)`（分支 `avelis-v30.35.0`，上游主题分支 `fix/hive-date-trunc`）。
+- **执行代码的写法**：Hive 的 `SELECT TRANSFORM (…) USING '<脚本>'` 会在集群节点上执行外部脚本，`reflect` / `reflect2` / `java_method` 能反射调用 Java 方法。它们都是合法的 SELECT，问数、探索查询与已核验查询共用的禁止清单（`avelis.sql_guard`）一律拒绝。
 - 联调中发现并修复的两个类型问题：
   - SQLGlot 的 `hive` 方言解析不了 `UNIONTYPE<…>`（上游测试里也列为“暂时解析不了”）。按约定在 fork 修：上游 issue [tobymao/sqlglot#8860](https://github.com/tobymao/sqlglot/issues/8860)、PR [tobymao/sqlglot#8861](https://github.com/tobymao/sqlglot/pull/8861)（分支 `fix/hive-uniontype`，基于上游 main）；Avelis 依赖分支 `avelis-v30.25.0`（v30.25.0 + 该修复，并去掉上游指向私有仓库的集成测试子模块，否则 uv 拉 git 依赖会失败），在 `backend/pyproject.toml` 的 `tool.uv.sources` 固定提交。上游合并发布后切回 PyPI。镜像构建阶段因此需要 git（运行镜像不含）。
   - 采集服务构造解析用 schema 时只取类型名第一个括号之前的部分，嵌套类型被截断成错的类型（如 `struct<a:decimal(10,2),b:int>` 变成 `STRUCT<A:DECIMAL`）。改为逐层去掉长度 / 精度参数、保留嵌套结构与后缀，对其他引擎的类型逐一核对过不变差。

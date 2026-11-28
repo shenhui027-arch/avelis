@@ -1513,8 +1513,8 @@ msgstr "Authentication"
 msgid "NONE 不校验口令，账号可不填；LDAP 需账号与口令；Kerberos 未支持"
 msgstr "NONE doesn't check passwords, so the account is optional; LDAP requires an account and password; Kerberos is not supported"
 
-msgid "经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据"
-msgstr "Reads metadata only through HiveServer2 (binary transport), never business data. View lineage is parsed from the expanded text Hive stores. Ask execution is not supported. HiveServer2 doesn't expose table IDs, so tables and views are matched by name. Primary key constraints are not enforced and cannot establish grain"
+msgid "经 HiveServer2（binary 传输）采集元数据；视图定义取 Hive 保存的展开文本解析血缘；问数用专用查询账号，HiveServer2 没有只读会话，只读依赖 SQL 校验与 Hive 授权中只有 SELECT 权限的账号；超时由 Avelis 到期取消，没有每查询内存上限；数据新鲜度取最新分区的写入时间；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据；2026-11-28 已实机验证 Hive 4.1 + Tez"
+msgstr "Collects metadata through HiveServer2 (binary transport); view lineage is parsed from the expanded text Hive stores. Ask uses a dedicated query account; HiveServer2 has no read-only session, so read-only access relies on SQL validation and an account that has only SELECT in Hive authorization. Avelis cancels queries at the deadline; there is no per-query memory limit. Data freshness uses the write time of the latest partition. HiveServer2 doesn't expose table IDs, so tables and views are matched by name. Primary key constraints are not enforced and cannot establish grain. Verified on Hive 4.1 + Tez on 2026-11-28"
 
 msgid "{label}（可选 {choices}）"
 msgstr "{label} (choose from {choices})"
@@ -2964,3 +2964,6 @@ msgstr "TiDB DDL job records do not include the executing user, so DDL attributi
 
 msgid "采集账号需元数据可见性与 SHOW VIEW；问数使用专用只读账号（只授予 SELECT 与 SHOW VIEW），TiDB 的只读事务只有空实现，只读依赖 SQL 校验与账号权限；单条查询内存上限映射到 tidb_mem_quota_query；TiDB 没有可读的集群 ID，不做实例变化检测；TIDB_TABLE_ID 在 TRUNCATE 后会变，表与视图按名称对应；DDL 作业记录不含执行用户，暂不支持 DDL 归因；2026-11-28 已实机验证 TiDB v8.5.4"
 msgstr "The collection account needs metadata visibility and SHOW VIEW. Ask uses a dedicated read-only account (granted only SELECT and SHOW VIEW); TiDB's read-only transaction is a no-op, so read-only access relies on SQL validation and account privileges. The per-query memory limit maps to tidb_mem_quota_query. TiDB exposes no readable cluster ID, so instance changes are not detected. TIDB_TABLE_ID changes after TRUNCATE, so tables and views are matched by name. DDL job records do not include the executing user, so DDL attribution is not supported yet. Verified on TiDB v8.5.4 on 2026-11-28"
+
+msgid "查询超过 {seconds} 秒，已取消"
+msgstr "The query exceeded {seconds} seconds and was cancelled"

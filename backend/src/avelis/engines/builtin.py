@@ -224,8 +224,9 @@ HIVE = Engine(
     # 库.表 两级；资产名补固定 Catalog 段 hive，生成的 SQL 不写 Catalog 段
     sql=SqlDialect(name="hive", default_catalog=HIVE_CATALOG, catalog_in_sql=False),
     name_levels=("database", "table"),
-    capabilities=frozenset({METADATA, VIEW_LINEAGE}),
+    capabilities=frozenset({METADATA, VIEW_LINEAGE, QUERY, LIVE_CHECK}),
     collector=HiveConnector,
+    querier=HiveConnector,
     default_port=10000,
     options=(
         OptionField("databases", "采集的库", required=True),
@@ -240,8 +241,10 @@ HIVE = Engine(
         *TLS_OPTIONS,
     ),
     credential_free=("auth", ("NONE", "NOSASL")),
-    note="经 HiveServer2（binary 传输）只读元数据，不读业务数据；视图定义取 Hive 保存的展开文本解析血缘；"
-    "不支持问数执行；HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据",
+    note="经 HiveServer2（binary 传输）采集元数据；视图定义取 Hive 保存的展开文本解析血缘；"
+    "问数用专用查询账号，HiveServer2 没有只读会话，只读依赖 SQL 校验与 Hive 授权中只有 SELECT 权限的账号；"
+    "超时由 Avelis 到期取消，没有每查询内存上限；数据新鲜度取最新分区的写入时间；"
+    "HiveServer2 不暴露表 ID，表与视图按名称对应；主键约束不校验，不作粒度依据；2026-11-28 已实机验证 Hive 4.1 + Tez",
 )
 
 TIDB = Engine(

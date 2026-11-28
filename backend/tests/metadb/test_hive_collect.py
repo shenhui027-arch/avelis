@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from sqlalchemy import select
 from avelis.collect.service import CollectionFailed, run_collection
 from avelis.connectors.hive import HiveConnector
 from avelis.db import session_scope
+from avelis.engines import get_engine
 from avelis.models import (
     Asset,
     AssetColumn,
@@ -217,6 +219,84 @@ def test_recollect_detects_column_comment_and_definition_changes(hive):
             )
         }
     assert ("status", "filter") not in relations and ("amount", "value_aggregated") in relations
+
+
+def _querier(hive: dict) -> HiveConnector:
+    return HiveConnector(
+        hive["host"], hive["port"], hive["user"], hive["password"], {"auth": hive["auth"], "databases": [DB]}
+    )
+
+
+def test_query_runs_with_row_cap_and_timezone(hive):
+    # shops 带 UNIONTYPE 列，Hive 不支持向它写入常量（UNION not yet supported for constant OI）：只给 sales 写数据
+    _execute(
+        hive,
+        f"INSERT INTO {DB}.sales PARTITION (sale_date='2026-11-01') (sale_id, shop_id, status, amount, channel) "
+        "VALUES (10, 1, 'paid', 12.50, 'web'), (11, 2, 'void', 3.00, 'web')",
+        f"INSERT INTO {DB}.sales PARTITION (sale_date='2026-11-02') (sale_id, shop_id, status, amount, channel) "
+        "VALUES (12, 2, 'paid', 7.25, 'app')",
+    )
+    result = _querier(hive).execute_select(
+        f"SELECT shop_id, SUM(amount) AS total FROM {DB}.sales WHERE status = 'paid' GROUP BY shop_id ORDER BY shop_id",
+        timeout_seconds=120,
+        mem_limit_bytes=2 * 1024**3,
+        max_rows=1,
+        timezone="Asia/Shanghai",
+    )
+    assert [c.split(".")[-1] for c in result.columns] == ["shop_id", "total"]
+    assert [[int(a), float(b)] for a, b in result.rows] == [[1, 12.5]] and result.truncated
+    # 视图关联的 shops 没有数据：结果为空，只验证视图查询的执行路径
+    view = _querier(hive).execute_select(
+        f"SELECT city, sales_amount FROM {DB}.city_daily_sales ORDER BY city",
+        timeout_seconds=120,
+        mem_limit_bytes=0,
+        max_rows=10,
+    )
+    assert [c.split(".")[-1] for c in view.columns] == ["city", "sales_amount"] and view.rows == []
+
+
+def test_query_timeout_cancels_and_errors_are_classified(hive):
+    from avelis.connectors.base import QueryError
+
+    joins = " ".join(f"CROSS JOIN {DB}.sales x{i}" for i in range(14))
+    started = time.monotonic()
+    with pytest.raises(QueryError) as caught:
+        _querier(hive).execute_select(
+            f"SELECT COUNT(*) FROM {DB}.sales a {joins}", timeout_seconds=3, mem_limit_bytes=0, max_rows=10
+        )
+    assert caught.value.code == "timeout" and time.monotonic() - started < 20
+    with pytest.raises(QueryError) as caught:
+        _querier(hive).execute_select(f"SELECT * FROM {DB}.nope", timeout_seconds=30, mem_limit_bytes=0, max_rows=10)
+    assert (
+        caught.value.code == "invalid_object"
+        and caught.value.db_errno == 10001
+        and "Query ID" not in caught.value.message
+    )
+
+
+def test_live_check_matches_collected_definitions_and_columns(hive):
+    from avelis.lineage.sql import canonical_hash_of
+
+    run_collection(hive["ds"], trigger="manual")
+    assets = _assets(hive["ds"])
+    described = _querier(hive).describe_objects([(DB, "sales"), (DB, "city_daily_sales"), (DB, "missing")])
+    for name in ("sales", "city_daily_sales"):
+        _, version = assets[f"hive.{DB}.{name}"]
+        assert described[(DB, name)]["columns"] == [[c[0], c[1]] for c in _columns(version.id)]
+    _, view_v = assets[f"hive.{DB}.city_daily_sales"]
+    with session_scope() as s:
+        stored = s.scalar(select(Definition.canonical_hash).where(Definition.asset_version_id == view_v.id))
+    assert canonical_hash_of(described[(DB, "city_daily_sales")]["definition"], get_engine("hive").sql)[1] == stored
+    assert described[(DB, "missing")] == {"columns": [], "definition": None, "physical_id": None}
+
+
+def test_freshness_reads_latest_partition_write_time(hive):
+    from datetime import datetime, timedelta, timezone
+
+    out = _querier(hive).freshness([(DB, "sales"), (DB, "shops")])
+    for key in (f"{DB}.sales", f"{DB}.shops"):
+        at = datetime.fromisoformat(out[key])
+        assert at.tzinfo is not None and abs(datetime.now(timezone.utc) - at) < timedelta(hours=1), (key, out)
 
 
 def test_rename_without_physical_id_is_drop_and_add(hive):
