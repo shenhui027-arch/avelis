@@ -22,10 +22,11 @@ type Focus = { fileId: string; lines: number[] } | null;
 const MB = 1024 * 1024;
 const MAX_FILE_BYTES = 20 * MB;
 const MAX_BATCH_BYTES = 100 * MB;
-const FILE_PATTERN = /\.(sql|py|sh|bash|zip)$/i;
+const FILE_PATTERN = /(?:^|[\\/])manifest\.json$|\.(sql|py|sh|bash|zip)$/i;
 const CODE_PATTERN = /\.(py|sh|bash)$/i;
 const busy = (status?: string) => status === "queued" || status === "running";
 type Batch = ImportBatch & { files: NonNullable<ImportBatch["files"]> };
+const fileLanguage = (f: Batch["files"][number]) => (f.source_type === "dbt" ? "dbt" : f.language);
 
 export function ImportPage() {
   const { jobId } = useParams();
@@ -75,7 +76,7 @@ const sizeText = (bytes: number) => bytes >= MB ? `${(bytes / MB).toFixed(1)} MB
 
 function fileProblem(files: File[]): string {
   const bad = files.find((f) => !FILE_PATTERN.test(f.name));
-  if (bad) return t("不支持 {{name}}：请选择 .sql、.py、.sh、.bash 或 .zip", { name: bad.name });
+  if (bad) return t("不支持 {{name}}：请选择 .sql、.py、.sh、.bash、.zip 或 dbt 的 manifest.json", { name: bad.name });
   const big = files.find((f) => f.size > (/\.zip$/i.test(f.name) ? MAX_BATCH_BYTES : MAX_FILE_BYTES));
   if (big) return t("{{name}} 超过大小上限（单文件 20 MB，zip 100 MB）", { name: big.name });
   if (files.some((f) => !f.size)) return t("不能上传空文件");
@@ -166,7 +167,7 @@ function NewImport() {
         placeholder={"INSERT INTO target_db.daily_summary\nSELECT event_date, category, SUM(amount) AS total\nFROM source_db.events GROUP BY event_date, category;"}
         value={content} onChange={(e) => setContent(e.target.value)} /> : <div className="av-import-drop" data-dragging={dragging}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}>
-        <input ref={fileInput} type="file" multiple className="av-import-file-input" accept=".sql,.py,.sh,.bash,.zip"
+        <input ref={fileInput} type="file" multiple className="av-import-file-input" accept=".sql,.py,.sh,.bash,.zip,.json"
           aria-label={t("上传原文文件")} aria-describedby="import-file-hint" onChange={(e) => addFiles(e.target.files)} />
         {files.length ? <ul className="av-import-filelist" aria-label={t("待导入文件")}>{files.map((f) => <li key={`${f.name}:${f.size}`}>
           <Icon name={/\.zip$/i.test(f.name) ? "view" : "audit"} small /><span className="av-mono av-import-filename">{f.name}</span>
@@ -175,7 +176,7 @@ function NewImport() {
             onClick={() => setFiles((current) => current.filter((x) => x !== f))}>{t("移除")}</button>
         </li>)}</ul> : <div className="av-empty av-import-upload"><Icon name="upload" /><span>{t("拖入文件或 zip")}</span></div>}
         <div className="av-import-drop__foot">
-          <span id="import-file-hint" className="av-caption">{t("SQL / Python / Shell / zip · UTF-8 · 单文件 20 MB · 合计 100 MB")}</span>
+          <span id="import-file-hint" className="av-caption">{t("SQL / Python / Shell / zip / dbt manifest.json · UTF-8 · 单文件 20 MB · 合计 100 MB")}</span>
           {fileError ? <span className="av-import-field-error" role="alert">{fileError}</span> : null}
           <button type="button" className="av-btn av-btn--secondary" onClick={() => fileInput.current?.click()}><Icon name="upload" />{t("选择文件")}</button>
         </div>
@@ -325,7 +326,7 @@ function SourcePane({ b, fileId, onFile, focus, active }: { b: Batch; fileId: st
     <PaneHeader title={b.files.length > 1 ? <Select label={t("文件")} value={fileId} onChange={onFile} style={{ width: "auto", maxWidth: "100%" }}>
       {b.files.map((f) => <option key={f.id} value={f.id}>{f.source_key}</option>)}</Select>
       : <span className="av-mono av-import-filename">{file?.source_key ?? "—"}</span>}>
-      {file ? <span className="av-tag">{file.language}</span> : null}
+      {file ? <span className="av-tag">{fileLanguage(file)}</span> : null}
       {file && file.revision > 1 ? <span className="av-tag" title={t("同一来源再次导入，已替换上一版写入的边")}>{t("第 {{n}} 版", { n: file.revision })}</span> : null}
     </PaneHeader>
     {!file ? <Empty text={t("没有文件")} compact /> : <QueryState query={content}>{() =>
@@ -699,7 +700,7 @@ function Files({ b, stats }: { b: Batch; stats: Stats }) {
       const counts = (f.stats as { statements?: Record<string, number>; replaced_edges?: number; invalidated_decisions?: number; inherited_decisions?: number }) ?? {};
       return <div key={f.id} className="av-row av-import-file">
         <span className="av-row__main"><span className="av-row__title av-mono">{f.source_key}</span>
-          <span className="av-row__meta">{f.language} · {t("{{n}} 条", { n: f.statement_count })}
+          <span className="av-row__meta">{fileLanguage(f)} · {t("{{n}} 条", { n: f.statement_count })}
             {f.revision > 1 ? ` · ${t("第 {{n}} 版，替换上一版 {{edges}} 条边", { n: f.revision, edges: counts.replaced_edges ?? 0 })}` : ""}
             {counts.inherited_decisions ? ` · ${t("沿用人工决定 {{n}}", { n: counts.inherited_decisions })}` : ""}
             {counts.invalidated_decisions ? ` · ${t("{{n}} 条人工决定因原文变化失效", { n: counts.invalidated_decisions })}` : ""}</span></span>

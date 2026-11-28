@@ -20152,6 +20152,17 @@
       "type": "string",
       "title": "Language"
      },
+     "source_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Type"
+     },
      "status": {
       "type": "string",
       "title": "Status"

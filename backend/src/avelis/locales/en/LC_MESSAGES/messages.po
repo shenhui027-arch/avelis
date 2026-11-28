@@ -2931,3 +2931,9 @@ msgstr "Database or schema name {name} does not follow the collector's naming ru
 
 msgid "该数据源不支持配置采集范围"
 msgstr "This data source does not support a collection scope"
+
+msgid "manifest.json 里没有编译后的 SQL，请先运行 dbt compile 或 dbt build"
+msgstr "manifest.json has no compiled SQL; run dbt compile or dbt build first"
+
+msgid "不是有效的 dbt manifest.json"
+msgstr "Not a valid dbt manifest.json"

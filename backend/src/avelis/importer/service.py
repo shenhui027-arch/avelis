@@ -21,6 +21,7 @@ from avelis.db import utcnow
 from avelis.governance import access
 from avelis.governance.errors import Conflict, Invalid, NotFound
 from avelis.i18n import Msg
+from avelis.importer import dbt
 from avelis.importer.candidates import Candidate
 from avelis.lineage.grain import resolve_qualified
 from avelis.models import CandidateEdge, ExtractedStatement, ImportBatch, ImportJob, LineageEdge, User
@@ -36,6 +37,8 @@ def require_import_access(session: Session, actor: User) -> None:
 
 
 def detect_language(filename: str, source_type: str | None) -> str:
+    if source_type == dbt.DBT_LANGUAGE or dbt.is_manifest_name(filename):
+        return dbt.DBT_LANGUAGE
     if source_type in ("sql", "python", "shell"):
         return source_type
     return LANGUAGES.get(os.path.splitext(filename)[1].lower(), "sql")

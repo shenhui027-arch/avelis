@@ -2936,3 +2936,9 @@ msgstr "庫或綱要名稱 {name} 不符合採集器的命名規則"
 
 msgid "该数据源不支持配置采集范围"
 msgstr "此資料來源不支援設定採集範圍"
+
+msgid "manifest.json 里没有编译后的 SQL，请先运行 dbt compile 或 dbt build"
+msgstr "manifest.json 裡沒有編譯後的 SQL，請先執行 dbt compile 或 dbt build"
+
+msgid "不是有效的 dbt manifest.json"
+msgstr "不是有效的 dbt manifest.json"

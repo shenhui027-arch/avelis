@@ -13,6 +13,7 @@ from typing import TypeVar
 
 from avelis.governance.errors import Invalid
 from avelis.i18n import Msg
+from avelis.importer import dbt
 
 LANGUAGES = {".sql": "sql", ".py": "python", ".sh": "shell", ".bash": "shell"}
 MAX_ARCHIVE_ENTRIES = 2000
@@ -25,6 +26,7 @@ class ImportFile:
     language: str
     source_key: str = ""
     size_bytes: int = 0
+    source_type: str | None = None
 
     def __post_init__(self) -> None:
         self.source_key = self.source_key or self.filename
@@ -70,7 +72,7 @@ def read_uploads(
         if total_bytes > max_batch_bytes:
             raise Invalid("导入内容超过批次大小上限（按解压后大小计量）")
         suffix = PurePosixPath(filename).suffix.lower()
-        language = LANGUAGES.get(suffix)
+        language = dbt.DBT_LANGUAGE if dbt.is_manifest_name(filename) else LANGUAGES.get(suffix)
         if language is None:
             notes.append(f"已跳过不支持的文件：{filename}")
             return
