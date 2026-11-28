@@ -236,7 +236,12 @@ def load_snapshot(
     ]
 
     # 候选只有名称引用，按所属数据源排除已知不可读的目标；同名的可读当前资产优先。
-    hidden_targets.difference_update((asset.datasource_id, assets[key].qualified) for key, asset in visible.items())
+    readable_targets = {(asset.datasource_id, assets[key].qualified) for key, asset in visible.items()}
+    hidden_targets.difference_update(readable_targets)
+    # 目标还没有资产记录（未采集）时无从按资产判断可读，
+    # 只给能读导入记录的维护者看（同 importer.service.require_import_access）。
+    roles = access.roles_of(session, user)
+    import_reader = "admin" in roles or "steward" in roles
     candidates = [
         CandidateRow(candidate_id, source_ref, target_ref, confidence)
         for candidate_id, source_ref, target_ref, confidence, datasource_id in session.execute(
@@ -250,7 +255,8 @@ def load_snapshot(
             .join(ImportJob, ImportJob.id == CandidateEdge.job_id)
             .where(CandidateEdge.status == "pending", ImportJob.status != "superseded")
         )
-        if (datasource_id, target_ref) not in hidden_targets
+        if (datasource_id, target_ref) in readable_targets
+        or (import_reader and (datasource_id, target_ref) not in hidden_targets)
     ]
     return edges, assets, candidates
 

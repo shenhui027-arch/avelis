@@ -37,6 +37,7 @@ from avelis.models import (
     LineageEdge,
     ParseResult,
     User,
+    UserRole,
 )
 
 HEALTH_URL = "/api/lineage/health"
@@ -156,6 +157,7 @@ def _seed_snapshot(session, user):
         ("candidate-old", "old", "daily", "pending"),
         ("candidate-accepted", "current", "daily", "accepted"),
         ("candidate-hidden", "current", "payroll", "pending"),
+        ("candidate-uncollected", "current", "ghost", "pending"),
     ):
         session.add(
             CandidateEdge(
@@ -219,6 +221,17 @@ def test_load_snapshot_filters_assets_edges_columns_and_candidates(health_api):
     assert (assets["daily"].parse_status, assets["daily"].parse_reason) == ("partial", PARSE_REASON)
     assert {edge.id for edge in edges} == {"e-orders", "e-archive"}
     assert [candidate.id for candidate in candidates] == ["candidate-current"]
+
+
+def test_uncollected_candidate_targets_only_for_import_readers(health_api):
+    _, session, user = health_api
+    # 查询者：目标未采集（没有资产记录）的候选不可见
+    assert "candidate-uncollected" not in {c.id for c in lineage_health.load_snapshot(session, user, None)[2]}
+
+    session.add(UserRole(user_id=user.id, role="steward"))
+    session.commit()
+    ids = {c.id for c in lineage_health.load_snapshot(session, user, None)[2]}
+    assert ids == {"candidate-current", "candidate-uncollected"}
 
 
 def test_get_health_all_and_asset_scope(health_api):
