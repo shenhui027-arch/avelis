@@ -409,6 +409,18 @@ def collect(
     return run_view(session.get(CollectionRun, run_id))
 
 
+@router.post("/datasources/{datasource_id}/scope", response_model=S.ScopeAddOut)
+def add_scope(
+    datasource_id: str, body: S.ScopeAddIn, user: User = Depends(current_user), session: Session = Depends(get_session)
+) -> dict:
+    """把导入血缘里未匹配的读取来源所在的库 / 模式加入采集范围，有新增时立即排队采集。"""
+    # TODO(codex): 权限同编辑数据源（access.require_role(session, user, "steward")）；数据源不存在 404；
+    #   调 importer.scope.add_to_scope(session, user, ds, engine_of(ds), body.names)，ValueError → 422（Msg 文案）；
+    #   有新增时先 session.commit() 再 jobs.enqueue("collect", {"datasource_id": ..., "trigger": "manual"}, user.id)；
+    #   返回 {"added": [...], "job_id": <任务 ID 或 None>}。
+    raise NotImplementedError
+
+
 @router.get("/datasources/{datasource_id}/runs", response_model=list[S.RunOut])
 def list_runs(datasource_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)) -> list:
     return [

@@ -188,6 +188,17 @@ class BusinessCalendarOut(BusinessCalendarIn):
     configured: bool
 
 
+class ScopeAddIn(BaseModel):
+    """要加入采集范围的库 / 模式名（1–20 个）。"""
+
+    names: list[str] = Field(min_length=1, max_length=20)
+
+
+class ScopeAddOut(Out):
+    added: list[str]
+    job_id: str | None = None
+
+
 class WorkerHealthOut(Out):
     alive: bool
     last_seen: str | None = None

@@ -1265,6 +1265,8 @@ def batch_view(session: Session, batch: ImportBatch) -> dict[str, Any]:
         "job_id": batch.job_id,
         "created_at": batch.created_at.isoformat(),
         "updated_at": batch.updated_at.isoformat(),
+        # TODO(codex): 用 importer.scope.annotate_unmatched 按数据源当前采集范围补 database / in_scope / addable
+        #   （需要本函数拿到 batch 的 Datasource 与 engine_of(ds)；数据源已删除时原样返回）
         "unmatched_tables": (batch.stats or {}).get("unmatched_tables", []),
         "files": [
             {
