@@ -20,7 +20,8 @@
 |---|---|---|
 | 列出表 | `SHOW TABLES IN 库` 有三列：namespace、tableName、isTemporary | 取表名，跳过临时视图 |
 | 表结构 | `DESCRIBE FORMATTED` 是“键 / 值”两列（键后没有冒号）；普通列里也列出分区列；`Type` 为 `MANAGED` / `EXTERNAL` / `VIEW`；`Table Properties` 写成 `[k=v, …]` | 单独解析，结果与 Hive 同形：分区列排在普通列之后、只列一次，表注释取 `Comment` |
-| 视图定义 | 保存原文（`View Text`），不补库名；不写库名的表按 `View Catalog and Namespace`（建视图时的当前库）解析，不一定是视图所在的库 | 定义取 `View Text`；建视图时的库记在资产属性 `view_context.db`，采集按它解析 |
+| 视图定义 | 保存原文（`View Text`），不补库名，也不含 `CREATE VIEW v (列, …)` 声明的列名；不写库名的表按 `View Catalog and Namespace`（建视图时的当前库）解析，不一定是视图所在的库 | 像 Hive 的展开文本那样补全：表补上建视图时的当前库（CTE 不动），输出列名按位置对齐视图的列；建视图时的当前库或声明的列名变化会体现在定义指纹与执行前核对里。解析不了时保留原文 |
+| 标识符大小写 | 不区分大小写，元数据存为小写 | 解析前按 Spark 规则折叠未加引号的标识符 |
 | 只读 | 没有只读会话；`TRANSFORM … USING '<脚本>'` 与 `reflect` 都能执行 | 只读依赖单条 SELECT 校验与只有 SELECT 权限的账号；`TRANSFORM`、`reflect`、`java_method` 由共用禁止清单拒绝 |
 | 会话参数 | 经 `execute_async` 的 configuration 传入无效 | 先执行 `SET spark.sql.session.timeZone`（业务时区）与 `SET spark.sql.thriftServer.queryTimeout`（兜底超时） |
 | 超时 | 服务端超时精确生效，但报 `TIMEDOUT_STATE`（8），impyla 不认识，抛 `KeyError(8)`；状态查询每次最多阻塞约 5 秒 | 由 Avelis 到期取消，最多晚约 5 秒；服务端超时设为截止时间加 30 秒，只作兜底 |

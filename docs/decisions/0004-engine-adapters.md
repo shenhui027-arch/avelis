@@ -79,7 +79,7 @@ M4 开始前检查了代码，引擎差异散在核心模块里，共约 10 处�
 | Doris | 4.1 | 元数据、视图血缘、问数、执行前核对 | M7，见下；外部 Catalog 未联调 |
 | Hive | 4.1.0 + Tez | 元数据、视图血缘、问数、执行前核对 | 见下；问数于 2026-11-28 实机验证；认证 NONE / NOSASL / LDAP |
 | TiDB | 8.5.4 | 元数据、视图血缘、问数、执行前核对 | 借用 `mysql` 方言；见下与 [TiDB 实机核验](../engines/tidb.md)；不做 DDL 归因与实例变化检测 |
-| Spark SQL | 4.0.1 | 元数据、视图血缘、问数、执行前核对 | Spark Thrift Server，继承 Hive 连接器；见 [Spark SQL 实机核验](../engines/spark.md)；视图按建视图时的当前库解析 |
+| Spark SQL | 4.0.1 | 元数据、视图血缘、问数、执行前核对 | Spark Thrift Server，继承 Hive 连接器；见 [Spark SQL 实机核验](../engines/spark.md)；视图定义按建视图时的当前库补全 |
 | Trino | 482 | 元数据、视图血缘、问数、执行前核对 | 一个数据源对应一个 Catalog；见 [Trino 实机核验](../engines/trino.md)；只联调了 memory 与 postgresql 连接器 |
 
 ### MySQL

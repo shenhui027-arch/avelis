@@ -106,7 +106,7 @@ AI 讓我們這些開發者先嚐到了技術進步的甜頭。我希望這份�
 
 StarRocks 還能把外部表與 JDBC Catalog 追溯到背後的 MySQL 表。MySQL 支援檢視表欄位級血緣、唯讀問數與執行前核對；變更歸因需綁定 DDL 稽核表，例如已開啟表輸出的 `mysql.general_log`。實測該日誌也記錄執行失敗的 DDL，紀錄僅作候選證據，需與採集到的結構變化相互印證。MySQL 與 StarRocks 未綁定稽核表時，歸因狀態均為 `unsupported`，原因明確提示「未綁定稽核表」。
 
-2026-11-01 的 DDL 實機驗證仍有邊界：SQL Server 示範實例時區偏移為 0，本地時間轉換 UTC 與跨日光節約時間未實機驗證；Oracle 使用自建統一稽核原則（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 `AUDIT_VIEWER`，無紀錄且無原則的 `not_enabled` 分支未實機驗證；StarRocks FE 時區為 UTC，非 UTC 換算未實機驗證，AuditLoader 剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配。TiDB 借用 MySQL 方言；TiDB 的唯讀交易只有空實作，問數的唯讀依賴 SQL 校驗與唯讀帳號；DDL 作業記錄不含執行使用者，暫不支援變更歸因。Hive 沒有唯讀工作階段，問數的唯讀依賴 SQL 校驗與只有 SELECT 權限的查詢帳號；逾時由 Avelis 到期取消。Spark SQL 經 Spark Thrift Server 接入，檢視表按建立檢視表時的目前庫解析。Trino 一個資料來源對應一個 Catalog，跨 Catalog 引用的表記為未採集來源。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，或協定與 SQL 相容已支援引擎的資料庫，詳情見[引擎核驗紀錄](docs/engines/README.md)與 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
+2026-11-01 的 DDL 實機驗證仍有邊界：SQL Server 示範實例時區偏移為 0，本地時間轉換 UTC 與跨日光節約時間未實機驗證；Oracle 使用自建統一稽核原則（CREATE / ALTER / DROP TABLE、CREATE / DROP VIEW、COMMENT、RENAME、TRUNCATE TABLE）與 `AUDIT_VIEWER`，無紀錄且無原則的 `not_enabled` 分支未實機驗證；StarRocks FE 時區為 UTC，非 UTC 換算未實機驗證，AuditLoader 剛安裝後的幾十秒內可能未記錄陳述式，此時歸因為未匹配。TiDB 借用 MySQL 方言；TiDB 的唯讀交易只有空實作，問數的唯讀依賴 SQL 校驗與唯讀帳號；DDL 作業記錄不含執行使用者，暫不支援變更歸因。Hive 沒有唯讀工作階段，問數的唯讀依賴 SQL 校驗與只有 SELECT 權限的查詢帳號；逾時由 Avelis 到期取消。Spark SQL 經 Spark Thrift Server 接入，檢視表定義按建立檢視表時的目前庫補全庫名。Trino 一個資料來源對應一個 Catalog，跨 Catalog 引用的表記為未採集來源。只接入 [SQLGlot](https://github.com/tobymao/sqlglot) 支援的引擎，或協定與 SQL 相容已支援引擎的資料庫，詳情見[引擎核驗紀錄](docs/engines/README.md)與 [ADR 0004](docs/decisions/0004-engine-adapters.md)（簡體中文）。
 
 ## 快速開始
 
