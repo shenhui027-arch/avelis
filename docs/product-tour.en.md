@@ -127,7 +127,11 @@ Switch the toolbar to “Table” to see every column-level relation as a table,
 
 ### Import
 
-“Import” uploads SQL, Python and Shell scripts and parses design-time lineage from them; fragments the parser cannot handle become model-suggested candidates that are written to lineage once confirmed.
+“Import” uploads SQL, Python and Shell scripts or zip archives and parses design-time lineage from them; fragments the parser cannot handle become model-suggested candidates that are written to lineage once confirmed.
+
+You can also upload dbt's compiled `target/manifest.json` (run `dbt compile` or `dbt build` first): each model's compiled SQL becomes a `CREATE TABLE / VIEW … AS …` statement before parsing, and each statement in the source view is labelled with the model it came from; ephemeral models are already inlined into their downstream models and do not appear on their own. Single files are limited to 20 MB by default; raise `AVELIS_IMPORT_MAX_BYTES` for larger manifests.
+
+“Unmatched” in the import result lists tables that do not match any collected asset. When a source table's database is outside the data source's collection scope, a maintainer can add it to the scope and collect in one click; re-parse the batch once collection finishes.
 
 ### FAQ and known limitations
 

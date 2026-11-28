@@ -38,7 +38,7 @@ AI has let developers like us be among the first to taste the rewards of this wa
 
 ## Highlights
 
-- **Lineage from the database itself.** Collect metadata with a read-only account, identify objects by physical ID, and parse views, external tables and imported SQL / Python / Shell into table- and column-level lineage. Fragments the parser cannot handle become model-suggested candidates that a person confirms.
+- **Lineage from the database itself.** Collect metadata with a read-only account, identify objects by physical ID, and parse views, external tables and imported SQL / Python / Shell and dbt `manifest.json` into table- and column-level lineage. Fragments the parser cannot handle become model-suggested candidates that a person confirms.
 - **Asset dossier.** One page per table showing upstream and downstream flow, the metrics built on it, recent questions, schema changes and column-level sources. Column notes are drafted by the model, confirmed by the owner, and flagged for re-confirmation when the source changes.
 - **Governed metrics.** Metrics have versions, a publishing state machine, pre-publish checks, review and cross-domain approval. Join paths and grain are checked so joins cannot silently inflate totals.
 - **Change management.** Upstream schema change → impact analysis → review. Changes are attributed to the database user who made them, and history is append-only, sealed in a hash chain, searchable and exportable.
